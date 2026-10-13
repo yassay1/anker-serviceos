@@ -1,4 +1,5 @@
 import { type Actor, type Message, type SendBody } from '../../api/client'
+import { MessageSquareText } from 'lucide-react'
 
 type PendingMessage = {
   conversationId: string
@@ -37,7 +38,7 @@ export function MessageThread({ actor, desk, messages, pending, loading, error, 
     {hasMore && <button type="button" className="load-more" disabled={loadingMore} onClick={onMore}>{loadingMore ? '加载中…' : '加载更早消息'}</button>}
     {loading && <p className="message-empty">正在加载消息…</p>}
     {error && <p className="form-error" role="alert">{error}</p>}
-    {!loading && messages.length === 0 && pending.length === 0 && <div className="message-empty"><h3>从这里开始</h3>
+    {!loading && messages.length === 0 && pending.length === 0 && <div className="message-empty"><span className="empty-symbol"><MessageSquareText size={28} aria-hidden="true" /></span><h3>{desk ? '等待这段对话开始' : '你的服务，从这里开始'}</h3>
       <p>{desk ? '客户发送的消息会显示在这里。' : '描述遇到的问题；客服可以在同一会话继续处理。'}</p></div>}
     <ol className="message-list" aria-live="polite">
       {messages.map((message) => <MessageItem key={message.id} message={message} actor={actor} />)}

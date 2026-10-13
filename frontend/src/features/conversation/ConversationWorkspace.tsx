@@ -1,6 +1,7 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
+import { FileText, Headphones, Inbox, MessageSquare, ShieldCheck } from 'lucide-react'
 import {
   type Actor, type SendBody, createConversation, listConversations,
   listDeskCaseSummaries, listMessages, refreshUIDocument, sendMessage,
@@ -14,6 +15,7 @@ import { useConversationEvents } from './useConversationEvents'
 import { ConversationSidebar } from './ConversationSidebar'
 import { MessageThread } from './MessageThread'
 import { MessageComposer } from './MessageComposer'
+import { StatusBadge } from '../../shared/StatusBadge'
 
 type Pending = {
   conversationId: string
@@ -27,8 +29,8 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
   const [searchParams, setSearchParams] = useSearchParams()
   const [createError, setCreateError] = useState('')
   const [creating, setCreating] = useState(false)
-  const [draft, setDraft] = useState('')
-  const [internal, setInternal] = useState(false)
+  const [drafts, setDrafts] = useState<Record<string, { text: string, internal: boolean }>>({})
+  const [mobilePanel, setMobilePanel] = useState<'list' | 'chat' | 'context'>('chat')
   const [pending, setPending] = useState<Pending[]>([])
   const conversations = useQuery({
     queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id), queryFn: listConversations,
@@ -38,6 +40,14 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
   const selected = conversations.data?.find((item) => item.id === selectedId) ?? (
     selectedId ? undefined : conversations.data?.[0]
   )
+  const draft = selected ? drafts[selected.id]?.text ?? '' : ''
+  const internal = selected ? drafts[selected.id]?.internal ?? false : false
+  function setDraft(text: string) {
+    if (selected) setDrafts(current => ({ ...current, [selected.id]: { text, internal: current[selected.id]?.internal ?? false } }))
+  }
+  function setInternal(value: boolean) {
+    if (selected) setDrafts(current => ({ ...current, [selected.id]: { text: current[selected.id]?.text ?? '', internal: value } }))
+  }
   const streamState = useConversationEvents(actor, selected?.id, desk)
   const messageQueryKey = queryKeys.messages(actor.tenant_id, actor.actor_id, selected?.id ?? '')
   const messages = useInfiniteQuery({
@@ -71,6 +81,7 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
       const created = await createConversation()
       await queryClient.invalidateQueries({ queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id) })
       setSearchParams({ conversation: created.id })
+      setMobilePanel('chat')
     } catch (failure) {
       setCreateError(readableError(failure))
     } finally {
@@ -109,27 +120,29 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
     void deliver(item)
   }
 
-  return <div className={`workspace-page ${desk ? 'desk-view' : 'support-view'}`}>
+  return <div className={`workspace-page ${desk ? 'desk-view' : 'support-view'} mobile-${mobilePanel}`}>
     <div className="page-heading">
       <div>
-        <span className="section-kicker">{desk ? '客服工作区' : '用户服务'}</span>
-        <h1>{desk ? '持续处理每个服务问题' : '我们从你的问题开始'}</h1>
-        <p>{desk ? '在同一工作区查看沟通、案例事实和待处理事项。' : '描述遇到的问题，消息和服务记录会保存在同一会话中。'}</p>
+        <h1>{desk ? '服务工作台' : '让每一个问题，有人接续'}</h1>
+        <p>{desk ? '沟通、证据与协作，在同一个服务现场。' : '描述设备遇到的问题，我们在同一会话继续处理。'}</p>
       </div>
-      <div className="page-status"><span className="status-dot" aria-hidden="true" />服务记录来自当前账号</div>
+      <div className="scope-note"><ShieldCheck size={15} aria-hidden="true" />服务记录来自当前账号</div>
+    </div>
+    <div className="mobile-navigation" aria-label="工作区视图">
+      <button type="button" aria-pressed={mobilePanel === 'list'} onClick={() => setMobilePanel('list')}><Inbox size={17} aria-hidden="true" />列表</button>
+      <button type="button" aria-pressed={mobilePanel === 'chat'} onClick={() => setMobilePanel('chat')}><MessageSquare size={17} aria-hidden="true" />会话</button>
+      <button type="button" aria-pressed={mobilePanel === 'context'} disabled={!selected} onClick={() => setMobilePanel('context')}><FileText size={17} aria-hidden="true" />{desk ? '资料' : '资料与协助'}</button>
     </div>
     <div className={`chat-layout ${selected ? 'has-context' : 'no-context'}`}>
       <ConversationSidebar desk={desk} items={conversations.data} selectedId={selected?.id}
         loading={conversations.isPending} error={conversations.isError ? readableError(conversations.error) : undefined}
         creating={creating} createError={createError} onCreate={() => void startConversation()}
-        onSelect={(id) => setSearchParams({ conversation: id })} />
+        onSelect={(id) => { setSearchParams({ conversation: id }); setMobilePanel('chat') }} />
       <section className="chat-panel" aria-label="当前会话">
         {selected ? <>
           <div className="chat-heading">
-            <div><span className="section-kicker">会话 {selected.id.slice(0, 8)}</span>
-              <h2>{desk ? '与客户沟通' : '当前服务会话'}</h2>
-              <p>{streamState === 'connected' ? '实时更新已连接' : streamState === 'connecting' ? '正在连接实时更新' : '实时更新断开，正在重连；消息仍可查询'}</p></div>
-            <span className="state-pill">{selected.status === 'ACTIVE' ? '进行中' : '已归档'}</span>
+            <div className="chat-identity"><span className="chat-avatar"><Headphones size={22} aria-hidden="true" /></span><div><h2>{desk ? '与客户沟通' : '当前服务会话'}</h2><p>会话 #{selected.id.slice(0, 8)} <span className={`stream-note ${streamState}`}><span className="status-dot" aria-hidden="true" />{streamState === 'connected' ? '实时更新已连接' : streamState === 'connecting' ? '正在连接实时更新' : '重连中，消息仍可查询'}</span></p></div></div>
+            <StatusBadge value={selected.status} />
           </div>
           <MessageThread actor={actor} desk={desk} messages={recorded} pending={visiblePending}
             loading={messages.isPending} error={messages.isError ? readableError(messages.error) : undefined}
@@ -142,13 +155,14 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
       </section>
       {selected && <aside className="context-panel" aria-label={desk ? '案例与协作信息' : '服务辅助信息'}>
         {desk && <section className="case-summary" aria-label="关联案例摘要">
-          <div className="context-heading"><span className="section-kicker">服务背景</span><h3>关联案例</h3></div>
+          <div className="context-heading"><h3><FileText size={17} aria-hidden="true" />关联案例</h3></div>
           {summaries.isPending && <p>正在加载案例…</p>}
           {summaries.isError && <p className="form-error" role="alert">{readableError(summaries.error)}</p>}
           {summaries.data?.length === 0 && <p>当前会话尚未关联案例；可继续查看消息。</p>}
           {summaries.data?.map((summary) => <article key={summary.case.id}>
             <h4>{summary.case.problem_text}</h4>
-            <p>状态：{summary.case.status} · 版本：{summary.case.version} · 关联设备：{summary.device_ids.length}</p>
+            <p><StatusBadge value={summary.case.status} /> <span>版本 {summary.case.version}</span></p>
+            {summary.device_ids.length > 0 && <div className="device-references">{summary.device_ids.map(id => <Link to={`/devices/${id}`} key={id}>设备档案 #{id.slice(0, 8)}</Link>)}</div>}
             <ul>{summary.facts.map((fact, index) => <li key={`${fact.source}-${index}`}>
               <strong>{fact.label}：</strong>{fact.value} <small>来源：{fact.source} · {fact.verification === 'VERIFIED' ? '已核验' : fact.verification === 'RETRACTED' ? '已撤销' : '待核验'}</small>
             </li>)}</ul>

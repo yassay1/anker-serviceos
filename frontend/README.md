@@ -24,6 +24,7 @@ Vite 在 `http://127.0.0.1:5173` 启动，`/support` 是客户入口，`/desk` �
 | `src/features/conversation/` | 会话列表、消息收发、乐观状态与 SSE 断线补取 |
 | `src/features/collaboration/` | 人工任务、策略切换与草稿审批 |
 | `src/features/ui-document/` | 受控 UI 文档渲染与低风险 action intent |
+| `src/features/devices/` | 只读设备档案、已核验事实与关联案例历史 |
 | `src/styles/base.css`、`src/styles/workspace.css` | 基础视觉样式和工作区响应式布局 |
 | `src/api/client.ts` | 类型化请求封装与错误处理 |
 | `src/api/schema.d.ts` | 从仓库根目录的 `contracts/openapi.json` 生成的类型 |
@@ -62,5 +63,11 @@ npm run test:browser
 `/desk` 的任务接管、策略切换及草稿审阅收到 HTTP 409 时，保留服务端拒绝原因并重新查询会话、任务、草稿与交互卡，移除已失效的操作。刷新不自动重新提交写请求，403 仍按拒绝展示。适配范围及证据见[前端对接验证](../docs/frontend-integration-validation.md)。
 
 ## 视觉设计入口
+
+当前 `/support`、`/desk` 已在现有真实 Client 上适配新布局，手机可切换列表/会话/资料；客户侧标签为“资料与协助”。消息草稿及内部备注选择按会话保存，切换时不互相沿用。会话搜索与状态筛选仅作用于已加载记录。
+
+`/devices` 与 `/devices/:id` 接入现有 GET `/api/v1/devices`、`/api/v1/devices/{id}`、`/api/v1/devices/{id}/cases`。设备只读，设备身份、已核验事实及案例状态分别展示；无权访问指定 ID 时不替换成另一条记录。
+
+`npm run test:browser` 运行 19 个 HTTP 受控用例，包括六组桌面/手机 axe 检查。`npm run test:live` 使用本机真实 API 与 PostgreSQL；先按根 README 迁移并初始化回环 `serviceos_dev`，保持开发认证与数据库环境变量可被测试进程继承。Live 配置自行启动 API/Vite，拒绝复用已有服务，端口保持 8000/5173；只在隔离测试数据库中执行，不指向生产数据库。CI 在临时 PostgreSQL 中创建该开发库后运行两条真实浏览器路径。它们检查持久消息、人工接管、模式、公开/内部隔离、设备历史与跨客户/租户拒绝；不验证模型、外部 Anker 操作或 SSE 强制断线恢复。当前范围与证据见[完整适配记录](../docs/backend-based-frontend-validation.md)。
 
 五张 Web 图在[设计参考目录](../docs/design-references/README.md)；[界面设计指南](../docs/ui-design-guidelines.md)将图片拆成可实现的样式、页面和状态要求。截图是视觉参考，截图中的设备、数字、诊断和服务进度不是业务数据。

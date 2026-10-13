@@ -18,3 +18,4 @@ backend/*.egg-info/
 work/
 frontend/test-results/
 frontend/playwright-report/
+.impeccable/review/

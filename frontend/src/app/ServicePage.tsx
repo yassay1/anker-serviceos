@@ -6,6 +6,8 @@ import { ConversationWorkspace } from '../features/conversation/ConversationWork
 import { readableError } from '../shared/errors'
 import { ConnectionStatus } from '../shared/ConnectionStatus'
 import { queryKeys } from './queryKeys'
+import { DevicesWorkspace } from '../features/devices/DevicesWorkspace'
+import { LogOut, ShieldCheck } from 'lucide-react'
 
 function LoginPanel() {
   const queryClient = useQueryClient()
@@ -32,7 +34,7 @@ function LoginPanel() {
 
   return (
     <section className="login-card" aria-labelledby="login-title">
-      <p className="eyebrow">本地开发体验</p>
+      <div className="login-symbol"><ShieldCheck size={28} aria-hidden="true" /></div>
       <h1 id="login-title">进入售后通</h1>
       <p>使用本地测试身份查看真实保存的会话。此登录入口仅在开发环境启用。</p>
       <form onSubmit={(event) => void submit(event)}>
@@ -71,14 +73,15 @@ function AccountHeader({ actor }: { actor: Actor }) {
 
   return (
     <div className="account-strip">
-      <span>{actor.display_name} · {actor.kind === 'STAFF' ? '客服' : '客户'}</span>
-      <button type="button" onClick={() => void signOut()}>退出登录</button>
+      <span className="account-avatar" aria-hidden="true">{actor.display_name.slice(0, 1)}</span>
+      <span>{actor.display_name}<small>{actor.kind === 'STAFF' ? '客服' : '客户'}</small></span>
+      <button type="button" onClick={() => void signOut()}><LogOut size={15} aria-hidden="true" />退出登录</button>
       {error && <span className="form-error" role="alert">{error}</span>}
     </div>
   )
 }
 
-export function ServicePage({ desk = false }: { desk?: boolean }) {
+export function ServicePage({ desk = false, devices = false }: { desk?: boolean, devices?: boolean }) {
   const actor = useQuery({ queryKey: queryKeys.actor, queryFn: readActor, retry: false, staleTime: 0 })
   if (actor.isPending) return <p className="loading-state">正在确认登录状态…</p>
   if (actor.isError) return <section className="access-note" role="alert">
@@ -91,8 +94,8 @@ export function ServicePage({ desk = false }: { desk?: boolean }) {
   if (desk && actor.data.kind !== 'STAFF') return <section className="access-note">
     <h1>此页面仅供客服使用</h1><p>当前身份是客户，请使用用户服务入口。</p><NavLink to="/support">返回用户服务</NavLink>
   </section>
-  if (!desk && actor.data.kind === 'STAFF') return <section className="access-note">
+  if (!desk && !devices && actor.data.kind === 'STAFF') return <section className="access-note">
     <h1>已以客服身份登录</h1><p>请到客服工作区查看会话。</p><NavLink to="/desk">前往客服工作区</NavLink>
   </section>
-  return <><AccountHeader actor={actor.data} /><ConversationWorkspace actor={actor.data} desk={desk} /></>
+  return <><AccountHeader actor={actor.data} />{devices ? <DevicesWorkspace actor={actor.data} /> : <ConversationWorkspace actor={actor.data} desk={desk} />}</>
 }

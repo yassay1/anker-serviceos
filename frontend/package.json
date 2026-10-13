@@ -14,16 +14,19 @@
     "preview": "vite preview",
     "generate:api": "openapi-typescript ../contracts/openapi.json -o src/api/schema.d.ts",
     "check:api": "node scripts/check-api.mjs",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "test:live": "playwright test --config playwright.live.config.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "5.104.2",
+    "lucide-react": "0.468.0",
     "openapi-fetch": "0.17.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-router-dom": "7.18.4"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@playwright/test": "1.64.0",
     "@types/node": "24.19.2",
     "@types/react": "19.3.0",

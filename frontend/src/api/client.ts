@@ -12,6 +12,8 @@ export type Task = components['schemas']['TaskRead']
 export type Proposal = components['schemas']['ProposalRead']
 export type UIDocument = components['schemas']['UIDocumentRead']
 export type UIActionBody = components['schemas']['UIActionRequest']
+export type Device = components['schemas']['DeviceRead']
+export type ServiceCase = components['schemas']['CaseRead']
 
 export const api = createClient<paths>({ baseUrl: '/', credentials: 'same-origin' })
 
@@ -144,4 +146,19 @@ export async function sendMessage(conversationId: string, body: SendBody): Promi
     params: { path: { id: conversationId } }, body,
   })
   return requireData(data, error, response, '发送结果尚未确认；可用原消息重试。')
+}
+
+export async function listDevices(): Promise<Device[]> {
+  const { data, error, response } = await api.GET('/api/v1/devices')
+  return requireData(data, error, response, '设备列表加载失败，请重试。')
+}
+
+export async function readDevice(id: string): Promise<Device> {
+  const { data, error, response } = await api.GET('/api/v1/devices/{id}', { params: { path: { id } } })
+  return requireData(data, error, response, '设备不存在或当前账号无权访问。')
+}
+
+export async function listDeviceCases(id: string): Promise<ServiceCase[]> {
+  const { data, error, response } = await api.GET('/api/v1/devices/{id}/cases', { params: { path: { id } } })
+  return requireData(data, error, response, '服务历史加载失败，请重试。')
 }

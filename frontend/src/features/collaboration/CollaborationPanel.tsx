@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react'
 import { ApiFailure, type Actor, type Conversation, claimTask, decideProposal, listProposals, listTasks, requestAssistance, transitionMode } from '../../api/client'
 import { queryKeys } from '../../app/queryKeys'
 import { readableError } from '../../shared/errors'
+import { Headphones, UsersRound } from 'lucide-react'
+import { statusLabel } from '../../shared/StatusBadge'
 
 export function CollaborationPanel({ conversation, actor, desk }: { conversation: Conversation, actor: Actor, desk: boolean }) {
   const queryClient = useQueryClient()
@@ -40,9 +42,9 @@ export function CollaborationPanel({ conversation, actor, desk }: { conversation
   }
 
   return <section className="collaboration-panel" aria-label="人机协作">
-    <h3>人机协作</h3>
-    <p>当前：{conversation.collaboration_mode} · 发言策略：{conversation.reply_policy} · 版本 {conversation.version}</p>
-    {!desk && <button type="button" disabled={busy} onClick={() => void run(() => requestAssistance(conversation.id, reason))}>请求人工协助</button>}
+    <h3><UsersRound size={18} aria-hidden="true" />{desk ? '人机协作' : '需要真人一起处理？'}</h3>
+    <p className="policy-summary">当前：{statusLabel(conversation.collaboration_mode)} · 发言策略：{statusLabel(conversation.reply_policy)} · 版本 {conversation.version}</p>
+    {!desk && <><p>已有会话会继续保留，客服可以接续处理。</p><button type="button" disabled={busy} onClick={() => void run(() => requestAssistance(conversation.id, reason))}><Headphones size={16} aria-hidden="true" />请求人工协助</button></>}
     {desk && <>
       <div className="collaboration-controls">
         <label>协作模式 <select value={mode} onChange={(event) => setMode(event.target.value as typeof mode)}>
@@ -52,26 +54,27 @@ export function CollaborationPanel({ conversation, actor, desk }: { conversation
         <button type="button" disabled={busy || reason.trim().length < 3} onClick={() => void run(() => transitionMode(conversation.id, {
           target_mode: mode, reply_policy: mode === 'AI_LEAD' ? 'AI_AUTO' : mode === 'CO_SERVICE' ? 'AI_REVIEW_REQUIRED' : 'HUMAN_ONLY',
           expected_version: conversation.version, reason: reason.trim(),
-        }))}>切换策略</button>
+        }))}>{busy ? '正在处理…' : '切换策略'}</button>
       </div>
       <h4>人工任务</h4>
       {tasks.isError && <p className="form-error">{readableError(tasks.error)}</p>}
       {tasks.data?.length === 0 && <p>暂无人工任务。</p>}
       {tasks.data?.map((task) => <div className="collaboration-item" key={task.id}>
-        <span>{task.reason} · {task.status} · 版本 {task.version}</span>
+        <span>{task.reason} · {statusLabel(task.status)} · 版本 {task.version}</span>
         {task.status === 'OPEN' && <button type="button" disabled={busy} onClick={() => void run(() => claimTask(task.id, task.version))}>接管</button>}
       </div>)}
-      <h4>Agent 内部草稿</h4>
+      <h4>助手内部草稿</h4>
       {proposals.isError && <p className="form-error">{readableError(proposals.error)}</p>}
       {proposals.data?.length === 0 && <p>暂无待审草稿。</p>}
       {proposals.data?.map((proposal) => <div className="collaboration-item" key={proposal.id}>
-        <span>{proposal.proposal_type} · {String(proposal.payload.summary ?? '')} · {proposal.status}</span>
+        <span>{proposal.proposal_type === 'REPLY' ? '回复草稿' : proposal.proposal_type} · {String(proposal.payload.summary ?? '')} · {statusLabel(proposal.status)}</span>
         {proposal.status === 'DRAFT' && <span>
-          <button type="button" disabled={busy} onClick={() => void run(() => decideProposal(proposal.id, 'APPROVED', reason, crypto.randomUUID()))}>批准</button>{' '}
-          <button type="button" disabled={busy} onClick={() => void run(() => decideProposal(proposal.id, 'REJECTED', reason, crypto.randomUUID()))}>拒绝</button>
+          <button type="button" disabled={busy || reason.trim().length < 3} onClick={() => void run(() => decideProposal(proposal.id, 'APPROVED', reason.trim(), crypto.randomUUID()))}>批准</button>{' '}
+          <button type="button" disabled={busy || reason.trim().length < 3} onClick={() => void run(() => decideProposal(proposal.id, 'REJECTED', reason.trim(), crypto.randomUUID()))}>拒绝</button>
         </span>}
       </div>)}
     </>}
+    {desk && reason.trim().length < 3 && <p className="form-hint">切换或审阅前，请填写至少 3 个字的原因。</p>}
     {error && <p className="form-error" role="alert">{error}</p>}
   </section>
 }
