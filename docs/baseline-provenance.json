@@ -1,0 +1,40 @@
+{
+  "baseline": "售后通 V1",
+  "adopted_on": "2026-10-12",
+  "source_directory": "D:/proj/共享docs",
+  "source_conversation_id": "6acb1e1e-b64c-83e8-b078-581f494feff7",
+  "files": [
+    {
+      "source": "AGENTS.md",
+      "target": "AGENTS.md",
+      "source_sha256": "62B2F5E8DEE54765732B5A628B93A62BF9376F4C88B1946633508AC074A77037",
+      "local_adjustments": "附加仓库入口、主基线优先与历史原型说明"
+    },
+    {
+      "source": "architecture.md",
+      "target": "docs/architecture.md",
+      "source_sha256": "121035EA0BB1F2DD6343E2D4F0FAC96B3758443FE1BF7BCEA48A3010EA6B9CF7",
+      "local_adjustments": "修正文档内 references.md 链接"
+    },
+    {
+      "source": "development-plan.md",
+      "target": "docs/development-plan.md",
+      "source_sha256": "8EC949313CFCB25E1B92336D98C9BA5203D2EBD05457EFC23B015B652C48820F",
+      "local_adjustments": "完成标记按此仓库实际验收维护；附合并计划链接"
+    },
+    {
+      "source": "domain-and-contracts.md",
+      "target": "docs/domain-and-contracts.md",
+      "source_sha256": "A78E8C5A86BCC6A201280F6593E1AA9ECD2ADB82F7F0323C08D2216DFA617D28",
+      "local_adjustments": "正文原样采用"
+    },
+    {
+      "source": "product-definition.md",
+      "target": "docs/product-definition.md",
+      "source_sha256": "7B197042A72B34688F1AD80ABCA49763F3960051612105803CC651B2CAA2841C",
+      "local_adjustments": "正文原样采用"
+    }
+  ],
+  "scope": "本轮执行阶段 0；业务阶段 1–5 尚未执行",
+  "source_files_modified": false
+}

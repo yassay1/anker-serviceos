@@ -1,0 +1,298 @@
+from datetime import datetime, timedelta, timezone
+from uuid import uuid4
+
+import pytest
+from sqlalchemy import func, select, update
+from sqlalchemy.orm import Session
+
+from serviceos_api.application.agent_services import AgentContextBuilder
+from serviceos_api.application.auth import Principal
+from serviceos_api.application.services import ConversationService
+from serviceos_api.bootstrap_local import seed_local_accounts
+from serviceos_api.persistence.models import (
+    AgentRun, CaseConversation, CaseDevice, Conversation, ConversationEvent,
+    Customer, DeviceFact, DevicePassport, Message, MessageJob, OutboxEvent, ServiceCase, Tenant,
+)
+from serviceos_api.settings import Settings
+from serviceos_api.worker.runtime import MessageWorker, OutboxDispatcher
+
+
+def seed_message(session, *, with_case=False):
+    # This module shares the session-scoped disposable database with API acceptance tests.
+    session.execute(update(MessageJob).where(
+        MessageJob.status.in_(("QUEUED", "RUNNING")),
+    ).values(status="CANCELLED", lease_owner=None, lease_token=None, lease_expires_at=None))
+    seed_local_accounts(session)
+    tenant = session.scalar(select(Tenant).where(Tenant.slug == "local-demo-a"))
+    customer = session.scalar(select(Customer).where(
+        Customer.tenant_id == tenant.id, Customer.external_subject == "local:customer-a",
+    ))
+    conversation = Conversation(tenant_id=tenant.id, customer_id=customer.id)
+    session.add(conversation)
+    session.flush()
+    case = None
+    if with_case:
+        case = ServiceCase(tenant_id=tenant.id, customer_id=customer.id, problem_text="设备没有开始充电")
+        session.add(case)
+        session.flush()
+        session.add(CaseConversation(tenant_id=tenant.id, case_id=case.id, conversation_id=conversation.id))
+    message = Message(
+        tenant_id=tenant.id, conversation_id=conversation.id, author_kind="CUSTOMER",
+        author_customer_id=customer.id, visibility="PUBLIC", content=[{"type": "text", "text": "接上后没有充电"}],
+        client_message_id=uuid4(), request_hash="a" * 64,
+        related_case_id=case.id if case else None,
+    )
+    session.add(message)
+    session.flush()
+    job = MessageJob(tenant_id=tenant.id, message_id=message.id, conversation_id=conversation.id)
+    session.add(job)
+    session.flush()
+    return tenant, customer, conversation, message, job, case
+
+
+def test_message_job_lease_is_fenced_and_serialized(database_engine):
+    with Session(database_engine) as session:
+        tenant, _, conversation, _, job, _ = seed_message(session)
+        session.commit()
+        job_id = job.id
+        tenant_id = tenant.id
+        conversation_id = conversation.id
+
+    settings = Settings(environment="test", worker_lease_seconds=30, worker_heartbeat_seconds=5)
+    first_worker = MessageWorker(database_engine, settings, worker_id="worker-one")
+    second_worker = MessageWorker(database_engine, settings, worker_id="worker-two")
+    first = first_worker.claim_one()
+    assert first is not None and first.item_id == job_id
+    assert second_worker.claim_one() is None
+    with Session(database_engine) as session:
+        job = session.get(MessageJob, job_id)
+        job.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.commit()
+    recovered = second_worker.claim_one()
+    assert recovered is not None and recovered.item_id == job_id and recovered.token != first.token
+    assert first_worker.heartbeat(first) is False
+    with Session(database_engine) as session:
+        job = session.get(MessageJob, job_id)
+        assert job.tenant_id == tenant_id and job.conversation_id == conversation_id
+        assert job.attempt_count == 2 and job.status == "RUNNING"
+        assert job.lease_token == recovered.token
+
+
+def test_context_excludes_internal_messages_and_candidate_facts(database_engine):
+    with Session(database_engine) as session:
+        tenant, customer, conversation, message, _, case = seed_message(session, with_case=True)
+        device = DevicePassport(tenant_id=tenant.id, customer_id=customer.id, model="A1229",
+                                identity_source="user_statement")
+        session.add(device)
+        session.flush()
+        session.add(CaseDevice(tenant_id=tenant.id, case_id=case.id, device_id=device.id,
+                               role="AFFECTED", is_primary=True))
+        session.add_all([
+            DeviceFact(tenant_id=tenant.id, device_id=device.id, source_case_id=case.id,
+                       fact_key="port", value="USB-A", source_kind="HUMAN", source="staff",
+                       validity="VERIFIED", verifier_kind="HUMAN", verified_by="staff:test",
+                       verified_at=datetime.now(timezone.utc)),
+            DeviceFact(tenant_id=tenant.id, device_id=device.id, source_case_id=case.id,
+                       fact_key="guess", value="unsupported", source_kind="MODEL", source="agent",
+                       validity="CANDIDATE"),
+            Message(tenant_id=tenant.id, conversation_id=conversation.id, author_kind="AGENT",
+                    visibility="INTERNAL", content=[{"type": "text", "text": "DO NOT LEAK INTERNAL NOTE"}]),
+        ])
+        session.flush()
+        context = AgentContextBuilder(session, tenant.id).build(conversation.id, message.id)
+        text = str(context)
+        assert "A1229" in text and "USB-A" in text
+        assert "unsupported" not in text and "DO NOT LEAK INTERNAL NOTE" not in text
+        assert context["linked_cases"][0]["id"] == str(case.id)
+
+
+def test_outbox_dispatch_is_transactional_and_idempotent(database_engine):
+    with Session(database_engine) as session:
+        tenant, _, conversation, _, _, _ = seed_message(session)
+        event = OutboxEvent(tenant_id=tenant.id, conversation_id=conversation.id,
+                            type="message.created", visibility="PUBLIC", data={"message_id": "m-1"})
+        session.add(event)
+        session.commit()
+        event_id = event.id
+        conversation_id = conversation.id
+        tenant_id = tenant.id
+
+    dispatcher = OutboxDispatcher(database_engine, worker_id="outbox-test")
+    leases = dispatcher.claim_batch()
+    assert len(leases) >= 1
+    lease = next(item for item in leases if item.item_id == event_id)
+    assert dispatcher.dispatch(lease) is True
+    assert dispatcher.dispatch(lease) is False
+    with Session(database_engine) as session:
+        assert session.scalar(select(func.count()).select_from(ConversationEvent).where(
+            ConversationEvent.tenant_id == tenant_id,
+            ConversationEvent.conversation_id == conversation_id,
+            ConversationEvent.data["message_id"].astext == "m-1",
+        )) == 1
+        row = session.get(OutboxEvent, event_id)
+        assert row.published_at is not None and row.lease_token is None
+
+
+def test_worker_failure_is_sanitized_and_retriable(database_engine):
+    class FailingRuntime:
+        configured = True
+
+        def invoke(self, **_):
+            raise RuntimeError("provider error response included sensitive data")
+
+    with Session(database_engine) as session:
+        _, _, _, _, job, _ = seed_message(session)
+        session.commit()
+        job_id = job.id
+    worker = MessageWorker(database_engine, Settings(environment="test"), runtime=FailingRuntime())
+    lease = worker.claim_one()
+    assert lease is not None
+    worker.process(lease)
+    with Session(database_engine) as session:
+        job = session.get(MessageJob, job_id)
+        run = session.scalar(select(AgentRun).where(AgentRun.job_id == job_id))
+        assert job.status == "QUEUED" and job.attempt_count == 1
+        assert job.last_error_code == "agent_execution_failed"
+        assert "sensitive" not in job.last_error_code
+        assert job.lease_token is None
+        assert run.status == "FAILED" and run.error_code == "agent_execution_failed"
+
+
+def test_worker_marks_failure_terminal_at_configured_attempt_limit(database_engine):
+    class FailingRuntime:
+        configured = True
+
+        def invoke(self, **_):
+            raise RuntimeError("private provider response")
+
+    with Session(database_engine) as session:
+        _, _, _, _, job, _ = seed_message(session)
+        session.commit()
+        job_id = job.id
+    settings = Settings(environment="test", worker_max_attempts=1)
+    worker = MessageWorker(database_engine, settings, runtime=FailingRuntime())
+    lease = worker.claim_one()
+    assert lease is not None
+    worker.process(lease)
+    with Session(database_engine) as session:
+        job = session.get(MessageJob, job_id)
+        assert job.status == "FAILED" and job.attempt_count == 1
+        assert job.last_error_code == "agent_execution_failed"
+
+
+def test_outbox_marks_exhausted_crashed_lease_dead_letter(database_engine):
+    with Session(database_engine) as session:
+        tenant, _, conversation, _, _, _ = seed_message(session)
+        event = OutboxEvent(
+            tenant_id=tenant.id, conversation_id=conversation.id, type="test.event",
+            visibility="INTERNAL", data={}, attempt_count=1, max_attempts=1,
+            lease_token=uuid4(), lease_expires_at=datetime.now(timezone.utc) - timedelta(seconds=1),
+        )
+        session.add(event)
+        session.commit()
+        event_id = event.id
+    dispatcher = OutboxDispatcher(database_engine)
+    assert dispatcher.claim_batch() == []
+    with Session(database_engine) as session:
+        event = session.get(OutboxEvent, event_id)
+        assert event.dead_lettered_at is not None
+        assert event.last_error_code == "lease_expired_max_attempts"
+
+
+def test_conversation_dispatcher_does_not_ack_unrouted_outbox_events(database_engine):
+    with Session(database_engine) as session:
+        tenant, _, _, _, _, _ = seed_message(session)
+        event = OutboxEvent(tenant_id=tenant.id, conversation_id=None,
+                            type="case.updated", visibility="INTERNAL", data={"case_id": "c-1"})
+        session.add(event)
+        session.commit()
+        event_id = event.id
+    assert OutboxDispatcher(database_engine).claim_batch() == []
+    with Session(database_engine) as session:
+        event = session.get(OutboxEvent, event_id)
+        assert event.published_at is None and event.attempt_count == 0
+
+
+def test_worker_success_publishes_through_conversation_service(database_engine):
+    class SuccessfulRuntime:
+        configured = True
+
+        def invoke(self, **_):
+            return "请确认设备型号，并尝试更换一条可靠线材。", {
+                "step_count": 2, "input_tokens": 140, "output_tokens": 30,
+            }
+
+    with Session(database_engine) as session:
+        _, _, conversation, input_message, job, _ = seed_message(session)
+        session.commit()
+        job_id, conversation_id, input_message_id = job.id, conversation.id, input_message.id
+    worker = MessageWorker(database_engine, Settings(environment="test"), runtime=SuccessfulRuntime())
+    lease = worker.claim_one()
+    assert lease is not None
+    worker.process(lease)
+    with Session(database_engine) as session:
+        job = session.get(MessageJob, job_id)
+        run = session.scalar(select(AgentRun).where(AgentRun.message_id == input_message_id))
+        response = session.scalar(select(Message).where(
+            Message.conversation_id == conversation_id,
+            Message.author_kind == "AGENT",
+            Message.client_message_id == run.id,
+        ))
+        assert job.status == "COMPLETED" and job.completed_at is not None
+        assert run.status == "COMPLETED" and run.step_count == 2
+        assert run.input_tokens == 140 and run.output_tokens == 30
+        assert response.visibility == "PUBLIC"
+        assert response.content[0]["text"].startswith("请确认设备型号")
+
+
+def test_unconfigured_provider_does_not_claim_jobs(database_engine):
+    with Session(database_engine) as session:
+        _, _, _, _, job, _ = seed_message(session)
+        session.commit()
+        job_id = job.id
+    worker = MessageWorker(database_engine, Settings(environment="test"))
+    with pytest.raises(RuntimeError, match="Configure SERVICEOS_LLM_MODEL"):
+        worker.run_once()
+    with Session(database_engine) as session:
+        job = session.get(MessageJob, job_id)
+        assert job.status == "QUEUED" and job.attempt_count == 0
+
+
+def test_agent_publication_rechecks_current_policy(database_engine):
+    with Session(database_engine) as session:
+        tenant, customer, conversation, message, job, _ = seed_message(session)
+        run = AgentRun(tenant_id=tenant.id, job_id=job.id, conversation_id=conversation.id,
+                       message_id=message.id, thread_id=str(conversation.id), lease_token=uuid4(),
+                       provider="test", model="test-only", result_text="基于现有资料的建议")
+        session.add(run)
+        session.flush()
+        first = ConversationService(session, Principal(tenant.id, customer.id, "CUSTOMER", "客户")).publish_agent_response(
+            tenant.id, conversation.id, run.id, run.lease_token, "基于现有资料的建议", None,
+        )
+        assert first.visibility == "PUBLIC"
+        internal_job = MessageJob(tenant_id=tenant.id, message_id=message.id, conversation_id=conversation.id,
+                                  status="QUEUED")
+        # The real schema permits only one job per input; use a second input for the internal result.
+        internal_message = Message(tenant_id=tenant.id, conversation_id=conversation.id,
+                                   author_kind="CUSTOMER", author_customer_id=customer.id,
+                                   visibility="PUBLIC", content=[{"type": "text", "text": "follow up"}],
+                                   client_message_id=uuid4(), request_hash="b" * 64)
+        session.add(internal_message)
+        session.flush()
+        internal_job.message_id = internal_message.id
+        session.add(internal_job)
+        session.flush()
+        second_run = AgentRun(tenant_id=tenant.id, job_id=internal_job.id, conversation_id=conversation.id,
+                              message_id=internal_message.id, thread_id=str(conversation.id),
+                              lease_token=uuid4(), provider="test", model="test-only")
+        conversation.collaboration_mode = "HUMAN_LEAD"
+        conversation.reply_policy = "HUMAN_ONLY"
+        session.add(second_run)
+        session.flush()
+        second = ConversationService(session, Principal(tenant.id, customer.id, "CUSTOMER", "客户")).publish_agent_response(
+            tenant.id, conversation.id, second_run.id, second_run.lease_token, "内部草稿", None,
+        )
+        assert second.visibility == "INTERNAL"
+        assert session.scalar(select(func.count()).select_from(Message).where(
+            Message.conversation_id == conversation.id, Message.visibility == "INTERNAL",
+        )) == 1
