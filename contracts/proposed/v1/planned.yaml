@@ -1,73 +1,6 @@
 # Design source for operations not yet registered by FastAPI.
 # sync_implemented.py combines this with contracts/openapi.json.
 paths:
-  /api/v1/cases/{id}/evidence:
-    get:
-      operationId: list_case_evidence
-      summary: List authorized evidence metadata for a case
-      tags: [evidence]
-      x-serviceos-status: planned
-      x-serviceos-stage: 4
-      x-serviceos-authorization: Customer owns case; staff belongs to tenant. Internal evidence is staff only.
-      security: [{SessionCookie: []}]
-      parameters:
-        - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
-        - {name: cursor, in: query, required: false, schema: {type: string, format: uuid}}
-        - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
-      responses:
-        '200': {description: Authorized evidence, oldest first, content: {application/json: {schema: {$ref: '#/components/schemas/ProposedEvidencePage'}}}}
-        '401': {description: Not authenticated}
-        '404': {description: Case not found or hidden}
-    post:
-      operationId: upload_case_evidence
-      summary: Persist image evidence and queue safety inspection
-      tags: [evidence]
-      x-serviceos-status: planned
-      x-serviceos-stage: 4
-      x-serviceos-authorization: Customer owns case; staff belongs to tenant. Agent cannot upload on behalf of customer.
-      x-serviceos-idempotency: Same client_evidence_id and file digest returns original receipt; different digest returns 409.
-      security: [{SessionCookie: []}]
-      parameters:
-        - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [client_evidence_id, expected_case_version, file]
-              properties:
-                client_evidence_id: {type: string, format: uuid}
-                expected_case_version: {type: integer, minimum: 1}
-                visibility: {type: string, enum: [PUBLIC, INTERNAL], default: PUBLIC}
-                file: {type: string, format: binary, description: JPEG, PNG or WebP; at most 10 MiB}
-      responses:
-        '202': {description: Stored; inspection is pending, content: {application/json: {schema: {$ref: '#/components/schemas/ProposedEvidenceRead'}}}}
-        '401': {description: Not authenticated}
-        '403': {description: Actor cannot upload evidence}
-        '404': {description: Case not found or hidden}
-        '409': {description: Stale case version or idempotency conflict, content: {application/json: {schema: {$ref: '#/components/schemas/ProposedError'}}}}
-        '413': {description: File exceeds size limit}
-        '415': {description: Unsupported media type}
-        '422': {description: Invalid metadata or unsafe file}
-        '503': {description: Storage or inspection unavailable}
-  /api/v1/cases/{id}/evidence/{evidence_id}/content:
-    get:
-      operationId: read_case_evidence_content
-      summary: Download inspected evidence through authorization
-      tags: [evidence]
-      x-serviceos-status: planned
-      x-serviceos-stage: 4
-      x-serviceos-authorization: Recheck case, evidence visibility and CLEAN inspection status on every request.
-      security: [{SessionCookie: []}]
-      parameters:
-        - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
-        - {name: evidence_id, in: path, required: true, schema: {type: string, format: uuid}}
-      responses:
-        '200': {description: Authorized inspected image; Cache-Control no-store, content: {image/jpeg: {schema: {type: string, format: binary}}, image/png: {schema: {type: string, format: binary}}, image/webp: {schema: {type: string, format: binary}}}}
-        '401': {description: Not authenticated}
-        '404': {description: Evidence not found, hidden or not yet safe to serve}
   /api/v1/cases/{id}/tasks:
     get:
       operationId: list_case_tasks
@@ -322,27 +255,6 @@ components:
         code: {type: string, description: Stable application error code}
         detail: {type: string, description: Safe user-facing explanation}
         current_version: {type: integer, minimum: 1}
-    ProposedEvidenceRead:
-      type: object
-      additionalProperties: false
-      required: [id, case_id, visibility, media_type, byte_size, inspection_status, verification, created_at]
-      properties:
-        id: {type: string, format: uuid}
-        case_id: {type: string, format: uuid}
-        visibility: {type: string, enum: [PUBLIC, INTERNAL]}
-        media_type: {type: string, enum: [image/jpeg, image/png, image/webp]}
-        byte_size: {type: integer, minimum: 1, maximum: 10485760}
-        inspection_status: {type: string, enum: [PENDING, CLEAN, REJECTED]}
-        verification: {type: string, enum: [UNVERIFIED, VERIFIED, RETRACTED]}
-        source_kind: {type: string, enum: [CUSTOMER, STAFF]}
-        created_at: {type: string, format: date-time}
-    ProposedEvidencePage:
-      type: object
-      additionalProperties: false
-      required: [items]
-      properties:
-        items: {type: array, items: {$ref: '#/components/schemas/ProposedEvidenceRead'}}
-        next_cursor: {type: [string, 'null'], format: uuid}
     ProposedCaseTaskRead:
       type: object
       additionalProperties: false

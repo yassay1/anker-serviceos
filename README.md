@@ -27,7 +27,7 @@
 
 旧 A1229 原型、旧功能 spec、其独立 Python 工程与历史规划记录已从活动工作区清出，并归档在同级目录 `D:\proj\Anker SreviceOS-archive-20261013`；它们不是当前运行时代码或开发入口。当前 `specs/001`–`005` 是后来按 V1 新建的活动功能切片，不沿用归档旧 spec 的任务清单。当前 Agent Runtime 使用的两份只读手册摘要已归入 `backend/serviceos_api/knowledge/`。
 
-当前登录仅是显式启用的本地开发适配器，未接生产身份源。阶段 2 已增加独立 Worker、数据库租约/重试、AgentRun、受限 Agent Runtime 与 PostgreSQL Checkpointer；Worker 需单独启动并显式配置模型地址、模型名和 API Key。当前开发环境没有 Provider 凭据，因此真实 LLM 多轮验收尚未执行。阶段 3 已接入模式切换/审批、持久事件与 SSE 补取、受控 UI Schema/Renderer 和低风险 UI action intent；代码、PostgreSQL 回归、契约及前端构建已通过，`/support`、`/desk` 的浏览器完整操作路径仍待复验，详见[阶段 3 验收记录](docs/phase3-validation.md)。外部动作执行和核验闭环属于阶段 4。健康状态只表示 API 进程可响应，不代表 Worker 或模型正在运行。生产目标以 V1 为准，归档旧 spec 的 SQLite/Jinja2 方案属于历史原型。
+当前登录仅是显式启用的本地开发适配器，未接生产身份源。阶段 2 已增加独立 Worker、数据库租约/重试、AgentRun、受限 Agent Runtime 与 PostgreSQL Checkpointer；Worker 需单独启动并显式配置模型地址、模型名和 API Key。当前开发环境没有 Provider 凭据，因此真实 LLM 多轮验收尚未执行。阶段 3 已接入模式切换/审批、持久事件与 SSE 补取、受控 UI Schema/Renderer 和低风险 UI action intent；代码、PostgreSQL 回归、契约及前端构建已通过，`/support`、`/desk` 的浏览器完整操作路径仍待复验，详见[阶段 3 验收记录](docs/phase3-validation.md)。外部动作执行和核验闭环仍属于阶段 4。图片证据已有真实上传和本地结构检查接口，大小与格式限制尚未最终确认，不能把它当成多模态理解或真实 Anker 接口。健康状态只表示 API 进程可响应，不代表 Worker 或模型正在运行。生产目标以 V1 为准，归档旧 spec 的 SQLite/Jinja2 方案属于历史原型。
 
 Agentic Interface / Generative UI 已完成产品与架构设计；阶段 2 新增 Agent 的内部 `ui_proposal` 元数据和失败时文本降级。阶段 3 已实现 UIDocument、组件 Catalog、Renderer 和低风险 UI action，并通过本地代码与契约检查；浏览器交互仍有上述待复验项。内部提案不等于用户可见界面，只有发布后的受信 UIDocument 才可渲染。
 

@@ -1,6 +1,6 @@
 # 售后通 · 领域与接口契约 V1（设计定义）
 
-> 本文描述 V1 的完整设计资源和约束；当前可调用接口以从真实路由导出的 [`contracts/openapi.json`](../contracts/openapi.json) 为准，阶段 4 的接口目标见[完整 V1 接口提案](../contracts/proposed/v1/README.md)。阶段 2 的真实 Provider 验收仍待真实环境；阶段 4 未实现。第一版原则：先实现可验证的行为，再将对应 OpenAPI 路由发布给前端。
+> 本文描述 V1 的完整设计资源和约束；当前可调用接口以从真实路由导出的 [`contracts/openapi.json`](../contracts/openapi.json) 为准，尚未落地的阶段 4 操作见[完整 V1 接口提案](../contracts/proposed/v1/README.md)。阶段 2 的真实 Provider 验收仍待真实环境。图片证据路由已从应用导出，其大小、格式和扫描阈值仍是待确认提案；动作、核验、跟进和可信事实归档仍未实现。第一版原则：先实现可验证的行为，再将对应 OpenAPI 路由发布给前端。
 
 ## 1. 不变量
 

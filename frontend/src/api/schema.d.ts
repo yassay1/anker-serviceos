@@ -109,6 +109,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cases/{id}/evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Case Evidence */
+        get: operations["list_case_evidence"];
+        put?: never;
+        /** Upload Case Evidence */
+        post: operations["upload_case_evidence"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cases/{id}/evidence/{evidence_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Case Evidence Content */
+        get: operations["read_case_evidence_content"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cases/{id}/transitions": {
         parameters: {
             query?: never;
@@ -605,6 +640,24 @@ export interface components {
              */
             role: string;
         };
+        /** Body_upload_case_evidence */
+        Body_upload_case_evidence: {
+            /**
+             * Client Evidence Id
+             * Format: uuid
+             */
+            client_evidence_id: string;
+            /** Expected Case Version */
+            expected_case_version: number;
+            /** File */
+            file: string;
+            /**
+             * Visibility
+             * @default PUBLIC
+             * @enum {string}
+             */
+            visibility: "PUBLIC" | "INTERNAL";
+        };
         /** CandidateFact */
         CandidateFact: {
             /** Expected Device Revision */
@@ -767,6 +820,58 @@ export interface components {
             sequence: number;
             /** Type */
             type: string;
+            /**
+             * Visibility
+             * @enum {string}
+             */
+            visibility: "PUBLIC" | "INTERNAL";
+        };
+        /** EvidencePage */
+        EvidencePage: {
+            /** Items */
+            items: components["schemas"]["EvidenceRead"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** EvidenceRead */
+        EvidenceRead: {
+            /** Byte Size */
+            byte_size: number;
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Inspection Status
+             * @enum {string}
+             */
+            inspection_status: "PENDING" | "CLEAN" | "REJECTED";
+            /**
+             * Media Type
+             * @enum {string}
+             */
+            media_type: "image/jpeg" | "image/png" | "image/webp";
+            /**
+             * Source Kind
+             * @enum {string}
+             */
+            source_kind: "CUSTOMER" | "STAFF";
+            /**
+             * Verification
+             * @enum {string}
+             */
+            verification: "UNVERIFIED" | "VERIFIED" | "RETRACTED";
             /**
              * Visibility
              * @enum {string}
@@ -966,6 +1071,15 @@ export interface components {
              * @enum {string}
              */
             visibility: "PUBLIC" | "INTERNAL";
+        };
+        /** ServiceErrorBody */
+        ServiceErrorBody: {
+            /** Code */
+            code?: string | null;
+            /** Current Version */
+            current_version?: number | null;
+            /** Detail */
+            detail: string;
         };
         /** SummaryFact */
         SummaryFact: {
@@ -1468,6 +1582,254 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CaseRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_case_evidence: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidencePage"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Actor cannot upload evidence */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Case not found or hidden */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Stale case version or idempotency conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description File exceeds size limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Invalid metadata or unsafe file */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Storage or inspection unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+        };
+    };
+    upload_case_evidence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_case_evidence"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceRead"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Actor cannot upload evidence */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Case not found or hidden */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Stale case version or idempotency conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description File exceeds size limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Unsupported media type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Invalid metadata or unsafe file */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Storage or inspection unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+        };
+    };
+    read_case_evidence_content: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                evidence_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authorized inspected image; Cache-Control no-store */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                    "image/jpeg": string;
+                    "image/png": string;
+                    "image/webp": string;
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Evidence not found, hidden or not yet safe to serve */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
                 };
             };
             /** @description Validation Error */
