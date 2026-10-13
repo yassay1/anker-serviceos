@@ -52,9 +52,14 @@ npm run typecheck
 npm run check:api
 npm run typecheck
 npm run build
+npm run test:browser
 ```
 
-这些命令检查 API 类型同步、TypeScript 和生产构建；业务流程、权限隔离与移动端交互仍须按受影响功能实际验收。
+首次执行浏览器回归前运行 `npm exec -- playwright install chromium`。本机已有 Chrome 时，可使用 `$env:PLAYWRIGHT_CHANNEL='chrome'; npm run test:browser`。测试自行启动独立的 5174 测试服务，不复用日常 5173 页面。
+
+这些命令检查 API 类型同步、应用及测试的 TypeScript、生产构建和前端冲突恢复。浏览器回归在测试目录内拦截 HTTP，使用当前生成类型构造受控响应；不需要数据库，也不证明真实后端权限、并发或 SSE 恢复已通过。业务流程仍须在真实 API、PostgreSQL 与当前身份下实际验收。
+
+`/desk` 的任务接管、策略切换及草稿审阅收到 HTTP 409 时，保留服务端拒绝原因并重新查询会话、任务、草稿与交互卡，移除已失效的操作。刷新不自动重新提交写请求，403 仍按拒绝展示。适配范围及证据见[前端对接验证](../docs/frontend-integration-validation.md)。
 
 ## 视觉设计入口
 

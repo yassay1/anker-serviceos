@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import { type Actor, type Conversation, claimTask, decideProposal, listProposals, listTasks, requestAssistance, transitionMode } from '../../api/client'
+import { ApiFailure, type Actor, type Conversation, claimTask, decideProposal, listProposals, listTasks, requestAssistance, transitionMode } from '../../api/client'
 import { queryKeys } from '../../app/queryKeys'
 import { readableError } from '../../shared/errors'
 
@@ -10,23 +10,30 @@ export function CollaborationPanel({ conversation, actor, desk }: { conversation
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [mode, setMode] = useState<'AI_LEAD' | 'CO_SERVICE' | 'HUMAN_LEAD'>(conversation.collaboration_mode as 'AI_LEAD' | 'CO_SERVICE' | 'HUMAN_LEAD')
-  useEffect(() => setMode(conversation.collaboration_mode as typeof mode), [conversation.collaboration_mode])
+  useEffect(() => setMode(conversation.collaboration_mode as typeof mode), [conversation.collaboration_mode, conversation.version])
   const tasks = useQuery({ queryKey: queryKeys.tasks(actor.tenant_id, conversation.id), queryFn: () => listTasks(conversation.id), enabled: desk })
   const proposals = useQuery({ queryKey: queryKeys.proposals(actor.tenant_id, conversation.id), queryFn: () => listProposals(conversation.id), enabled: desk })
+
+  async function refreshState() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks(actor.tenant_id, conversation.id) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.proposals(actor.tenant_id, conversation.id) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, conversation.id) }),
+    ])
+  }
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true)
     setError('')
     try {
       await action()
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.tasks(actor.tenant_id, conversation.id) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.proposals(actor.tenant_id, conversation.id) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, conversation.id) }),
-      ])
+      await refreshState()
     } catch (failure) {
       setError(readableError(failure))
+      if (failure instanceof ApiFailure && failure.status === 409) {
+        await refreshState()
+      }
     } finally {
       setBusy(false)
     }
