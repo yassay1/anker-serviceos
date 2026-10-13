@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { type UIActionBody, type UIDocument, invokeUIAction } from './api/client'
+import { type UIActionBody, type UIDocument, invokeUIAction } from '../../api/client'
 
 const catalog = new Set([
   'CaseSummaryCard', 'EvidenceSummary', 'QuestionForm', 'RiskAlert',

@@ -1,6 +1,6 @@
 # 售后通 · 领域与接口契约 V1（设计定义）
 
-> 本文描述 V1 的完整设计资源和约束；其中阶段 1 已实现的部分以 `contracts/openapi.json` 中的实际路由及 [阶段 1 验收记录](phase1-validation.md) 为准，其余仍是计划。第一版原则：先实现可验证的行为，再将对应 OpenAPI 路由发布给前端。
+> 本文描述 V1 的完整设计资源和约束；当前可调用接口以从真实路由导出的 [`contracts/openapi.json`](../contracts/openapi.json) 为准，阶段 4 的接口目标见[完整 V1 接口提案](../contracts/proposed/v1/README.md)。阶段 2 的真实 Provider 验收仍待真实环境；阶段 4 未实现。第一版原则：先实现可验证的行为，再将对应 OpenAPI 路由发布给前端。
 
 ## 1. 不变量
 
@@ -64,7 +64,7 @@
 
 ## 5. API 契约（计划）
 
-本表描述 V1 目标，不是已注册路由清单。当前可调用接口以从 FastAPI 导出的 [OpenAPI](../contracts/openapi.json) 为准；新增路由须由实际 Pydantic Schema 和应用服务实现后导出，并同步生成前端类型。协作步骤见[协作开发指南](contributing.md)。
+本表是早期 V1 目标目录，不是已注册路由清单，其中部分示例与当前 Schema 不同（例如模式切换现在要求 `reply_policy`，内部草稿审批使用 `/proposals/{id}/decision`）。当前可调用接口以从 FastAPI 导出的 [OpenAPI](../contracts/openapi.json) 为准；未实现的操作级目标见[完整 V1 接口提案](../contracts/proposed/v1/README.md)。新增路由须由实际 Pydantic Schema 和应用服务实现后导出，并同步生成前端类型。协作步骤见[协作开发指南](contributing.md)。
 
 | Method | Path | Purpose |
 |---|---|---|

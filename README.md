@@ -6,7 +6,7 @@
 
 用户指定的 V1 定稿来自 `D:\proj\共享docs`，已纳入本项目。源文件哈希及本地调整见 [来源清单](docs/baseline-provenance.json)。
 
-按工作入口阅读：[前端开发指南](frontend/README.md)、[后端与 Worker 开发指南](backend/README.md)、[Web 界面设计指南](docs/ui-design-guidelines.md)。本文件保留全栈概览与联调启动步骤；模块内操作和责任边界见各自指南。
+阅读顺序：先用本文件了解当前范围；用下列四份 V1 主基线确认产品规则和阶段目标；用验收记录核对实际完成情况。分工与接口变更见[协作开发指南](docs/contributing.md)，模块操作见[前端开发指南](frontend/README.md)和[后端与 Worker 开发指南](backend/README.md)，参考图的视觉方向见[Web 界面设计指南](docs/ui-design-guidelines.md)。
 
 - [产品定义](docs/product-definition.md)：产品对象、协作模式、用户旅程、Agentic Interface 与性能目标。
 - [系统架构](docs/architecture.md)：前后端分离、应用服务、Worker、持久化及 Agent → UI Schema → Renderer 设计。
@@ -15,6 +15,7 @@
 - [现有项目合并与归档说明](docs/baseline-integration.md)：V1 差异处理、复用边界、增量任务和验收。
 - [Agent 工程规则](AGENTS.md)。
 - [协作开发指南](docs/contributing.md)：模块边界、契约变更、并行开发与集成检查。
+- [V1 接口提案](contracts/proposed/v1/README.md)：当前真实接口与阶段 4 计划接口的统一 OpenAPI 目标；计划操作尚不可调用。
 - [阶段 0 实际验收记录](docs/baseline-validation.md)：变更文件、命令、测试、浏览器结果及限制。
 - [阶段 1 实际验收记录](docs/phase1-validation.md)：PostgreSQL、业务 API、权限、前端消息和范围边界。
 - [阶段 2 验收记录](docs/phase2-validation.md)：Worker/Agent 落地范围、离线测试和真实 Provider 待验证项。
@@ -24,11 +25,11 @@
 
 阶段 1 已接入独立 PostgreSQL 业务 Schema、Alembic 迁移、开发专用登录、Conversation/Message、Service Case、Device Passport 和事实候选/核验/撤销服务。`/support` 可以建立会话并发送持久消息；`/desk` 可查看同租户会话、公开回复与内部备注。Case、Device 与 Conversation 独立，关系可多对多；消息受理同事务写入待执行 Job 和 Outbox。
 
-旧 A1229 原型、旧功能 spec、其独立 Python 工程与历史规划记录已从活动工作区清出，并归档在同级目录 `D:\proj\Anker SreviceOS-archive-20261013`；它们不是当前运行时代码或开发入口。旧 spec 需要重新设计，不应继续按旧任务清单实施。当前 Agent Runtime 使用的两份只读手册摘要已归入 `backend/serviceos_api/knowledge/`。
+旧 A1229 原型、旧功能 spec、其独立 Python 工程与历史规划记录已从活动工作区清出，并归档在同级目录 `D:\proj\Anker SreviceOS-archive-20261013`；它们不是当前运行时代码或开发入口。当前 `specs/001`–`005` 是后来按 V1 新建的活动功能切片，不沿用归档旧 spec 的任务清单。当前 Agent Runtime 使用的两份只读手册摘要已归入 `backend/serviceos_api/knowledge/`。
 
-当前登录仅是显式启用的本地开发适配器，未接生产身份源。阶段 2 已增加独立 Worker、数据库租约/重试、AgentRun、受限 Agent Runtime 与 PostgreSQL Checkpointer；Worker 需单独启动并显式配置模型地址、模型名和 API Key。当前开发环境没有 Provider 凭据，因此真实 LLM 多轮验收尚未执行。阶段 3 已接入模式切换/审批、持久事件与 SSE 补取、受控 UI Schema/Renderer 和低风险 UI action intent；完成范围以[开发计划](docs/development-plan.md)和验收记录为准。外部动作执行和核验闭环属于后续阶段。健康状态只表示 API 进程可响应，不代表 Worker 或模型正在运行。生产目标以 V1 为准，旧 `specs/` 的 SQLite/Jinja2 方案属于历史原型。
+当前登录仅是显式启用的本地开发适配器，未接生产身份源。阶段 2 已增加独立 Worker、数据库租约/重试、AgentRun、受限 Agent Runtime 与 PostgreSQL Checkpointer；Worker 需单独启动并显式配置模型地址、模型名和 API Key。当前开发环境没有 Provider 凭据，因此真实 LLM 多轮验收尚未执行。阶段 3 已接入模式切换/审批、持久事件与 SSE 补取、受控 UI Schema/Renderer 和低风险 UI action intent；代码、PostgreSQL 回归、契约及前端构建已通过，`/support`、`/desk` 的浏览器完整操作路径仍待复验，详见[阶段 3 验收记录](docs/phase3-validation.md)。外部动作执行和核验闭环属于阶段 4。健康状态只表示 API 进程可响应，不代表 Worker 或模型正在运行。生产目标以 V1 为准，归档旧 spec 的 SQLite/Jinja2 方案属于历史原型。
 
-Agentic Interface / Generative UI 已完成产品与架构设计；阶段 2 新增 Agent 的内部 `ui_proposal` 元数据和失败时文本降级。阶段 3 的 UIDocument、组件 Catalog、Renderer 和 UI action 已按[开发计划](docs/development-plan.md)完成本地验收；内部提案仍不等于用户可见界面，只有发布后的受信 UIDocument 才可渲染。
+Agentic Interface / Generative UI 已完成产品与架构设计；阶段 2 新增 Agent 的内部 `ui_proposal` 元数据和失败时文本降级。阶段 3 已实现 UIDocument、组件 Catalog、Renderer 和低风险 UI action，并通过本地代码与契约检查；浏览器交互仍有上述待复验项。内部提案不等于用户可见界面，只有发布后的受信 UIDocument 才可渲染。
 
 本地 Agent 初始化（仅在已选择并获准使用模型 Provider 后）：先从仓库根目录执行 `uv run --project backend alembic -c backend/alembic.ini upgrade head`，再执行 `uv run --project backend python -m serviceos_api.checkpoints` 初始化独立的 `serviceos_checkpoint` schema；另开终端运行 `uv run --project backend python -m serviceos_api.worker.main`。API 启动不会自动迁移、创建 Checkpointer 表或启动 Worker。未配置 Provider 时，Worker 在领取任何 Job 前拒绝启动。
 
@@ -40,9 +41,11 @@ frontend/                 单一 Web 应用：用户服务与客服视图
 backend/serviceos_api/    新 FastAPI 包；业务模型、应用服务与 HTTP API
 backend/migrations/       独立 PostgreSQL 业务 Schema 的 Alembic 迁移
 contracts/openapi.json   从实际 API 代码生成
+contracts/proposed/v1/    前后端协作用的完整 V1 接口提案；planned 操作未实现
 backend/serviceos_api/knowledge/ Agent 只读本地手册资料
 .agents/skills/           开发工作流 Skill，与业务 Skill 分离
-.specify/                 Spec Kit 工作流、模板与工程宪章；活动功能 spec 尚未重建
+.specify/                 Spec Kit 工作流、模板与工程宪章
+specs/                    按 V1 新建的活动功能切片 001–005
 .github/workflows/        基础校验与契约一致性 CI
 ```
 
@@ -86,7 +89,7 @@ npm run dev
 - 健康接口：`http://127.0.0.1:8000/api/v1/health`
 - 实际 API 文档：`http://127.0.0.1:8000/docs`
 
-Vite 将 `/api` 代理到本地 API，开发服务均绑定回环地址。体验登录身份有 `customer-a`、`customer-b`、`staff`、`other-tenant`，密码使用 `.env` 的 `SERVICEOS_LOCAL_AUTH_PASSWORD`。浏览器只显示真实保存的消息与权限范围，自动回复尚未运行。
+Vite 将 `/api` 代理到本地 API，开发服务均绑定回环地址。体验登录身份有 `customer-a`、`customer-b`、`staff`、`other-tenant`，密码使用 `.env` 的 `SERVICEOS_LOCAL_AUTH_PASSWORD`。浏览器只显示真实保存的消息与权限范围；未配置 Provider 时不会运行自动回复。
 
 ## 校验与契约生成
 

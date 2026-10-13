@@ -34,13 +34,16 @@ export async function readHealth(signal?: AbortSignal) {
   return requireData(data, error, response, '本地服务未响应，请启动服务后重新检查。')
 }
 
-export async function readActor(): Promise<Actor> {
-  const { data, error, response } = await api.GET('/api/v1/auth/me')
+export async function readActor(): Promise<Actor | null> {
+  const { data, error, response } = await api.GET('/api/v1/auth/me', { signal: AbortSignal.timeout(5_000) })
+  if (response.status === 401) return null
   return requireData(data, error, response, '登录状态暂时无法确认。')
 }
 
 export async function loginLocal(username: string, password: string): Promise<Actor> {
-  const { data, error, response } = await api.POST('/api/v1/local-auth/login', { body: { username, password } })
+  const { data, error, response } = await api.POST('/api/v1/local-auth/login', {
+    body: { username, password }, signal: AbortSignal.timeout(10_000),
+  })
   return requireData(data, error, response, '登录失败，请检查账号与密码。')
 }
 

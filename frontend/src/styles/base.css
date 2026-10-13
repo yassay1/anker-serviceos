@@ -1,0 +1,71 @@
+:root {
+  font-family: "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+  color: #14243d;
+  background: #f7f5f2;
+  font-synthesis: none;
+  --surface: #fff;
+  --ink: #14243d;
+  --muted: #5f6f83;
+  --accent: #3267f4;
+  --accent-hover: #244fc7;
+  --accent-soft: #eaf0ff;
+  --border: #e2e7ef;
+  --canvas: #f7f5f2;
+  --warm: #fff4ea;
+  --danger: #a7332b;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-size: 16px; line-height: 1.5; }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; min-height: 42px; border-radius: 9px; padding: 8px 14px; border: 1px solid #cdd7ef; background: var(--surface); color: var(--ink); font-weight: 600; }
+button:hover:not(:disabled) { background: var(--accent-soft); border-color: #a5b8ed; }
+button:disabled { cursor: not-allowed; color: #61727c; border-color: var(--border); background: #edf0f4; }
+input, select, textarea { color: var(--ink); border: 1px solid #becada; border-radius: 9px; background: white; padding: 10px 12px; width: 100%; }
+textarea { resize: vertical; min-height: 96px; }
+label { font-weight: 600; }
+a { color: var(--accent); }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.skip-link { position: absolute; left: 16px; top: -100px; z-index: 4; background: white; padding: 12px; }
+.skip-link:focus { top: 8px; }
+.site-header { background: var(--surface); border-bottom: 1px solid var(--border); }
+.header-inner { max-width: 1680px; margin: auto; min-height: 76px; padding: 12px clamp(18px, 3vw, 42px); display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.brand { display: flex; align-items: baseline; gap: 12px; text-decoration: none; color: var(--ink); }
+.brand span { font-size: 27px; font-weight: 800; letter-spacing: -.08em; }
+.brand small { color: var(--muted); font-size: 13px; letter-spacing: 0; }
+nav { display: flex; gap: 8px; }
+nav a { text-decoration: none; padding: 10px 15px; min-height: 42px; border-radius: 8px; color: var(--muted); }
+nav a.active, nav a:hover { color: var(--accent); background: var(--accent-soft); }
+nav a.active { font-weight: 700; }
+main { max-width: 1680px; margin: auto; padding: 22px clamp(18px, 3vw, 42px) 0; }
+footer { max-width: 1680px; margin: auto; padding: 24px clamp(18px, 3vw, 42px); color: var(--muted); font-size: 12px; }
+.account-strip { display: flex; justify-content: flex-end; align-items: center; gap: 14px; color: var(--muted); font-size: 14px; }
+.account-strip button { min-height: 34px; padding: 4px 11px; font-size: 13px; }
+.primary-button { color: white; background: var(--accent); border-color: var(--accent); font-weight: 700; }
+.primary-button:hover:not(:disabled) { color: white; background: var(--accent-hover); border-color: var(--accent-hover); }
+.form-error { color: var(--danger); font-size: 14px; margin: 5px 0; }
+.form-hint { font-size: 13px; color: var(--muted); }
+.login-card { width: min(100%, 490px); margin: 55px auto 80px; padding: 34px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 15px 45px rgba(20,36,61,.06); }
+.login-card > p { color: var(--muted); }
+.login-card h1 { margin: 0 0 8px; font-size: 32px; }
+.login-card form { display: flex; flex-direction: column; gap: 9px; margin-top: 25px; }
+.login-card form label:not(:first-child) { margin-top: 8px; }
+.login-card form button { margin-top: 12px; }
+.login-card .connection { margin-top: 22px; }
+.access-note { background: white; border: 1px solid var(--border); border-radius: 16px; padding: 38px; max-width: 620px; margin: 60px auto; }
+.access-note h1 { margin-top: 0; }
+.loading-state { color: var(--muted); margin: 80px auto; text-align: center; }
+.connection { border: 1px solid var(--border); border-radius: 9px; padding: 10px 13px; display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; background: white; }
+.connection button { min-height: 34px; font-size: 12px; }
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 9px; background: #2d8767; }
+.status-dot.offline { background: #b45742; }
+@media (max-width: 600px) {
+  .header-inner { flex-direction: column; align-items: flex-start; padding: 14px 18px; gap: 10px; }
+  .brand span { font-size: 24px; }
+  .brand small { font-size: 11px; }
+  nav a { padding: 8px 10px; font-size: 14px; }
+  main { padding: 16px 14px 0; }
+  .account-strip { justify-content: flex-start; }
+  .login-card { margin-top: 20px; padding: 24px; }
+  footer { padding: 22px 14px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }

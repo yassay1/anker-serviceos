@@ -1,0 +1,3626 @@
+openapi: 3.1.0
+info:
+  description: V1 interface proposal. Planned operations are design only and are not callable.
+  title: Anker ServiceOS API
+  version: 0.1.0
+x-serviceos-proposal-status: draft
+x-serviceos-implemented-sha256: 9be79d87843b237c14f0ec3cfba4031e2ba4af5fc71ab736e085d5be3665eb49
+x-serviceos-planned-source: contracts/proposed/v1/planned.yaml
+paths:
+  /api/v1/auth/logout:
+    post:
+      operationId: logout
+      responses:
+        '204':
+          description: Successful Response
+      security:
+      - SessionCookie: []
+      summary: Logout
+      tags:
+      - auth
+      x-serviceos-status: implemented
+  /api/v1/auth/me:
+    get:
+      operationId: read_actor
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActorRead'
+          description: Successful Response
+      security:
+      - SessionCookie: []
+      summary: Me
+      tags:
+      - auth
+      x-serviceos-status: implemented
+  /api/v1/cases:
+    get:
+      operationId: list_cases
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/CaseRead'
+                title: Response List Cases
+                type: array
+          description: Successful Response
+      security:
+      - SessionCookie: []
+      summary: List Cases
+      tags:
+      - cases
+      x-serviceos-status: implemented
+    post:
+      operationId: create_case
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCase'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Create Case
+      tags:
+      - cases
+      x-serviceos-status: implemented
+  /api/v1/cases/{id}:
+    delete:
+      operationId: archive_case
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Archive Case
+      tags:
+      - cases
+      x-serviceos-status: implemented
+    get:
+      operationId: read_case
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Read Case
+      tags:
+      - cases
+      x-serviceos-status: implemented
+    patch:
+      operationId: update_case
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCase'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Update Case
+      tags:
+      - cases
+      x-serviceos-status: implemented
+  /api/v1/cases/{id}/conversations:
+    post:
+      operationId: attach_conversation
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttachConversation'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Attach Conversation
+      tags:
+      - cases
+      x-serviceos-status: implemented
+  /api/v1/cases/{id}/devices:
+    post:
+      operationId: attach_device
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttachDevice'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Attach Device
+      tags:
+      - cases
+      x-serviceos-status: implemented
+  /api/v1/cases/{id}/transitions:
+    post:
+      operationId: transition_case
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransitionCase'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Transition Case
+      tags:
+      - cases
+      x-serviceos-status: implemented
+  /api/v1/conversations:
+    get:
+      operationId: list_conversations
+      parameters:
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          maximum: 100
+          minimum: 1
+          title: Limit
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationList'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Conversations
+      tags:
+      - conversations
+      x-serviceos-status: implemented
+    post:
+      operationId: create_conversation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConversation'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Create Conversation
+      tags:
+      - conversations
+      x-serviceos-status: implemented
+  /api/v1/conversations/{id}:
+    get:
+      operationId: read_conversation
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Read Conversation
+      tags:
+      - conversations
+      x-serviceos-status: implemented
+  /api/v1/conversations/{id}/assistance-requests:
+    post:
+      operationId: request_assistance
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssistanceRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Request Assistance
+      tags:
+      - collaboration
+      x-serviceos-status: implemented
+  /api/v1/conversations/{id}/case-summaries:
+    get:
+      operationId: list_desk_case_summaries
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/DeskCaseSummary'
+                title: Response List Desk Case Summaries
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Desk Case Summaries
+      tags:
+      - cases
+      x-serviceos-status: implemented
+  /api/v1/conversations/{id}/event-history:
+    get:
+      operationId: list_event_history
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      - in: query
+        name: after
+        required: false
+        schema:
+          default: 0
+          minimum: 0
+          title: After
+          type: integer
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 100
+          maximum: 100
+          minimum: 1
+          title: Limit
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventPage'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Event History
+      tags:
+      - events
+      x-serviceos-status: implemented
+  /api/v1/conversations/{id}/events:
+    get:
+      operationId: stream_events
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      - in: query
+        name: after
+        required: false
+        schema:
+          default: 0
+          minimum: 0
+          title: After
+          type: integer
+      - in: header
+        name: Last-Event-ID
+        required: false
+        schema:
+          anyOf:
+          - minimum: 0
+            type: integer
+          - type: 'null'
+          title: Last-Event-Id
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Stream Events
+      tags:
+      - events
+      x-serviceos-status: implemented
+  /api/v1/conversations/{id}/messages:
+    get:
+      operationId: list_messages
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      - in: query
+        name: cursor
+        required: false
+        schema:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Cursor
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          maximum: 100
+          minimum: 1
+          title: Limit
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessagePage'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Messages
+      tags:
+      - messages
+      x-serviceos-status: implemented
+    post:
+      operationId: send_message
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessage'
+        required: true
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageReceipt'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Send Message
+      tags:
+      - messages
+      x-serviceos-status: implemented
+  /api/v1/conversations/{id}/mode-transitions:
+    post:
+      operationId: transition_mode
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModeTransition'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Transition Mode
+      tags:
+      - collaboration
+      x-serviceos-status: implemented
+  /api/v1/conversations/{id}/proposals:
+    get:
+      operationId: list_proposals
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ProposalRead'
+                title: Response List Proposals
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Proposals
+      tags:
+      - collaboration
+      x-serviceos-status: implemented
+  /api/v1/conversations/{id}/tasks:
+    get:
+      operationId: list_tasks
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/TaskRead'
+                title: Response List Tasks
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Tasks
+      tags:
+      - collaboration
+      x-serviceos-status: implemented
+  /api/v1/conversations/{id}/ui-actions:
+    post:
+      operationId: invoke_ui_action
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UIActionRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UIActionResult'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Invoke Ui Action
+      tags:
+      - ui
+      x-serviceos-status: implemented
+  /api/v1/conversations/{id}/ui-document:
+    get:
+      operationId: read_ui_document
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                anyOf:
+                - $ref: '#/components/schemas/UIDocumentRead'
+                - type: 'null'
+                title: Response Read Ui Document
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Read Ui Document
+      tags:
+      - ui
+      x-serviceos-status: implemented
+  /api/v1/conversations/{id}/ui-document/refresh:
+    post:
+      operationId: refresh_ui_document
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UIDocumentRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Refresh Ui Document
+      tags:
+      - ui
+      x-serviceos-status: implemented
+  /api/v1/devices:
+    get:
+      operationId: list_devices
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/DeviceRead'
+                title: Response List Devices
+                type: array
+          description: Successful Response
+      security:
+      - SessionCookie: []
+      summary: List Devices
+      tags:
+      - devices
+      x-serviceos-status: implemented
+    post:
+      operationId: create_device
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDevice'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Create Device
+      tags:
+      - devices
+      x-serviceos-status: implemented
+  /api/v1/devices/{id}:
+    delete:
+      operationId: archive_device
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Archive Device
+      tags:
+      - devices
+      x-serviceos-status: implemented
+    get:
+      operationId: read_device
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Read Device
+      tags:
+      - devices
+      x-serviceos-status: implemented
+    patch:
+      operationId: update_device
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDevice'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Update Device
+      tags:
+      - devices
+      x-serviceos-status: implemented
+  /api/v1/devices/{id}/cases:
+    get:
+      operationId: device_cases
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/CaseRead'
+                title: Response Device Cases
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Device Cases
+      tags:
+      - devices
+      x-serviceos-status: implemented
+  /api/v1/devices/{id}/fact-candidates:
+    get:
+      operationId: list_candidate_facts
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/FactRead'
+                title: Response List Candidate Facts
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Candidate Facts
+      tags:
+      - devices
+      x-serviceos-status: implemented
+  /api/v1/devices/{id}/facts:
+    post:
+      operationId: create_candidate_fact
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CandidateFact'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FactRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Create Candidate Fact
+      tags:
+      - devices
+      x-serviceos-status: implemented
+  /api/v1/devices/{id}/facts/{fact_id}/retract:
+    post:
+      operationId: retract_fact
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      - in: path
+        name: fact_id
+        required: true
+        schema:
+          format: uuid
+          title: Fact Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FactDecision'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FactRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Retract Fact
+      tags:
+      - devices
+      x-serviceos-status: implemented
+  /api/v1/devices/{id}/facts/{fact_id}/verify:
+    post:
+      operationId: verify_fact
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      - in: path
+        name: fact_id
+        required: true
+        schema:
+          format: uuid
+          title: Fact Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FactDecision'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FactRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Verify Fact
+      tags:
+      - devices
+      x-serviceos-status: implemented
+  /api/v1/health:
+    get:
+      description: API liveness only; does not assert database or Agent readiness.
+      operationId: read_health
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+          description: Successful Response
+      summary: Read Health
+      tags:
+      - health
+      x-serviceos-status: implemented
+  /api/v1/local-auth/login:
+    post:
+      operationId: login_local
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocalLogin'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActorRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Login
+      tags:
+      - local-auth
+      x-serviceos-status: implemented
+  /api/v1/proposals/{id}/decision:
+    post:
+      operationId: decide_proposal
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProposalDecision'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposalRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Decide Proposal
+      tags:
+      - collaboration
+      x-serviceos-status: implemented
+  /api/v1/tasks/{id}/claim:
+    post:
+      operationId: claim_task
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimTask'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Claim Task
+      tags:
+      - collaboration
+      x-serviceos-status: implemented
+  /api/v1/cases/{id}/evidence:
+    get:
+      operationId: list_case_evidence
+      summary: List authorized evidence metadata for a case
+      tags:
+      - evidence
+      x-serviceos-status: planned
+      x-serviceos-stage: 4
+      x-serviceos-authorization: Customer owns case; staff belongs to tenant. Internal evidence is staff only.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      responses:
+        '200':
+          description: Authorized evidence
+          oldest first: null
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedEvidencePage'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Case not found or hidden
+    post:
+      operationId: upload_case_evidence
+      summary: Persist image evidence and queue safety inspection
+      tags:
+      - evidence
+      x-serviceos-status: planned
+      x-serviceos-stage: 4
+      x-serviceos-authorization: Customer owns case; staff belongs to tenant. Agent cannot upload on behalf of customer.
+      x-serviceos-idempotency: Same client_evidence_id and file digest returns original receipt; different digest
+        returns 409.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - client_evidence_id
+              - expected_case_version
+              - file
+              properties:
+                client_evidence_id:
+                  type: string
+                  format: uuid
+                expected_case_version:
+                  type: integer
+                  minimum: 1
+                visibility:
+                  type: string
+                  enum:
+                  - PUBLIC
+                  - INTERNAL
+                  default: PUBLIC
+                file:
+                  type: string
+                  format: binary
+                  description: JPEG
+                  PNG or WebP; at most 10 MiB: null
+      responses:
+        '202':
+          description: Stored; inspection is pending
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedEvidenceRead'
+        '401':
+          description: Not authenticated
+        '403':
+          description: Actor cannot upload evidence
+        '404':
+          description: Case not found or hidden
+        '409':
+          description: Stale case version or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedError'
+        '413':
+          description: File exceeds size limit
+        '415':
+          description: Unsupported media type
+        '422':
+          description: Invalid metadata or unsafe file
+        '503':
+          description: Storage or inspection unavailable
+  /api/v1/cases/{id}/evidence/{evidence_id}/content:
+    get:
+      operationId: read_case_evidence_content
+      summary: Download inspected evidence through authorization
+      tags:
+      - evidence
+      x-serviceos-status: planned
+      x-serviceos-stage: 4
+      x-serviceos-authorization: Recheck case, evidence visibility and CLEAN inspection status on every request.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: evidence_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Authorized inspected image; Cache-Control no-store
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Not authenticated
+        '404':
+          description: Evidence not found
+          hidden or not yet safe to serve: null
+  /api/v1/cases/{id}/tasks:
+    get:
+      operationId: list_case_tasks
+      summary: List tasks linked to a case
+      tags:
+      - collaboration
+      x-serviceos-status: planned
+      x-serviceos-stage: 4
+      x-serviceos-authorization: Staff in tenant; customer receives only public task projection.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Authorized tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProposedCaseTaskRead'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Case not found or hidden
+  /api/v1/agent-runs/{id}:
+    get:
+      operationId: read_agent_run
+      summary: Read staff-safe Agent run status
+      tags:
+      - agent-runs
+      x-serviceos-status: planned
+      x-serviceos-stage: 4
+      x-serviceos-authorization: Authorized staff only; exclude raw prompts, reasoning, tool arguments and secrets.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Sanitized run status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedAgentRunRead'
+        '401':
+          description: Not authenticated
+        '403':
+          description: Staff role required
+        '404':
+          description: Run not found or hidden
+  /api/v1/cases/{id}/action-requests:
+    post:
+      operationId: request_mock_case_action
+      summary: Propose one explicitly simulated service action
+      tags:
+      - actions
+      x-serviceos-status: planned
+      x-serviceos-stage: 4
+      x-serviceos-authorization: Authorized staff only; Rule and latest case state rechecked by application service.
+      x-serviceos-idempotency: Same client_action_id and payload returns original ActionRecord; changed payload
+        returns 409.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProposedActionRequest'
+      responses:
+        '202':
+          description: Proposal recorded; no external operation executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedActionRead'
+        '401':
+          description: Not authenticated
+        '403':
+          description: Staff role or operation permission missing
+        '404':
+          description: Case or referenced proposal hidden
+        '409':
+          description: Stale case version
+          invalid state or idempotency conflict: null
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedError'
+        '422':
+          description: Invalid request
+  /api/v1/cases/{id}/actions:
+    get:
+      operationId: list_case_actions
+      summary: List authorized action state and receipt references
+      tags:
+      - actions
+      x-serviceos-status: planned
+      x-serviceos-stage: 4
+      x-serviceos-authorization: Customer sees only public projection; staff sees authorized internal details.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Authorized actions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProposedActionRead'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Case not found or hidden
+  /api/v1/actions/{id}:
+    get:
+      operationId: read_case_action
+      summary: Read current action state and verified mock receipt
+      tags:
+      - actions
+      x-serviceos-status: planned
+      x-serviceos-stage: 4
+      x-serviceos-authorization: Recheck actor and case linkage; hide internal fields from customer.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Authorized action
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedActionRead'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Action not found or hidden
+  /api/v1/cases/{id}/approvals:
+    get:
+      operationId: list_case_action_approvals
+      summary: List action approvals for the staff workbench
+      tags:
+      - approvals
+      x-serviceos-status: planned
+      x-serviceos-stage: 4
+      x-serviceos-authorization: Authorized staff only; customers cannot read internal approval details.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Authorized approvals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProposedApprovalRead'
+        '401':
+          description: Not authenticated
+        '403':
+          description: Staff role required
+        '404':
+          description: Case not found or hidden
+  /api/v1/approvals/{id}/decisions:
+    post:
+      operationId: decide_action_approval
+      summary: Approve or reject an action without claiming execution succeeded
+      tags:
+      - approvals
+      x-serviceos-status: planned
+      x-serviceos-stage: 4
+      x-serviceos-authorization: Staff with approval role; requester cannot self-approve when policy forbids it.
+      x-serviceos-idempotency: Same decision_id and payload replays original result; changed payload returns 409.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProposedApprovalDecision'
+      responses:
+        '200':
+          description: Decision recorded; execution remains separate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedApprovalRead'
+        '401':
+          description: Not authenticated
+        '403':
+          description: Approval permission missing
+        '404':
+          description: Approval not found or hidden
+        '409':
+          description: Stale version
+          already decided or idempotency conflict: null
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedError'
+        '422':
+          description: Invalid decision
+  /api/v1/cases/{id}/verifications:
+    get:
+      operationId: list_case_verifications
+      summary: Read recorded outcome checks
+      tags:
+      - verifications
+      x-serviceos-status: planned
+      x-serviceos-stage: 4
+      x-serviceos-authorization: Customer sees own public checks; staff sees authorized case checks.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Authorized checks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProposedVerificationRead'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Case not found or hidden
+    post:
+      operationId: record_case_verification
+      summary: Record observed outcome; server decides whether case can be resolved
+      tags:
+      - verifications
+      x-serviceos-status: planned
+      x-serviceos-stage: 4
+      x-serviceos-authorization: Case customer or authorized staff; evidence refs must belong to case and be visible.
+      x-serviceos-idempotency: Same client_verification_id and payload replays result; changed payload returns 409.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProposedVerificationRequest'
+      responses:
+        '201':
+          description: Observation stored; case status comes from current Rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedVerificationRead'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Case or evidence hidden
+        '409':
+          description: Stale case version or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedError'
+        '422':
+          description: Invalid observation
+  /api/v1/cases/{id}/resolution-contract:
+    get:
+      operationId: read_case_resolution_contract
+      summary: Read the frozen conditions used to judge a resolution
+      tags:
+      - verifications
+      x-serviceos-status: planned
+      x-serviceos-stage: 4
+      x-serviceos-authorization: Case customer sees public conditions; staff sees authorized case conditions.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Authorized resolution conditions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedResolutionContractRead'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Case or contract not found or hidden
+  /api/v1/cases/{id}/follow-up-consents:
+    get:
+      operationId: list_case_follow_up_consents
+      summary: List explicit follow-up consent records
+      tags:
+      - follow-ups
+      x-serviceos-status: planned
+      x-serviceos-stage: 4
+      x-serviceos-authorization: Customer sees own consent; authorized staff sees case consent.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Authorized consents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProposedFollowUpConsentRead'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Case not found or hidden
+    post:
+      operationId: record_case_follow_up_consent
+      summary: Record explicit customer consent before scheduling follow-up
+      tags:
+      - follow-ups
+      x-serviceos-status: planned
+      x-serviceos-stage: 4
+      x-serviceos-authorization: Case customer only; staff cannot manufacture customer consent.
+      x-serviceos-idempotency: Same client_consent_id and payload replays consent; changed payload returns 409.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProposedFollowUpConsentRequest'
+      responses:
+        '201':
+          description: Consent persisted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedFollowUpConsentRead'
+        '401':
+          description: Not authenticated
+        '403':
+          description: Customer role or ownership missing
+        '404':
+          description: Case not found or hidden
+        '409':
+          description: Stale case version or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedError'
+        '422':
+          description: Invalid consent
+  /api/v1/cases/{id}/follow-ups:
+    get:
+      operationId: list_case_follow_ups
+      summary: Read consented follow-up jobs
+      tags:
+      - follow-ups
+      x-serviceos-status: planned
+      x-serviceos-stage: 4
+      x-serviceos-authorization: Case customer or authorized staff; internal instructions remain staff only.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Authorized follow-ups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProposedFollowUpRead'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Case not found or hidden
+    post:
+      operationId: schedule_case_follow_up
+      summary: Schedule a follow-up only with recorded customer consent
+      tags:
+      - follow-ups
+      x-serviceos-status: planned
+      x-serviceos-stage: 4
+      x-serviceos-authorization: Authorized staff; consent reference must belong to this case and customer.
+      x-serviceos-idempotency: Same client_follow_up_id and payload returns original job; changed payload returns
+        409.
+      security:
+      - SessionCookie: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProposedFollowUpRequest'
+      responses:
+        '201':
+          description: Follow-up persisted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedFollowUpRead'
+        '401':
+          description: Not authenticated
+        '403':
+          description: Staff role or valid consent missing
+        '404':
+          description: Case or consent hidden
+        '409':
+          description: Stale case version or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProposedError'
+        '422':
+          description: Invalid schedule
+components:
+  schemas:
+    ActorRead:
+      additionalProperties: false
+      properties:
+        actor_id:
+          format: uuid
+          title: Actor Id
+          type: string
+        display_name:
+          title: Display Name
+          type: string
+        kind:
+          enum:
+          - CUSTOMER
+          - STAFF
+          title: Kind
+          type: string
+        role:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Role
+        tenant_id:
+          format: uuid
+          title: Tenant Id
+          type: string
+      required:
+      - tenant_id
+      - actor_id
+      - kind
+      - display_name
+      title: ActorRead
+      type: object
+    AssistanceRequest:
+      additionalProperties: false
+      properties:
+        case_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Case Id
+        reason:
+          maxLength: 1000
+          minLength: 3
+          title: Reason
+          type: string
+      required:
+      - reason
+      title: AssistanceRequest
+      type: object
+    AttachConversation:
+      additionalProperties: false
+      properties:
+        conversation_id:
+          format: uuid
+          title: Conversation Id
+          type: string
+        expected_version:
+          minimum: 1.0
+          title: Expected Version
+          type: integer
+      required:
+      - conversation_id
+      - expected_version
+      title: AttachConversation
+      type: object
+    AttachDevice:
+      additionalProperties: false
+      properties:
+        device_id:
+          format: uuid
+          title: Device Id
+          type: string
+        expected_version:
+          minimum: 1.0
+          title: Expected Version
+          type: integer
+        is_primary:
+          default: false
+          title: Is Primary
+          type: boolean
+        role:
+          default: AFFECTED
+          maxLength: 32
+          minLength: 1
+          title: Role
+          type: string
+      required:
+      - device_id
+      - expected_version
+      title: AttachDevice
+      type: object
+    CandidateFact:
+      additionalProperties: false
+      properties:
+        expected_device_revision:
+          minimum: 1.0
+          title: Expected Device Revision
+          type: integer
+        fact_key:
+          maxLength: 120
+          minLength: 2
+          pattern: ^[a-z][a-z0-9_]*$
+          title: Fact Key
+          type: string
+        value:
+          title: Value
+      required:
+      - expected_device_revision
+      - fact_key
+      - value
+      title: CandidateFact
+      type: object
+    CaseRead:
+      additionalProperties: false
+      properties:
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        customer_id:
+          format: uuid
+          title: Customer Id
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        problem_text:
+          title: Problem Text
+          type: string
+        status:
+          title: Status
+          type: string
+        user_goal:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: User Goal
+        version:
+          title: Version
+          type: integer
+      required:
+      - id
+      - customer_id
+      - problem_text
+      - user_goal
+      - status
+      - version
+      - created_at
+      title: CaseRead
+      type: object
+    ClaimTask:
+      additionalProperties: false
+      properties:
+        expected_version:
+          minimum: 1.0
+          title: Expected Version
+          type: integer
+      required:
+      - expected_version
+      title: ClaimTask
+      type: object
+    ConversationList:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/ConversationRead'
+          title: Items
+          type: array
+      required:
+      - items
+      title: ConversationList
+      type: object
+    ConversationRead:
+      additionalProperties: false
+      properties:
+        collaboration_mode:
+          title: Collaboration Mode
+          type: string
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        customer_id:
+          format: uuid
+          title: Customer Id
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        reply_policy:
+          title: Reply Policy
+          type: string
+        status:
+          title: Status
+          type: string
+        version:
+          title: Version
+          type: integer
+      required:
+      - id
+      - customer_id
+      - status
+      - collaboration_mode
+      - reply_policy
+      - version
+      - created_at
+      title: ConversationRead
+      type: object
+    CreateCase:
+      additionalProperties: false
+      properties:
+        customer_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Customer Id
+        problem_text:
+          maxLength: 8000
+          minLength: 1
+          title: Problem Text
+          type: string
+        user_goal:
+          anyOf:
+          - maxLength: 2000
+            type: string
+          - type: 'null'
+          title: User Goal
+      required:
+      - problem_text
+      title: CreateCase
+      type: object
+    CreateConversation:
+      additionalProperties: false
+      properties:
+        customer_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Customer Id
+      title: CreateConversation
+      type: object
+    CreateDevice:
+      additionalProperties: false
+      properties:
+        customer_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Customer Id
+        model:
+          anyOf:
+          - maxLength: 160
+            minLength: 1
+            type: string
+          - type: 'null'
+          title: Model
+        serial_number:
+          anyOf:
+          - maxLength: 160
+            minLength: 1
+            type: string
+          - type: 'null'
+          title: Serial Number
+      title: CreateDevice
+      type: object
+    DeskCaseSummary:
+      additionalProperties: false
+      properties:
+        case:
+          $ref: '#/components/schemas/CaseRead'
+        device_ids:
+          items:
+            format: uuid
+            type: string
+          title: Device Ids
+          type: array
+        facts:
+          items:
+            $ref: '#/components/schemas/SummaryFact'
+          title: Facts
+          type: array
+      required:
+      - case
+      - facts
+      - device_ids
+      title: DeskCaseSummary
+      type: object
+    DeviceRead:
+      additionalProperties: false
+      properties:
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        customer_id:
+          format: uuid
+          title: Customer Id
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        identity_status:
+          title: Identity Status
+          type: string
+        model:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model
+        revision:
+          title: Revision
+          type: integer
+        serial_number:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Serial Number
+        verified_facts:
+          items:
+            $ref: '#/components/schemas/VerifiedDeviceFact'
+          title: Verified Facts
+          type: array
+      required:
+      - id
+      - customer_id
+      - model
+      - serial_number
+      - identity_status
+      - revision
+      - created_at
+      title: DeviceRead
+      type: object
+    EventPage:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/EventRead'
+          title: Items
+          type: array
+        next_after:
+          title: Next After
+          type: integer
+      required:
+      - items
+      - next_after
+      title: EventPage
+      type: object
+    EventRead:
+      additionalProperties: false
+      properties:
+        conversation_id:
+          format: uuid
+          title: Conversation Id
+          type: string
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        data:
+          additionalProperties: true
+          title: Data
+          type: object
+        id:
+          format: uuid
+          title: Id
+          type: string
+        sequence:
+          title: Sequence
+          type: integer
+        type:
+          title: Type
+          type: string
+        visibility:
+          enum:
+          - PUBLIC
+          - INTERNAL
+          title: Visibility
+          type: string
+      required:
+      - id
+      - conversation_id
+      - sequence
+      - type
+      - visibility
+      - data
+      - created_at
+      title: EventRead
+      type: object
+    FactDecision:
+      additionalProperties: false
+      properties:
+        expected_device_revision:
+          minimum: 1.0
+          title: Expected Device Revision
+          type: integer
+        expected_fact_revision:
+          minimum: 1.0
+          title: Expected Fact Revision
+          type: integer
+        reason:
+          maxLength: 1000
+          minLength: 3
+          title: Reason
+          type: string
+      required:
+      - expected_device_revision
+      - expected_fact_revision
+      - reason
+      title: FactDecision
+      type: object
+    FactRead:
+      additionalProperties: false
+      properties:
+        device_id:
+          format: uuid
+          title: Device Id
+          type: string
+        fact_key:
+          title: Fact Key
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        retracted_at:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          title: Retracted At
+        retraction_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Retraction Reason
+        revision:
+          title: Revision
+          type: integer
+        source:
+          title: Source
+          type: string
+        source_kind:
+          title: Source Kind
+          type: string
+        validity:
+          title: Validity
+          type: string
+        value:
+          title: Value
+        verified_at:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          title: Verified At
+        verified_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Verified By
+      required:
+      - id
+      - device_id
+      - fact_key
+      - value
+      - source_kind
+      - source
+      - validity
+      - revision
+      - verified_by
+      - verified_at
+      - retracted_at
+      - retraction_reason
+      title: FactRead
+      type: object
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          title: Detail
+          type: array
+      title: HTTPValidationError
+      type: object
+    HealthResponse:
+      additionalProperties: false
+      properties:
+        service:
+          const: serviceos-api
+          title: Service
+          type: string
+        status:
+          const: ok
+          title: Status
+          type: string
+        version:
+          title: Version
+          type: string
+      required:
+      - status
+      - service
+      - version
+      title: HealthResponse
+      type: object
+    LocalLogin:
+      additionalProperties: false
+      properties:
+        password:
+          format: password
+          title: Password
+          type: string
+          writeOnly: true
+        username:
+          maxLength: 80
+          minLength: 1
+          title: Username
+          type: string
+      required:
+      - username
+      - password
+      title: LocalLogin
+      type: object
+    MessagePage:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/MessageRead'
+          title: Items
+          type: array
+        next_cursor:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Next Cursor
+      required:
+      - items
+      title: MessagePage
+      type: object
+    MessageRead:
+      additionalProperties: false
+      properties:
+        author_kind:
+          title: Author Kind
+          type: string
+        client_message_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Client Message Id
+        content:
+          items:
+            $ref: '#/components/schemas/TextPart'
+          title: Content
+          type: array
+        conversation_id:
+          format: uuid
+          title: Conversation Id
+          type: string
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        related_case_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Related Case Id
+        visibility:
+          title: Visibility
+          type: string
+      required:
+      - id
+      - conversation_id
+      - author_kind
+      - visibility
+      - content
+      - client_message_id
+      - related_case_id
+      - created_at
+      title: MessageRead
+      type: object
+    MessageReceipt:
+      additionalProperties: false
+      properties:
+        message:
+          $ref: '#/components/schemas/MessageRead'
+        processing_state:
+          enum:
+          - QUEUED
+          - NOT_SCHEDULED
+          title: Processing State
+          type: string
+        replayed:
+          title: Replayed
+          type: boolean
+      required:
+      - message
+      - replayed
+      - processing_state
+      title: MessageReceipt
+      type: object
+    ModeTransition:
+      additionalProperties: false
+      properties:
+        expected_version:
+          minimum: 1.0
+          title: Expected Version
+          type: integer
+        reason:
+          maxLength: 1000
+          minLength: 3
+          title: Reason
+          type: string
+        reply_policy:
+          enum:
+          - AI_AUTO
+          - AI_REVIEW_REQUIRED
+          - HUMAN_ONLY
+          title: Reply Policy
+          type: string
+        target_mode:
+          enum:
+          - AI_LEAD
+          - CO_SERVICE
+          - HUMAN_LEAD
+          title: Target Mode
+          type: string
+      required:
+      - target_mode
+      - reply_policy
+      - expected_version
+      - reason
+      title: ModeTransition
+      type: object
+    ProposalDecision:
+      additionalProperties: false
+      properties:
+        decision:
+          enum:
+          - APPROVED
+          - REJECTED
+          title: Decision
+          type: string
+        decision_id:
+          format: uuid
+          title: Decision Id
+          type: string
+        reason:
+          maxLength: 1000
+          minLength: 3
+          title: Reason
+          type: string
+      required:
+      - decision_id
+      - decision
+      - reason
+      title: ProposalDecision
+      type: object
+    ProposalRead:
+      additionalProperties: false
+      properties:
+        conversation_id:
+          format: uuid
+          title: Conversation Id
+          type: string
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        payload:
+          additionalProperties: true
+          title: Payload
+          type: object
+        proposal_type:
+          title: Proposal Type
+          type: string
+        status:
+          title: Status
+          type: string
+      required:
+      - id
+      - conversation_id
+      - proposal_type
+      - payload
+      - status
+      - created_at
+      title: ProposalRead
+      type: object
+    SendMessage:
+      additionalProperties: false
+      properties:
+        client_message_id:
+          format: uuid
+          title: Client Message Id
+          type: string
+        content:
+          items:
+            $ref: '#/components/schemas/TextPart'
+          maxItems: 10
+          minItems: 1
+          title: Content
+          type: array
+        related_case_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Related Case Id
+        visibility:
+          default: PUBLIC
+          enum:
+          - PUBLIC
+          - INTERNAL
+          title: Visibility
+          type: string
+      required:
+      - client_message_id
+      - content
+      title: SendMessage
+      type: object
+    SummaryFact:
+      additionalProperties: false
+      properties:
+        label:
+          title: Label
+          type: string
+        source:
+          title: Source
+          type: string
+        value:
+          title: Value
+          type: string
+        verification:
+          enum:
+          - UNVERIFIED
+          - CANDIDATE
+          - VERIFIED
+          - RETRACTED
+          title: Verification
+          type: string
+      required:
+      - label
+      - value
+      - source
+      - verification
+      title: SummaryFact
+      type: object
+    TaskRead:
+      additionalProperties: false
+      properties:
+        assignee_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Assignee Id
+        case_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Case Id
+        conversation_id:
+          format: uuid
+          title: Conversation Id
+          type: string
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        reason:
+          title: Reason
+          type: string
+        status:
+          title: Status
+          type: string
+        version:
+          title: Version
+          type: integer
+      required:
+      - id
+      - conversation_id
+      - case_id
+      - reason
+      - status
+      - version
+      - created_at
+      title: TaskRead
+      type: object
+    TextPart:
+      additionalProperties: false
+      properties:
+        text:
+          maxLength: 8000
+          minLength: 1
+          title: Text
+          type: string
+        type:
+          const: text
+          default: text
+          title: Type
+          type: string
+      required:
+      - text
+      title: TextPart
+      type: object
+    TransitionCase:
+      additionalProperties: false
+      properties:
+        expected_version:
+          minimum: 1.0
+          title: Expected Version
+          type: integer
+        reason:
+          maxLength: 1000
+          minLength: 3
+          title: Reason
+          type: string
+        target_status:
+          enum:
+          - IN_PROGRESS
+          - WAITING_CUSTOMER
+          - WAITING_EXTERNAL
+          - RESOLVED
+          - CLOSED
+          title: Target Status
+          type: string
+      required:
+      - expected_version
+      - target_status
+      - reason
+      title: TransitionCase
+      type: object
+    UIAction:
+      additionalProperties: false
+      properties:
+        action_id:
+          title: Action Id
+          type: string
+        input_schema_ref:
+          title: Input Schema Ref
+          type: string
+        intent:
+          const: REQUEST_ASSISTANCE
+          title: Intent
+          type: string
+      required:
+      - action_id
+      - intent
+      - input_schema_ref
+      title: UIAction
+      type: object
+    UIActionRequest:
+      additionalProperties: false
+      properties:
+        action_id:
+          const: request-human-assistance
+          title: Action Id
+          type: string
+        client_action_id:
+          format: uuid
+          title: Client Action Id
+          type: string
+        expected_conversation_version:
+          minimum: 1.0
+          title: Expected Conversation Version
+          type: integer
+        input:
+          additionalProperties: true
+          title: Input
+          type: object
+        revision:
+          minimum: 1.0
+          title: Revision
+          type: integer
+        ui_id:
+          format: uuid
+          title: Ui Id
+          type: string
+      required:
+      - client_action_id
+      - ui_id
+      - revision
+      - action_id
+      - input
+      - expected_conversation_version
+      title: UIActionRequest
+      type: object
+    UIActionResult:
+      additionalProperties: false
+      properties:
+        client_action_id:
+          format: uuid
+          title: Client Action Id
+          type: string
+        replayed:
+          title: Replayed
+          type: boolean
+        status:
+          const: ACCEPTED
+          title: Status
+          type: string
+        task_id:
+          format: uuid
+          title: Task Id
+          type: string
+      required:
+      - client_action_id
+      - status
+      - task_id
+      - replayed
+      title: UIActionResult
+      type: object
+    UIComponent:
+      additionalProperties: false
+      properties:
+        actions:
+          items:
+            $ref: '#/components/schemas/UIAction'
+          title: Actions
+          type: array
+        children:
+          items:
+            type: string
+          title: Children
+          type: array
+        data_source:
+          $ref: '#/components/schemas/UIDataSource'
+        id:
+          title: Id
+          type: string
+        props:
+          additionalProperties:
+            type: string
+          title: Props
+          type: object
+        type:
+          title: Type
+          type: string
+      required:
+      - id
+      - type
+      - props
+      - data_source
+      - actions
+      - children
+      title: UIComponent
+      type: object
+    UIDataSource:
+      additionalProperties: false
+      properties:
+        binding:
+          title: Binding
+          type: string
+        kind:
+          enum:
+          - CONVERSATION_VIEW
+          - CASE_VIEW
+          - TASK_VIEW
+          - AGENT_RUN_VIEW
+          title: Kind
+          type: string
+        resource_id:
+          format: uuid
+          title: Resource Id
+          type: string
+        resource_version:
+          minimum: 1.0
+          title: Resource Version
+          type: integer
+      required:
+      - kind
+      - resource_id
+      - resource_version
+      - binding
+      title: UIDataSource
+      type: object
+    UIDocumentRead:
+      additionalProperties: false
+      properties:
+        audience:
+          enum:
+          - CUSTOMER
+          - STAFF
+          title: Audience
+          type: string
+        catalog_version:
+          title: Catalog Version
+          type: integer
+        components:
+          items:
+            $ref: '#/components/schemas/UIComponent'
+          title: Components
+          type: array
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        expires_at:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          title: Expires At
+        fallback_text:
+          title: Fallback Text
+          type: string
+        revision:
+          title: Revision
+          type: integer
+        schema_version:
+          title: Schema Version
+          type: integer
+        source_agent_run_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Source Agent Run Id
+        status:
+          title: Status
+          type: string
+        surface:
+          title: Surface
+          type: string
+        ui_id:
+          format: uuid
+          title: Ui Id
+          type: string
+        visibility:
+          enum:
+          - PUBLIC
+          - INTERNAL
+          title: Visibility
+          type: string
+      required:
+      - ui_id
+      - revision
+      - schema_version
+      - catalog_version
+      - surface
+      - audience
+      - visibility
+      - source_agent_run_id
+      - components
+      - fallback_text
+      - status
+      - created_at
+      - expires_at
+      title: UIDocumentRead
+      type: object
+    UpdateCase:
+      additionalProperties: false
+      properties:
+        expected_version:
+          minimum: 1.0
+          title: Expected Version
+          type: integer
+        problem_text:
+          anyOf:
+          - maxLength: 8000
+            minLength: 1
+            type: string
+          - type: 'null'
+          title: Problem Text
+        user_goal:
+          anyOf:
+          - maxLength: 2000
+            type: string
+          - type: 'null'
+          title: User Goal
+      required:
+      - expected_version
+      title: UpdateCase
+      type: object
+    UpdateDevice:
+      additionalProperties: false
+      properties:
+        expected_revision:
+          minimum: 1.0
+          title: Expected Revision
+          type: integer
+        model:
+          anyOf:
+          - maxLength: 160
+            minLength: 1
+            type: string
+          - type: 'null'
+          title: Model
+        serial_number:
+          anyOf:
+          - maxLength: 160
+            minLength: 1
+            type: string
+          - type: 'null'
+          title: Serial Number
+      required:
+      - expected_revision
+      title: UpdateDevice
+      type: object
+    ValidationError:
+      properties:
+        ctx:
+          title: Context
+          type: object
+        input:
+          title: Input
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          title: Location
+          type: array
+        msg:
+          title: Message
+          type: string
+        type:
+          title: Error Type
+          type: string
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+      type: object
+    VerifiedDeviceFact:
+      additionalProperties: false
+      properties:
+        fact_key:
+          title: Fact Key
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        source:
+          title: Source
+          type: string
+        value:
+          title: Value
+        verified_at:
+          format: date-time
+          title: Verified At
+          type: string
+        verified_by:
+          title: Verified By
+          type: string
+      required:
+      - id
+      - fact_key
+      - value
+      - source
+      - verified_by
+      - verified_at
+      title: VerifiedDeviceFact
+      type: object
+    ProposedError:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - detail
+      properties:
+        code:
+          type: string
+          description: Stable application error code
+        detail:
+          type: string
+          description: Safe user-facing explanation
+        current_version:
+          type: integer
+          minimum: 1
+    ProposedEvidenceRead:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - case_id
+      - visibility
+      - media_type
+      - byte_size
+      - inspection_status
+      - verification
+      - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        case_id:
+          type: string
+          format: uuid
+        visibility:
+          type: string
+          enum:
+          - PUBLIC
+          - INTERNAL
+        media_type:
+          type: string
+          enum:
+          - image/jpeg
+          - image/png
+          - image/webp
+        byte_size:
+          type: integer
+          minimum: 1
+          maximum: 10485760
+        inspection_status:
+          type: string
+          enum:
+          - PENDING
+          - CLEAN
+          - REJECTED
+        verification:
+          type: string
+          enum:
+          - UNVERIFIED
+          - VERIFIED
+          - RETRACTED
+        source_kind:
+          type: string
+          enum:
+          - CUSTOMER
+          - STAFF
+        created_at:
+          type: string
+          format: date-time
+    ProposedEvidencePage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProposedEvidenceRead'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+          format: uuid
+    ProposedCaseTaskRead:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - case_id
+      - status
+      - reason
+      - version
+      properties:
+        id:
+          type: string
+          format: uuid
+        case_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - OPEN
+          - ASSIGNED
+          - CLOSED
+        reason:
+          type: string
+        version:
+          type: integer
+          minimum: 1
+        assignee_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+    ProposedAgentRunRead:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - conversation_id
+      - status
+      - started_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversation_id:
+          type: string
+          format: uuid
+        related_case_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        status:
+          type: string
+          enum:
+          - RUNNING
+          - WAITING_APPROVAL
+          - COMPLETED
+          - FAILED
+          - CANCELLED
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        error_code:
+          type:
+          - string
+          - 'null'
+    ProposedActionRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - client_action_id
+      - expected_case_version
+      - action_kind
+      - reason
+      properties:
+        client_action_id:
+          type: string
+          format: uuid
+        expected_case_version:
+          type: integer
+          minimum: 1
+        action_kind:
+          type: string
+          enum:
+          - MOCK_SERVICE_REQUEST
+        source_proposal_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 1000
+    ProposedMockReceipt:
+      type: object
+      additionalProperties: false
+      required:
+      - adapter
+      - external_reference
+      - result
+      - received_at
+      properties:
+        adapter:
+          type: string
+          enum:
+          - MOCK
+        external_reference:
+          type: string
+        result:
+          type: string
+          enum:
+          - SUCCEEDED
+          - FAILED
+        received_at:
+          type: string
+          format: date-time
+    ProposedActionRead:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - case_id
+      - action_kind
+      - adapter
+      - status
+      - version
+      - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        case_id:
+          type: string
+          format: uuid
+        action_kind:
+          type: string
+          enum:
+          - MOCK_SERVICE_REQUEST
+        adapter:
+          type: string
+          enum:
+          - MOCK
+        status:
+          type: string
+          enum:
+          - PROPOSED
+          - WAITING_APPROVAL
+          - APPROVED
+          - EXECUTING
+          - SUCCEEDED
+          - FAILED
+          - UNKNOWN
+        version:
+          type: integer
+          minimum: 1
+        approval_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        receipt:
+          anyOf:
+          - $ref: '#/components/schemas/ProposedMockReceipt'
+          - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+    ProposedApprovalDecision:
+      type: object
+      additionalProperties: false
+      required:
+      - decision_id
+      - expected_version
+      - decision
+      - reason
+      properties:
+        decision_id:
+          type: string
+          format: uuid
+        expected_version:
+          type: integer
+          minimum: 1
+        decision:
+          type: string
+          enum:
+          - APPROVED
+          - REJECTED
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 1000
+    ProposedApprovalRead:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - action_id
+      - status
+      - version
+      properties:
+        id:
+          type: string
+          format: uuid
+        action_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - PENDING
+          - APPROVED
+          - REJECTED
+        version:
+          type: integer
+          minimum: 1
+        decided_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    ProposedVerificationRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - client_verification_id
+      - expected_case_version
+      - expected_resolution_contract_version
+      - observed_result
+      - note
+      properties:
+        client_verification_id:
+          type: string
+          format: uuid
+        expected_case_version:
+          type: integer
+          minimum: 1
+        expected_resolution_contract_version:
+          type: integer
+          minimum: 1
+        observed_result:
+          type: string
+          enum:
+          - WORKING
+          - NOT_WORKING
+          - UNCERTAIN
+        evidence_ids:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            format: uuid
+        note:
+          type: string
+          maxLength: 2000
+    ProposedVerificationRead:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - case_id
+      - observed_result
+      - decision
+      - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        case_id:
+          type: string
+          format: uuid
+        observed_result:
+          type: string
+          enum:
+          - WORKING
+          - NOT_WORKING
+          - UNCERTAIN
+        decision:
+          type: string
+          enum:
+          - PENDING
+          - VERIFIED_RESOLVED
+          - NOT_RESOLVED
+        case_status:
+          type: string
+          enum:
+          - OPEN
+          - IN_PROGRESS
+          - WAITING_CUSTOMER
+          - WAITING_EXTERNAL
+          - RESOLVED
+          - CLOSED
+        created_at:
+          type: string
+          format: date-time
+    ProposedResolutionContractRead:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - case_id
+      - version
+      - conditions
+      - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        case_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          minimum: 1
+        conditions:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+    ProposedFollowUpConsentRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - client_consent_id
+      - expected_case_version
+      - purpose
+      properties:
+        client_consent_id:
+          type: string
+          format: uuid
+        expected_case_version:
+          type: integer
+          minimum: 1
+        purpose:
+          type: string
+          minLength: 3
+          maxLength: 1000
+    ProposedFollowUpConsentRead:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - case_id
+      - customer_id
+      - purpose
+      - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        case_id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+          format: uuid
+        purpose:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    ProposedFollowUpRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - client_follow_up_id
+      - expected_case_version
+      - consent_record_id
+      - due_at
+      - purpose
+      properties:
+        client_follow_up_id:
+          type: string
+          format: uuid
+        expected_case_version:
+          type: integer
+          minimum: 1
+        consent_record_id:
+          type: string
+          format: uuid
+        due_at:
+          type: string
+          format: date-time
+        purpose:
+          type: string
+          minLength: 3
+          maxLength: 1000
+    ProposedFollowUpRead:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - case_id
+      - status
+      - due_at
+      - purpose
+      - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        case_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - SCHEDULED
+          - RUNNING
+          - COMPLETED
+          - CANCELLED
+          - FAILED
+        due_at:
+          type: string
+          format: date-time
+        purpose:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+  securitySchemes:
+    SessionCookie:
+      in: cookie
+      name: serviceos_session
+      type: apiKey

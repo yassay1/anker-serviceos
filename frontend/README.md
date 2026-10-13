@@ -19,17 +19,20 @@ Vite 在 `http://127.0.0.1:5173` 启动，`/support` 是客户入口，`/desk` �
 | 位置 | 职责 |
 |---|---|
 | `src/main.tsx` | React、Router、TanStack Query 初始化 |
-| `src/App.tsx` | 当前客户与客服页面、会话和消息交互 |
-| `src/UIDocumentRenderer.tsx` | 工作区中的受控 UI 文档渲染实现；验收状态以开发计划为准 |
-| `src/styles.css` | 当前全局视觉样式和响应式规则 |
+| `src/App.tsx`、`src/app/ServicePage.tsx` | 路由、身份校验与登录状态；失败时提供重试 |
+| `src/app/queryKeys.ts` | 按身份、租户和会话划分查询缓存 |
+| `src/features/conversation/` | 会话列表、消息收发、乐观状态与 SSE 断线补取 |
+| `src/features/collaboration/` | 人工任务、策略切换与草稿审批 |
+| `src/features/ui-document/` | 受控 UI 文档渲染与低风险 action intent |
+| `src/styles/base.css`、`src/styles/workspace.css` | 基础视觉样式和工作区响应式布局 |
 | `src/api/client.ts` | 类型化请求封装与错误处理 |
 | `src/api/schema.d.ts` | 从仓库根目录的 `contracts/openapi.json` 生成的类型 |
 
-页面显示服务器保存的消息和授权可见数据。Case、Device、Conversation 是不同对象；界面不能根据 Agent 文案推断业务已完成，也不能将内部备注显示给客户。工作区可能包含未提交的阶段 3 功能；[开发计划](../docs/development-plan.md)和对应验收记录决定已交付范围，代码存在本身不代表已验收。
+页面显示服务器保存的消息和授权可见数据。Case、Device、Conversation 是不同对象；界面不能根据 Agent 文案推断业务已完成，也不能将内部备注显示给客户。消息查询在 SSE 连通时由事件驱动刷新，断线时退回轮询；UI 文档投影在首次打开及相关事件后刷新。前端本地浏览器复核范围与仍待验的分支见[阶段 3 验收记录](../docs/phase3-validation.md)。下一阶段的功能范围以[开发计划](../docs/development-plan.md)为准。
 
 ## API 契约变更
 
-前端调用以真实 FastAPI 路由和生成类型为准。需要新接口时，按[协作开发指南](../docs/contributing.md)先与后端约定请求、响应、错误、权限和版本；后端实现并导出 OpenAPI 后，在仓库根目录与本目录依次执行：
+前端调用以真实 FastAPI 路由和生成类型为准。需要新接口时，先与后端按[V1 接口提案](../contracts/proposed/v1/README.md)、[协作开发指南](../docs/contributing.md)及[功能契约模板](../docs/templates/feature-contract.md)共同确认场景、请求、响应、错误、权限、版本和事件。提案中的 `planned` 操作不能调用；接口实现前可并行开发页面结构与状态，但提交操作保持待接入，不显示假成功。后端实现并导出 OpenAPI 后，在仓库根目录与本目录依次执行：
 
 ```powershell
 uv run --project backend --locked python -m serviceos_api.export_openapi
