@@ -14,7 +14,7 @@ async function login(page: Page, username: string, desk = false) {
   await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
 }
 
-test('real API: persisted conversation, human handoff, PUBLIC/INTERNAL separation and live events', async ({ browser }) => {
+test('real API: persisted conversation, human handoff and PUBLIC/INTERNAL separation without an event dispatcher', async ({ browser }) => {
   const customerContext = await browser.newContext(contextOptions)
   const staffContext = await browser.newContext(contextOptions)
   try {
@@ -56,7 +56,11 @@ test('real API: persisted conversation, human handoff, PUBLIC/INTERNAL separatio
     await staff.getByLabel('仅客服可见的内部备注').uncheck()
     const publicReply = `已由客服接续处理 ${Date.now()}`
     await staff.getByLabel('回复客户').fill(publicReply)
+    const savedReply = staff.waitForResponse(r => r.url().endsWith(`/conversations/${conversationId}/messages`) && r.request().method() === 'POST')
     await staff.getByRole('button', { name: '发送消息', exact: true }).click()
+    const publicReceipt = await savedReply
+    expect(publicReceipt.status()).toBe(202)
+    expect((await publicReceipt.json() as S['MessageReceipt']).message.visibility).toBe('PUBLIC')
     await expect(customer.getByText(publicReply, { exact: true })).toBeVisible()
     await expect(customer.getByText(internal, { exact: true })).toHaveCount(0)
     const response = await customerContext.request.get(`/api/v1/conversations/${conversationId}/messages`)

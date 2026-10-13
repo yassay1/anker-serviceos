@@ -56,12 +56,14 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     enabled: Boolean(selected),
-    refetchInterval: streamState === 'connected' ? false : 4_000,
+    // Transport-open does not prove the independent Outbox dispatcher is running.
+    refetchInterval: streamState === 'connected' ? 10_000 : 4_000,
   })
   const summaries = useQuery({
     queryKey: queryKeys.summaries(actor.tenant_id, selected?.id ?? ''),
     queryFn: () => listDeskCaseSummaries(selected!.id),
     enabled: desk && Boolean(selected),
+    refetchInterval: 10_000,
   })
   const uiDocument = useQuery({
     queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, selected?.id ?? ''),
@@ -69,6 +71,7 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
     enabled: Boolean(selected),
     staleTime: Infinity,
     refetchOnWindowFocus: false,
+    refetchInterval: 10_000,
   })
   const recorded = messages.data?.pages.flatMap((page) => page.items) ?? []
   const recordedKeys = new Set(recorded.map((message) => message.client_message_id))

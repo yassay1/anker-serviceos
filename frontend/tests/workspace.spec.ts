@@ -1,6 +1,20 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { fixture, ids } from './workspace-fixture'
+
+async function quietStream(page: Page) {
+  await page.addInitScript(() => {
+    class QuietEventSource {
+      onopen: (() => void) | null = null
+      onerror: (() => void) | null = null
+      onmessage: ((event: MessageEvent) => void) | null = null
+      closed = false
+      constructor() { setTimeout(() => { if (!this.closed) this.onopen?.() }, 0) }
+      close() { this.closed = true }
+    }
+    window.EventSource = QuietEventSource as unknown as typeof EventSource
+  })
+}
 
 test('adaptation: search and status filter operate on loaded conversations', async ({ page }) => {
   const state = await fixture(page)
@@ -73,6 +87,30 @@ test('adaptation: explicit forbidden device never falls back to another record',
   await page.goto(`/devices/${ids.second}`)
   await expect(page.getByRole('alert')).toContainText('设备不存在或无权访问。')
   await expect(page.getByRole('heading', { name: 'Anker 737', exact: true })).toHaveCount(0)
+})
+
+test('adaptation: a connected but quiet event stream still reconciles saved messages', async ({ page }) => {
+  // Model transport-open without delivered events; HTTP still uses the real Client.
+  await quietStream(page)
+  const state = await fixture(page, false)
+  await page.goto('/support')
+  await expect(page.getByText('实时更新已连接', { exact: true })).toBeVisible()
+  await expect(page.getByText('充电宝连接后供电不稳定，需要重新插拔才有反应。', { exact: true })).toBeVisible()
+  state.messages.push({ ...state.messages[1], id: crypto.randomUUID(), content: [{ type: 'text', text: '这条服务器回复没有触发事件' }] })
+  await expect(page.getByText('这条服务器回复没有触发事件', { exact: true })).toBeVisible({ timeout: 12_000 })
+  expect(state.unexpected).toEqual([])
+})
+
+test('adaptation: a quiet event stream also reconciles externally reviewed drafts', async ({ page }) => {
+  await quietStream(page)
+  const state = await fixture(page)
+  await page.goto('/desk')
+  await expect(page.getByText('实时更新已连接', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '批准', exact: true })).toBeVisible()
+  state.proposals[0].status = 'REJECTED'
+  await expect(page.getByText('回复草稿 · 建议补充充电线材信息。 · 已拒绝', { exact: true })).toBeVisible({ timeout: 12_000 })
+  await expect(page.getByRole('button', { name: '批准', exact: true })).toHaveCount(0)
+  expect(state.unexpected).toEqual([])
 })
 
 for (const [route, staff, mobile] of [['/desk', true, false], ['/desk', true, true], ['/support', false, false], ['/support', false, true], [`/devices/${ids.device}`, false, false], [`/devices/${ids.device}`, false, true]] as const) {

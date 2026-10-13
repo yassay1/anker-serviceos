@@ -19,6 +19,7 @@
 - 草稿文本与 INTERNAL 选择按会话 ID 分别保存。原代码切换会话会沿用同一份输入，本次先复现失败，再修复并验证。
 - 模式切换与草稿审阅原因长度统一为后端要求的至少三字，提交使用 trim 后内容；不符合条件时禁用按钮。
 - 保留 409 的服务器拒绝原因与主动刷新，403 不假成功；不自动重放业务操作。
+- SSE 连接建立后仍每十秒校对消息与协作快照；断开时消息每四秒查询。保留事件触发的即时刷新，投影刷新同签名时复用后端 revision，不重新执行服务任务。
 - 设备明确 ID 读取失败时显示拒绝，不能默认为列表第一台；查询键包含租户及账号，详情错误不显示旧设备数据。
 - 已知事实键提供中文名称（例如 `charging_watts` 为“充电功率（瓦）”）；未知键和值保持原样，不推断诊断。事实来源与日期保留。
 
@@ -28,8 +29,8 @@
 |---|---|
 | `npm run check:api` | 生成 Client 与实际 OpenAPI 一致 |
 | `npm run typecheck` | 应用、受控测试、Live 测试及两个配置通过 |
-| `npm run build` | 成功；JS 342.44kB，gzip 106.97kB，CSS 17.49kB |
-| `$env:PLAYWRIGHT_CHANNEL='chrome'; npm run test:browser` | 19 passed，含原七个冲突/成功/拒绝用例与新增适配回归 |
+| `npm run build` | 成功；JS 与 CSS 构建成功，具体产物大小以本轮构建输出为准 |
+| `$env:PLAYWRIGHT_CHANNEL='chrome'; npm run test:browser` | 21 passed，含原七个冲突/成功/拒绝用例与新增适配回归 |
 | 六个 axe 矩阵 | `/desk`、`/support`、设备详情各 1440×1000 和 390×844；WCAG A/AA 无 violations |
 | `python -m serviceos_api.export_openapi --check` | 实际路由与契约一致 |
 | `python contracts/proposed/v1/sync_implemented.py --check` | 实际契约与提案来源同步 |
@@ -38,6 +39,12 @@
 | 独立界面审阅 | 发现手机人工协助标签不明确、事实显示原始字段；集中修复后两项均 scored resolved，disposition ship；仅针对这批修复的判定 |
 
 首次适配回归在原界面上复现了搜索、草稿隔离、手机切换、审阅原因验证和设备页缺失；原移动页面也有对比度问题。首次生成后另查出测试设备拦截错误命中了页面导航（不是 API），修正为 `/api/v1/devices/...` 后验证实际拒绝路径。手机切换按钮文字对比度曾为 4.37:1，修正后 axe 矩阵通过。
+
+## 首轮真实 CI 暴露的问题与修复
+
+`1dceaea` 的真实 CI：设备历史与跨客户/租户拒绝通过，会话流程在客户接收公开回复处失败。API 的三次消息写入均返回 202，但客户页面只有初始消息。当前后端将消息写入 Outbox，由独立 `OutboxDispatcher` 转成 ConversationEvent；CI 不启用模型 Worker，SSE 能保持连接但没有业务事件。原前端在连接建立后停止消息查询，导致客户遗漏回复。
+
+新增“已连接但安静的事件通道”消息及外部草稿回归均先失败；加入低频快照校对后复验。该校对不自动重放业务写入。Live 测试明确验证没有事件调度器时的 API/数据库服务路径，不将保活连接或轮询更新称为已验收事件发布。后续 CI 结果仍以实际运行记录为准。
 
 ## 真实后端浏览器验收
 

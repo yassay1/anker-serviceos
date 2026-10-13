@@ -26,6 +26,7 @@ export async function fixture(page: Page, staff = true) {
         content: [{ type: 'text', text: '收到，我们在这段会话继续处理。请补充充电线材与适配器的信息。' }],
         client_message_id: null, related_case_id: null, created_at: createdAt }] as S['MessageRead'][],
     sent: [] as S['SendMessage'][], unexpected: [] as string[],
+    proposals: [] as S['ProposalRead'][],
   }
   const device: S['DeviceRead'] = { id: ids.device, customer_id: ids.customer, model: 'Anker 737',
     serial_number: 'PRIVATE-SERIAL-0921', identity_status: 'UNVERIFIED', revision: 2, created_at: createdAt,
@@ -35,6 +36,7 @@ export async function fixture(page: Page, staff = true) {
     problem_text: '充电接口不稳定', user_goal: '恢复稳定充电', status: 'WAITING_CUSTOMER', version: 2, created_at: createdAt }]
   const proposal: S['ProposalRead'] = { id: ids.second, conversation_id: ids.conversation,
     proposal_type: 'REPLY', payload: { summary: '建议补充充电线材信息。' }, status: 'DRAFT', created_at: createdAt }
+  state.proposals.push(proposal)
   const summary: S['DeskCaseSummary'] = { case: history[0], device_ids: [ids.device], facts: [
     { label: '问题描述', value: '充电接口连接后供电不稳定', source: '客户陈述', verification: 'CANDIDATE' },
   ] }
@@ -62,7 +64,7 @@ export async function fixture(page: Page, staff = true) {
       : method === 'GET' && path.endsWith('/messages') ? { items: state.messages.filter(item => path.includes(item.conversation_id)), next_cursor: null }
       : method === 'GET' && path.endsWith('/case-summaries') ? [summary]
       : method === 'GET' && path.endsWith('/tasks') ? []
-      : method === 'GET' && path.endsWith('/proposals') ? [proposal]
+      : method === 'GET' && path.endsWith('/proposals') ? state.proposals
       : method === 'GET' && path.endsWith('/devices') ? [device]
       : method === 'GET' && path.endsWith(`/devices/${ids.device}`) ? device
       : method === 'GET' && path.endsWith(`/devices/${ids.device}/cases`) ? history
