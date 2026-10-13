@@ -35,6 +35,6 @@
       "local_adjustments": "正文原样采用"
     }
   ],
-  "scope": "本轮执行阶段 0；业务阶段 1–5 尚未执行",
+  "scope": "2026-10-12 采纳基线时仅执行阶段 0；此字段为历史快照，当前完成状态见 docs/development-plan.md 与阶段验收记录",
   "source_files_modified": false
 }

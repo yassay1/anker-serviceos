@@ -12,6 +12,7 @@
 - [开发实施计划](docs/development-plan.md)：各阶段真实完成状态。
 - [现有项目合并与归档说明](docs/baseline-integration.md)：V1 差异处理、复用边界、增量任务和验收。
 - [Agent 工程规则](AGENTS.md)。
+- [协作开发指南](docs/contributing.md)：模块边界、契约变更、并行开发与集成检查。
 - [阶段 0 实际验收记录](docs/baseline-validation.md)：变更文件、命令、测试、浏览器结果及限制。
 - [阶段 1 实际验收记录](docs/phase1-validation.md)：PostgreSQL、业务 API、权限、前端消息和范围边界。
 - [阶段 2 验收记录](docs/phase2-validation.md)：Worker/Agent 落地范围、离线测试和真实 Provider 待验证项。
@@ -55,7 +56,7 @@ docker run --name serviceos-postgres-local -e POSTGRES_DB=serviceos_dev -e POSTG
 Copy-Item backend/.env.example backend/.env
 ```
 
-当前开发机已建有相同配置的 `serviceos-v1-postgres-20261012` 容器；重启时用 `docker start serviceos-v1-postgres-20261012`，不要再次运行上面的创建命令。`.env.example` 中的账号密码只是本地样例，不可用于生产。随后在项目根目录显式迁移并初始化本地测试身份：
+若本机已有开发容器，使用现有容器并确认端口与 `backend/.env` 一致。`.env.example` 中的账号密码只是本地样例，不可用于生产。随后在项目根目录显式迁移并初始化本地测试身份：
 
 ```powershell
 uv sync --project backend --locked
@@ -112,4 +113,4 @@ npm run generate:api
 
 当前活动后端工程、依赖和测试均位于 `backend/`；根目录不再保留第二套 Python 工程或旧原型测试入口。归档中的旧原型测试仅是历史资产，不属于当前 CI 或活动验收范围。
 
-含团队私人联系方式的预赛材料已移出工作区，放在上述项目外归档目录的 `private/` 子目录；分享/公开归档前仍需按隐私要求单独审查。此目录尚未初始化 Git；CI 文件本地可审阅，但未在远端运行。
+含团队私人联系方式的预赛材料已移出工作区，放在上述项目外归档目录的 `private/` 子目录；分享/公开归档前仍需按隐私要求单独审查。本目录已推送到私有 Git 仓库；`.github/workflows/ci.yml` 已配置，远端运行结果以 GitHub Actions 的实际记录为准。

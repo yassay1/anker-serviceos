@@ -64,6 +64,8 @@
 
 ## 5. API 契约（计划）
 
+本表描述 V1 目标，不是已注册路由清单。当前可调用接口以从 FastAPI 导出的 [OpenAPI](../contracts/openapi.json) 为准；新增路由须由实际 Pydantic Schema 和应用服务实现后导出，并同步生成前端类型。协作步骤见[协作开发指南](contributing.md)。
+
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/api/v1/conversations` | create conversation |

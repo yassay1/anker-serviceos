@@ -17,3 +17,11 @@
 - [A2UI Catalogs](https://a2ui.org/concepts/catalogs/)、[Actions](https://a2ui.org/concepts/actions/) 与 [v1.0 候选协议](https://github.com/a2ui-project/a2ui/blob/main/specification/v1_0/docs/a2ui_protocol.md)：参考声明式数据、受信组件 Catalog、结构/数据/Renderer 解耦、revision/增量更新和动作上下文。A2UI 仍在演进，本项目只借鉴模式，V1 不把它设为运行时依赖或对外兼容承诺。
 
 上述资料用于设计取舍，不证明本项目已经实现 UI Schema、Renderer 或对应接口；真实范围以 [开发实施计划](development-plan.md) 和阶段验收记录为准。
+
+## 多人协作与接口集成参考（2026-10-13 核对）
+
+- [FastAPI：Bigger Applications](https://fastapi.tiangolo.com/tutorial/bigger-applications/)：`APIRouter` 可按业务拆分并由主应用组合；本仓库现有业务路由尚集中在一个文件，指南仅作为后续渐进拆分依据。
+- [Kubernetes SIG Scheduling：Contributing](https://github.com/kubernetes/community/blob/main/sig-scheduling/CONTRIBUTING.md)：重大 API 或重构先明确设计和审阅责任；本项目使用简短契约与验收场景，不照搬 KEP 治理。
+- [GitHub：贡献指南](https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions/setting-guidelines-for-repository-contributors)、[CODEOWNERS](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners)、[受保护分支](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)：参考任务入口、审阅责任与状态检查。仓库目前未配置 CODEOWNERS 或分支保护，不能将这些参考写成现行门禁。
+
+项目取舍与可执行步骤见[协作开发指南](contributing.md)。

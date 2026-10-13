@@ -29,4 +29,5 @@
 - 旧 A1229 `app/` 原型、旧功能 spec、根级旧 Python 工程及历史会话规划日志已归档到项目外的 `D:\proj\Anker SreviceOS-archive-20261013`；不得把归档里的旧选型或未执行任务当成当前计划。`.specify/memory/constitution.md` 是仍保留的工程约束，继续继承证据、安全、验证与审计原则。
 - 当前后端工程位于 `backend/serviceos_api/`；Agent 所需的活动只读手册资料位于 `backend/serviceos_api/knowledge/`。业务变更须经过应用服务和类型化命令，不能复制出第二套验证规则。
 - 开始下一阶段前检查 `docs/development-plan.md` 的真实勾选状态；当前实施清单在 `docs/baseline-integration.md`。所有用户可见消息和公开流通过 Conversation Service；不得将历史原型或归档内容描述为当前实现。
+- 跨模块、接口或迁移改动先读 `docs/contributing.md`：按实际代码确认边界，先协调契约，再分别实现并做集成校验。
 
