@@ -1,10 +1,10 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { FileText, Headphones, Inbox, MessageSquare, ShieldCheck } from 'lucide-react'
 import {
   type Actor, type SendBody, createConversation, listConversations,
-  listDeskCaseSummaries, listMessages, refreshUIDocument, sendMessage,
+  listDeskCaseSummaries, listMessages, readUIDocument, refreshUIDocument, sendMessage,
 } from '../../api/client'
 import { queryKeys } from '../../app/queryKeys'
 import { readableError } from '../../shared/errors'
@@ -59,6 +59,13 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
     // Transport-open does not prove the independent Outbox dispatcher is running.
     refetchInterval: streamState === 'connected' ? 10_000 : 4_000,
   })
+  // The API cursor moves forward from the oldest message, so read to the tail.
+  // A failed page pauses automatic fetching and leaves an explicit retry control.
+  useEffect(() => {
+    if (messages.hasNextPage && !messages.isFetching && !messages.isError) {
+      void messages.fetchNextPage()
+    }
+  }, [messages.hasNextPage, messages.isFetching, messages.isError, messages.fetchNextPage])
   const summaries = useQuery({
     queryKey: queryKeys.summaries(actor.tenant_id, selected?.id ?? ''),
     queryFn: () => listDeskCaseSummaries(selected!.id),
@@ -67,7 +74,7 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
   })
   const uiDocument = useQuery({
     queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, selected?.id ?? ''),
-    queryFn: () => refreshUIDocument(selected!.id),
+    queryFn: () => selected!.status === 'ACTIVE' ? refreshUIDocument(selected!.id) : readUIDocument(selected!.id),
     enabled: Boolean(selected),
     staleTime: Infinity,
     refetchOnWindowFocus: false,
@@ -147,7 +154,7 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
             <div className="chat-identity"><span className="chat-avatar"><Headphones size={22} aria-hidden="true" /></span><div><h2>{desk ? '与客户沟通' : '当前服务会话'}</h2><p>会话 #{selected.id.slice(0, 8)} <span className={`stream-note ${streamState}`}><span className="status-dot" aria-hidden="true" />{streamState === 'connected' ? '实时更新已连接' : streamState === 'connecting' ? '正在连接实时更新' : '重连中，消息仍可查询'}</span></p></div></div>
             <StatusBadge value={selected.status} />
           </div>
-          <MessageThread actor={actor} desk={desk} messages={recorded} pending={visiblePending}
+          <MessageThread key={selected.id} actor={actor} desk={desk} messages={recorded} pending={visiblePending}
             loading={messages.isPending} error={messages.isError ? readableError(messages.error) : undefined}
             hasMore={Boolean(messages.hasNextPage)} loadingMore={messages.isFetchingNextPage}
             onMore={() => void messages.fetchNextPage()} onRetry={(item) => void deliver(item)} />
@@ -174,7 +181,8 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
         <CollaborationPanel key={selected.id} conversation={selected} actor={actor} desk={desk} />
         <section className="context-ui" aria-label="交互卡">
           {uiDocument.isError && <p className="ui-fallback" role="alert">{readableError(uiDocument.error)}；请继续使用文字消息。</p>}
-          <UIDocumentRenderer key={`${selected.id}-${uiDocument.data?.revision ?? 0}`} document={uiDocument.data ?? null}
+          <UIDocumentRenderer key={selected.id} document={uiDocument.data ?? null} active={selected.status === 'ACTIVE'}
+            recoveryKey={`serviceos:pending-ui:${actor.tenant_id}:${actor.actor_id}:${selected.id}`}
             conversationId={selected.id} conversationVersion={selected.version} desk={desk}
             onCompleted={() => {
               void queryClient.invalidateQueries({ queryKey: queryKeys.tasks(actor.tenant_id, selected.id) })

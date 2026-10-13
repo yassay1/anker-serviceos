@@ -44,6 +44,10 @@ export async function fixture(page: Page, staff = true) {
     audience: staff ? 'STAFF' : 'CUSTOMER', visibility: staff ? 'INTERNAL' : 'PUBLIC', surface: staff ? 'DESK_PANEL' : 'SUPPORT_PANEL',
     status: 'ACTIVE', components: [{ id: 'next', type: 'QuestionForm', props: { title: '下一步需要的信息', body: '请描述正在使用的充电线材和适配器。' }, actions: [], children: [], data_source: { kind: "CONVERSATION_VIEW", binding: "collaboration", resource_id: ids.conversation, resource_version: 3 } }],
     created_at: createdAt, expires_at: null, source_agent_run_id: null, fallback_text: '请继续使用文字消息。' }
+  if (!staff) document.components.push({ id: 'request-assistance', type: 'ActionBar',
+    props: { title: '需要真人协助？', body: '请求会创建人工任务；你仍可继续发送文字消息。' },
+    actions: [{ action_id: 'request-human-assistance', intent: 'REQUEST_ASSISTANCE', input_schema_ref: 'serviceos://ui-inputs/assistance-request/v1' }], children: [],
+    data_source: { kind: 'CONVERSATION_VIEW', binding: 'assistance', resource_id: ids.conversation, resource_version: 3 } })
   const health: S['HealthResponse'] = { status: 'ok', service: 'serviceos-api', version: '0.1.0' }
   await page.route('**/api/v1/**', async route => {
     const path = new URL(route.request().url()).pathname
@@ -69,6 +73,7 @@ export async function fixture(page: Page, staff = true) {
       : method === 'GET' && path.endsWith(`/devices/${ids.device}`) ? device
       : method === 'GET' && path.endsWith(`/devices/${ids.device}/cases`) ? history
       : method === 'POST' && path.endsWith('/ui-document/refresh') ? document : undefined
+    if (method === 'GET' && path.endsWith('/ui-document')) return route.fulfill({ json: document })
     if (json === undefined) {
       state.unexpected.push(`${method} ${path}`)
       return route.fulfill({ status: 404, json: { detail: '资源不存在或无权访问。' } })

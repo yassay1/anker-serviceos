@@ -26,8 +26,15 @@ test('logic audit: oldest-first pagination reaches the latest saved reply', asyn
   })
   await page.goto('/support')
   await expect(page.getByText('长会话中的最新回复', { exact: true })).toBeVisible()
+  const reply = await page.getByText('长会话中的最新回复', { exact: true }).boundingBox()
+  const thread = await page.locator('.message-list-wrap').boundingBox()
+  expect(reply!.y + reply!.height).toBeLessThanOrEqual(thread!.y + thread!.height + 1)
   await expect(page.getByText('历史消息 1', { exact: true })).toHaveCount(1)
   await expect(page.getByRole('button', { name: '加载更早消息', exact: true })).toHaveCount(0)
+  await page.locator('.message-list-wrap').evaluate(element => { element.scrollTop = 0 })
+  messages.push({ ...messages[114], id: crypto.randomUUID(), created_at: '2026-10-14T01:02:00Z', content: [{ type: 'text', text: '阅读历史时到达的新回复' }] })
+  await expect(page.getByText('阅读历史时到达的新回复', { exact: true })).toHaveCount(1, { timeout: 12_000 })
+  expect(await page.locator('.message-list-wrap').evaluate(element => element.scrollTop)).toBe(0)
 })
 
 test('logic audit: another logged-in actor cannot inherit the previous draft', async ({ page }) => {
@@ -100,4 +107,85 @@ test('logic audit: archived conversations expose no active collaboration command
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled()
   await expect(page.getByRole('button', { name: '切换策略', exact: true })).toBeDisabled()
   await expect(page.getByRole('button', { name: '批准', exact: true })).toBeDisabled()
+})
+
+test('logic audit: customer assistance has one idempotent submission entry', async ({ page }) => {
+  const state = await fixture(page, false)
+  assistanceDocument(state.document)
+  await page.goto('/support')
+  await expect(page.getByRole('region', { name: '服务交互卡', exact: true }).getByRole('button', { name: '请求人工协助', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '请求人工协助', exact: true })).toHaveCount(1)
+})
+
+for (const navigation of ['conversation', 'devices', 'reload'] as const) {
+  test(`logic audit: uncertain assistance survives ${navigation}`, async ({ page }) => {
+    const state = await fixture(page, false)
+    state.conversations[1].status = 'ACTIVE'
+    assistanceDocument(state.document)
+    const bodies: S['UIActionRequest'][] = []
+    await page.route('**/ui-actions', async route => {
+      const body = route.request().postDataJSON() as S['UIActionRequest']
+      bodies.push(body)
+      if (bodies.length === 1) return route.abort('failed')
+      return route.fulfill({ json: { client_action_id: body.client_action_id, status: 'ACCEPTED', task_id: ids.second, replayed: true } satisfies S['UIActionResult'] })
+    })
+    await page.goto(`/support?conversation=${ids.conversation}`)
+    const card = page.getByRole('region', { name: '服务交互卡', exact: true })
+    await card.getByRole('button', { name: '请求人工协助', exact: true }).click()
+    await expect(card.getByRole('button', { name: '用原请求重试', exact: true })).toBeVisible()
+    if (navigation === 'conversation') {
+      const list = page.getByRole('complementary', { name: '会话列表', exact: true })
+      await list.getByRole('button', { name: /22222222/ }).click()
+      await list.getByRole('button', { name: /11111111/ }).click()
+    } else if (navigation === 'devices') {
+      await page.getByRole('navigation', { name: '主要导航' }).getByRole('link', { name: '设备档案' }).click()
+      await page.getByRole('navigation', { name: '主要导航' }).getByRole('link', { name: '用户服务' }).click()
+    } else await page.reload()
+    await expect(card.getByRole('button', { name: '用原请求重试', exact: true })).toBeVisible()
+    expect(bodies).toHaveLength(1)
+    await card.getByRole('button', { name: '用原请求重试', exact: true }).click()
+    await expect(card.getByRole('status')).toHaveText('人工协助请求已存在。')
+    expect(bodies[1]).toEqual(bodies[0])
+  })
+}
+
+test('logic audit: a late receipt cannot erase a newer uncertain request', async ({ page }) => {
+  const state = await fixture(page, false)
+  assistanceDocument(state.document)
+  const bodies: S['UIActionRequest'][] = []
+  let releaseFirst!: () => void
+  const firstGate = new Promise<void>(resolve => { releaseFirst = resolve })
+  await page.route('**/ui-actions', async route => {
+    const body = route.request().postDataJSON() as S['UIActionRequest']
+    bodies.push(body)
+    const number = bodies.length
+    if (number === 1) await firstGate
+    if (number === 3) return route.abort('failed')
+    return route.fulfill({ json: { client_action_id: body.client_action_id, status: 'ACCEPTED', task_id: ids.second, replayed: number !== 1 } satisfies S['UIActionResult'] })
+  })
+  const returnToSupport = async () => {
+    await page.getByRole('navigation', { name: '主要导航' }).getByRole('link', { name: '设备档案' }).click()
+    await page.getByRole('navigation', { name: '主要导航' }).getByRole('link', { name: '用户服务' }).click()
+  }
+  await page.goto('/support')
+  const card = page.getByRole('region', { name: '服务交互卡', exact: true })
+  await card.getByRole('button', { name: '请求人工协助', exact: true }).click()
+  await expect.poll(() => bodies.length).toBe(1)
+  await returnToSupport()
+  await card.getByRole('button', { name: '用原请求重试', exact: true }).click()
+  await expect(card.getByRole('status')).toHaveText('人工协助请求已存在。')
+  await returnToSupport()
+  await card.getByRole('button', { name: '请求人工协助', exact: true }).click()
+  await expect(card.getByRole('button', { name: '用原请求重试', exact: true })).toBeVisible()
+  expect(bodies[2].client_action_id).not.toBe(bodies[0].client_action_id)
+  const oldResponse = page.waitForResponse(response => response.url().endsWith('/ui-actions') && response.request().postDataJSON().client_action_id === bodies[0].client_action_id)
+  releaseFirst()
+  await (await oldResponse).finished()
+  // Let the fetch receipt handlers finish before testing recovery after reload.
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  await page.reload()
+  await expect(card.getByRole('button', { name: '用原请求重试', exact: true })).toBeVisible()
+  await card.getByRole('button', { name: '用原请求重试', exact: true }).click()
+  await expect(card.getByRole('status')).toHaveText('人工协助请求已存在。')
+  expect(bodies[3]).toEqual(bodies[2])
 })

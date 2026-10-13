@@ -97,5 +97,6 @@ export function ServicePage({ desk = false, devices = false }: { desk?: boolean,
   if (!desk && !devices && actor.data.kind === 'STAFF') return <section className="access-note">
     <h1>已以客服身份登录</h1><p>请到客服工作区查看会话。</p><NavLink to="/desk">前往客服工作区</NavLink>
   </section>
-  return <><AccountHeader actor={actor.data} />{devices ? <DevicesWorkspace actor={actor.data} /> : <ConversationWorkspace actor={actor.data} desk={desk} />}</>
+  const identity = `${actor.data.tenant_id}:${actor.data.actor_id}:${actor.data.kind}`
+  return <><AccountHeader key={`account:${identity}`} actor={actor.data} />{devices ? <DevicesWorkspace key={`devices:${identity}`} actor={actor.data} /> : <ConversationWorkspace key={`conversation:${identity}:${desk}`} actor={actor.data} desk={desk} />}</>
 }

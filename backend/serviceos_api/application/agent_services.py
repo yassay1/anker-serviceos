@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from serviceos_api.persistence.models import (
@@ -83,7 +83,8 @@ class AgentContextBuilder:
             Message.tenant_id == self.tenant_id,
             Message.conversation_id == conversation.id,
             Message.visibility == "PUBLIC",
-            Message.id != message_id,
+            or_(Message.created_at < message.created_at,
+                and_(Message.created_at == message.created_at, Message.id < message.id)),
         ).order_by(Message.created_at.desc(), Message.id.desc()).limit(12)).all()
         recent.reverse()
         history = []

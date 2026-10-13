@@ -34,7 +34,10 @@ test('real API: persisted conversation, human handoff and PUBLIC/INTERNAL separa
     await customer.reload()
     await expect(customer.getByText(problem, { exact: true })).toBeVisible()
     await expect(customer.getByText('实时更新已连接', { exact: true })).toBeVisible()
-    await customer.getByRole('region', { name: '人机协作' }).getByRole('button', { name: '请求人工协助', exact: true }).click()
+    const assistance = customer.getByRole('region', { name: '服务交互卡', exact: true })
+    await assistance.getByLabel('请求原因').fill('需要人工协助处理当前问题')
+    await assistance.getByRole('button', { name: '请求人工协助', exact: true }).click()
+    await expect(assistance.getByRole('status')).toHaveText('人工协助请求已保存。')
 
     await login(staff, 'staff', true)
     await staff.goto(`/desk?conversation=${conversationId}`)

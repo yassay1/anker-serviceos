@@ -71,6 +71,8 @@ test('adaptation: draft review requires the backend minimum reason length', asyn
 })
 
 test('adaptation: device details show actual facts and history without verifying identity', async ({ page }) => {
+  const identityErrors: string[] = []
+  page.on('console', message => { if (message.type() === 'error' && message.text().includes('same key')) identityErrors.push(message.text()) })
   const state = await fixture(page, false)
   await page.goto(`/devices/${ids.device}`)
   await expect(page.getByRole('heading', { name: 'Anker 737', exact: true })).toBeVisible()
@@ -79,6 +81,7 @@ test('adaptation: device details show actual facts and history without verifying
   await expect(page.getByText('充电接口不稳定', { exact: true })).toBeVisible()
   await expect(page.getByText('PRIVATE-SERIAL-0921', { exact: true })).toHaveCount(0)
   expect(state.unexpected).toEqual([])
+  expect(identityErrors).toEqual([])
 })
 
 test('adaptation: explicit forbidden device never falls back to another record', async ({ page }) => {
