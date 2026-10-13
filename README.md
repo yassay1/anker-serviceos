@@ -6,6 +6,8 @@
 
 用户指定的 V1 定稿来自 `D:\proj\共享docs`，已纳入本项目。源文件哈希及本地调整见 [来源清单](docs/baseline-provenance.json)。
 
+按工作入口阅读：[前端开发指南](frontend/README.md)、[后端与 Worker 开发指南](backend/README.md)、[Web 界面设计指南](docs/ui-design-guidelines.md)。本文件保留全栈概览与联调启动步骤；模块内操作和责任边界见各自指南。
+
 - [产品定义](docs/product-definition.md)：产品对象、协作模式、用户旅程、Agentic Interface 与性能目标。
 - [系统架构](docs/architecture.md)：前后端分离、应用服务、Worker、持久化及 Agent → UI Schema → Renderer 设计。
 - [领域与接口契约](docs/domain-and-contracts.md)：对象关系、状态、权限、Generative UI 数据结构与计划 API。
@@ -16,6 +18,7 @@
 - [阶段 0 实际验收记录](docs/baseline-validation.md)：变更文件、命令、测试、浏览器结果及限制。
 - [阶段 1 实际验收记录](docs/phase1-validation.md)：PostgreSQL、业务 API、权限、前端消息和范围边界。
 - [阶段 2 验收记录](docs/phase2-validation.md)：Worker/Agent 落地范围、离线测试和真实 Provider 待验证项。
+- [阶段 3 验收记录](docs/phase3-validation.md)：真人与 Agent 协作、持久事件、受控 UI 与本地回归结果。
 
 ## 当前实现范围
 
@@ -23,9 +26,9 @@
 
 旧 A1229 原型、旧功能 spec、其独立 Python 工程与历史规划记录已从活动工作区清出，并归档在同级目录 `D:\proj\Anker SreviceOS-archive-20261013`；它们不是当前运行时代码或开发入口。旧 spec 需要重新设计，不应继续按旧任务清单实施。当前 Agent Runtime 使用的两份只读手册摘要已归入 `backend/serviceos_api/knowledge/`。
 
-当前登录仅是显式启用的本地开发适配器，未接生产身份源。阶段 2 已增加独立 Worker、数据库租约/重试、AgentRun、受限 Agent Runtime 与 PostgreSQL Checkpointer；Worker 需单独启动并显式配置模型地址、模型名和 API Key。当前开发环境没有 Provider 凭据，因此真实 LLM 多轮验收尚未执行。模式切换/审批、SSE、外部动作执行和核验闭环仍属后续阶段。健康状态只表示 API 进程可响应，不代表 Worker 或模型正在运行。生产目标以 V1 为准，旧 `specs/` 的 SQLite/Jinja2 方案属于历史原型。
+当前登录仅是显式启用的本地开发适配器，未接生产身份源。阶段 2 已增加独立 Worker、数据库租约/重试、AgentRun、受限 Agent Runtime 与 PostgreSQL Checkpointer；Worker 需单独启动并显式配置模型地址、模型名和 API Key。当前开发环境没有 Provider 凭据，因此真实 LLM 多轮验收尚未执行。阶段 3 已接入模式切换/审批、持久事件与 SSE 补取、受控 UI Schema/Renderer 和低风险 UI action intent；完成范围以[开发计划](docs/development-plan.md)和验收记录为准。外部动作执行和核验闭环属于后续阶段。健康状态只表示 API 进程可响应，不代表 Worker 或模型正在运行。生产目标以 V1 为准，旧 `specs/` 的 SQLite/Jinja2 方案属于历史原型。
 
-Agentic Interface / Generative UI 已完成产品与架构设计，但当前没有 UI Schema、组件 Catalog、Renderer 或 UI action API；设计不等于已实现能力。
+Agentic Interface / Generative UI 已完成产品与架构设计；阶段 2 新增 Agent 的内部 `ui_proposal` 元数据和失败时文本降级。阶段 3 的 UIDocument、组件 Catalog、Renderer 和 UI action 已按[开发计划](docs/development-plan.md)完成本地验收；内部提案仍不等于用户可见界面，只有发布后的受信 UIDocument 才可渲染。
 
 本地 Agent 初始化（仅在已选择并获准使用模型 Provider 后）：先从仓库根目录执行 `uv run --project backend alembic -c backend/alembic.ini upgrade head`，再执行 `uv run --project backend python -m serviceos_api.checkpoints` 初始化独立的 `serviceos_checkpoint` schema；另开终端运行 `uv run --project backend python -m serviceos_api.worker.main`。API 启动不会自动迁移、创建 Checkpointer 表或启动 Worker。未配置 Provider 时，Worker 在领取任何 Job 前拒绝启动。
 

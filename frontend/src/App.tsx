@@ -1,11 +1,13 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useSearchParams } from 'react-router-dom'
 import {
-  type Actor, type Message, type SendBody,
-  createConversation, listConversations, listMessages, loginLocal, logout,
-  readActor, readHealth, sendMessage,
+  type Actor, type Conversation, type Message, type SendBody,
+  claimTask, createConversation, decideProposal, listConversations, listDeskCaseSummaries,
+  listMessages, listProposals, listTasks, loginLocal, logout, readActor, readHealth,
+  requestAssistance, sendMessage, transitionMode, refreshUIDocument,
 } from './api/client'
+import { UIDocumentRenderer } from './UIDocumentRenderer'
 
 type Pending = {
   conversationId: string
@@ -118,6 +120,69 @@ function MessageItem({ message, actor }: { message: Message, actor: Actor }) {
   )
 }
 
+function CollaborationPanel({ conversation, actor, desk }: { conversation: Conversation, actor: Actor, desk: boolean }) {
+  const queryClient = useQueryClient()
+  const [reason, setReason] = useState('需要人工协助处理当前问题')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [mode, setMode] = useState<'AI_LEAD' | 'CO_SERVICE' | 'HUMAN_LEAD'>(conversation.collaboration_mode as 'AI_LEAD' | 'CO_SERVICE' | 'HUMAN_LEAD')
+  const tasks = useQuery({ queryKey: ['tasks', actor.tenant_id, conversation.id], queryFn: () => listTasks(conversation.id), enabled: desk })
+  const proposals = useQuery({ queryKey: ['proposals', actor.tenant_id, conversation.id], queryFn: () => listProposals(conversation.id), enabled: desk })
+
+  async function run(action: () => Promise<unknown>) {
+    setBusy(true)
+    setError('')
+    try {
+      await action()
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['conversations', actor.tenant_id, actor.actor_id] }),
+        queryClient.invalidateQueries({ queryKey: ['tasks', actor.tenant_id, conversation.id] }),
+        queryClient.invalidateQueries({ queryKey: ['proposals', actor.tenant_id, conversation.id] }),
+      ])
+    } catch (failure) {
+      setError(readableError(failure))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <section className="collaboration-panel" aria-label="人机协作">
+    <h3>人机协作</h3>
+    <p>当前：{conversation.collaboration_mode} · 发言策略：{conversation.reply_policy} · 版本 {conversation.version}</p>
+    {!desk && <button type="button" disabled={busy} onClick={() => void run(() => requestAssistance(conversation.id, reason))}>请求人工协助</button>}
+    {desk && <>
+      <div className="collaboration-controls">
+        <label>协作模式 <select value={mode} onChange={(event) => setMode(event.target.value as typeof mode)}>
+          <option value="AI_LEAD">AI 主导</option><option value="CO_SERVICE">共同服务</option><option value="HUMAN_LEAD">真人主导</option>
+        </select></label>
+        <label>原因 <input value={reason} onChange={(event) => setReason(event.target.value)} minLength={3} maxLength={1000} /></label>
+        <button type="button" disabled={busy || reason.trim().length < 3} onClick={() => void run(() => transitionMode(conversation.id, {
+          target_mode: mode, reply_policy: mode === 'AI_LEAD' ? 'AI_AUTO' : mode === 'CO_SERVICE' ? 'AI_REVIEW_REQUIRED' : 'HUMAN_ONLY',
+          expected_version: conversation.version, reason: reason.trim(),
+        }))}>切换策略</button>
+      </div>
+      <h4>人工任务</h4>
+      {tasks.isError && <p className="form-error">{readableError(tasks.error)}</p>}
+      {tasks.data?.length === 0 && <p>暂无人工任务。</p>}
+      {tasks.data?.map((task) => <div className="collaboration-item" key={task.id}>
+        <span>{task.reason} · {task.status} · 版本 {task.version}</span>
+        {task.status === 'OPEN' && <button type="button" disabled={busy} onClick={() => void run(() => claimTask(task.id, task.version))}>接管</button>}
+      </div>)}
+      <h4>Agent 内部草稿</h4>
+      {proposals.isError && <p className="form-error">{readableError(proposals.error)}</p>}
+      {proposals.data?.length === 0 && <p>暂无待审草稿。</p>}
+      {proposals.data?.map((proposal) => <div className="collaboration-item" key={proposal.id}>
+        <span>{proposal.proposal_type} · {String(proposal.payload.summary ?? '')} · {proposal.status}</span>
+        {proposal.status === 'DRAFT' && <span>
+          <button type="button" disabled={busy} onClick={() => void run(() => decideProposal(proposal.id, 'APPROVED', reason, crypto.randomUUID()))}>批准</button>{' '}
+          <button type="button" disabled={busy} onClick={() => void run(() => decideProposal(proposal.id, 'REJECTED', reason, crypto.randomUUID()))}>拒绝</button>
+        </span>}
+      </div>)}
+    </>}
+    {error && <p className="form-error" role="alert">{error}</p>}
+  </section>
+}
+
 function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boolean }) {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -126,6 +191,7 @@ function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boolean })
   const [draft, setDraft] = useState('')
   const [internal, setInternal] = useState(false)
   const [pending, setPending] = useState<Pending[]>([])
+  const [streamState, setStreamState] = useState('正在连接事件流')
 
   const conversations = useQuery({
     queryKey: ['conversations', actor.tenant_id, actor.actor_id], queryFn: listConversations,
@@ -135,6 +201,26 @@ function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boolean })
   const selected = conversations.data?.find((item) => item.id === selectedId) ?? (
     selectedId ? undefined : conversations.data?.[0]
   )
+  useEffect(() => {
+    if (!selected?.id) return
+    const key = `serviceos:event-sequence:${actor.tenant_id}:${actor.actor_id}:${selected.id}`
+    const after = localStorage.getItem(key) ?? '0'
+    const stream = new EventSource(`/api/v1/conversations/${selected.id}/events?after=${encodeURIComponent(after)}`)
+    stream.onopen = () => setStreamState('事件流已连接')
+    stream.onerror = () => setStreamState('事件流断开，正在重连；消息仍可查询')
+    stream.onmessage = (event) => {
+      if (/^\d+$/.test(event.lastEventId)) localStorage.setItem(key, event.lastEventId)
+      void queryClient.invalidateQueries({ queryKey: ['messages', actor.tenant_id, actor.actor_id, selected.id] })
+      void queryClient.invalidateQueries({ queryKey: ['conversations', actor.tenant_id, actor.actor_id] })
+      if (desk) {
+        void queryClient.invalidateQueries({ queryKey: ['tasks', actor.tenant_id, selected.id] })
+        void queryClient.invalidateQueries({ queryKey: ['proposals', actor.tenant_id, selected.id] })
+        void queryClient.invalidateQueries({ queryKey: ['case-summaries', actor.tenant_id, selected.id] })
+      }
+      void queryClient.invalidateQueries({ queryKey: ['ui-document', actor.tenant_id, actor.actor_id, selected.id] })
+    }
+    return () => stream.close()
+  }, [selected?.id, actor.tenant_id, actor.actor_id, desk, queryClient])
   const messageQueryKey = ['messages', actor.tenant_id, actor.actor_id, selected?.id]
   const messages = useInfiniteQuery({
     queryKey: messageQueryKey,
@@ -143,6 +229,17 @@ function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boolean })
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     enabled: Boolean(selected),
     refetchInterval: 4_000,
+  })
+  const summaries = useQuery({
+    queryKey: ['case-summaries', actor.tenant_id, selected?.id],
+    queryFn: () => listDeskCaseSummaries(selected!.id),
+    enabled: desk && Boolean(selected),
+  })
+  const uiDocument = useQuery({
+    queryKey: ['ui-document', actor.tenant_id, actor.actor_id, selected?.id],
+    queryFn: () => refreshUIDocument(selected!.id),
+    enabled: Boolean(selected),
+    refetchInterval: 15_000,
   })
   const recorded = messages.data?.pages.flatMap((page) => page.items) ?? []
   const recordedKeys = new Set(recorded.map((message) => message.client_message_id))
@@ -226,9 +323,28 @@ function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boolean })
         <section className="chat-panel" aria-label="当前会话">
           {selected ? <>
             <div className="chat-heading">
-              <div><h2>{desk ? '与客户沟通' : '当前服务会话'}</h2><p>会话编号 {selected.id.slice(0, 8)}</p></div>
+              <div><h2>{desk ? '与客户沟通' : '当前服务会话'}</h2><p>会话编号 {selected.id.slice(0, 8)} · {streamState}</p></div>
               <span className="state-pill">{selected.status === 'ACTIVE' ? '进行中' : '已归档'}</span>
             </div>
+            {desk && <section className="case-summary" aria-label="关联案例摘要">
+              <h3>关联案例</h3>
+              {summaries.isPending && <p>正在加载案例…</p>}
+              {summaries.isError && <p className="form-error" role="alert">{readableError(summaries.error)}</p>}
+              {summaries.data?.length === 0 && <p>当前会话尚未关联案例；可继续查看消息。</p>}
+              {summaries.data?.map((summary) => <article key={summary.case.id}>
+                <h4>{summary.case.problem_text}</h4>
+                <p>状态：{summary.case.status} · 版本：{summary.case.version} · 关联设备：{summary.device_ids.length}</p>
+                <ul>{summary.facts.map((fact, index) => <li key={`${fact.source}-${index}`}>
+                  <strong>{fact.label}：</strong>{fact.value} <small>来源：{fact.source} · {fact.verification === 'VERIFIED' ? '已核验' : fact.verification === 'RETRACTED' ? '已撤销' : '待核验'}</small>
+                </li>)}</ul>
+              </article>)}
+            </section>}
+            <CollaborationPanel key={selected.id} conversation={selected} actor={actor} desk={desk} />
+            {uiDocument.isError && <p className="ui-fallback" role="alert">{readableError(uiDocument.error)}；请继续使用文字消息。</p>}
+            <UIDocumentRenderer key={`${selected.id}-${uiDocument.data?.revision ?? 0}`} document={uiDocument.data ?? null}
+              conversationId={selected.id} conversationVersion={selected.version} desk={desk}
+              onCompleted={() => { void queryClient.invalidateQueries({ queryKey: ['tasks', actor.tenant_id, selected.id] }) }}
+              onRefresh={() => { void queryClient.invalidateQueries({ queryKey: ['ui-document', actor.tenant_id, actor.actor_id, selected.id] }) }} />
             <div className="message-list-wrap">
               {messages.hasNextPage && <button type="button" className="load-more" disabled={messages.isFetchingNextPage}
                 onClick={() => void messages.fetchNextPage()}>{messages.isFetchingNextPage ? '加载中…' : '加载更多消息'}</button>}

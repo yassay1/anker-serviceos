@@ -10,14 +10,15 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
-from serviceos_api.application.agent_services import AgentContextBuilder, append_conversation_event
+from serviceos_api.application.agent_services import AgentContextBuilder
 from serviceos_api.application.auth import Principal
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.services import ConversationService
 from serviceos_api.agents.runtime import AgentRuntime
+from serviceos_api.agents.result import AgentResult
 from serviceos_api.persistence.database import build_engine
 from serviceos_api.persistence.models import (
-    AgentRun, Conversation, Message, MessageJob, OutboxEvent,
+    AgentProposal, AgentRun, Conversation, Message, MessageJob, OutboxEvent,
 )
 from serviceos_api.settings import Settings
 
@@ -173,10 +174,12 @@ class MessageWorker:
                 context = AgentContextBuilder(session, job.tenant_id).build(conversation.id, message.id)
                 if run.result_text:
                     stored_result = run.result_text
+                    stored_payload = run.result_payload
                     stats = {"step_count": run.step_count, "input_tokens": run.input_tokens,
                              "output_tokens": run.output_tokens}
                 else:
                     stored_result = None
+                    stored_payload = None
                     stats = {}
                 tenant_id, conversation_id, message_id = job.tenant_id, conversation.id, message.id
                 session.commit()
@@ -184,31 +187,63 @@ class MessageWorker:
             if lost.is_set():
                 raise RuntimeError("worker_lease_lost")
             if stored_result is None:
-                answer, stats = self.runtime.invoke(
+                result, stats = self.runtime.invoke(
                     tenant_id=tenant_id, conversation_id=conversation_id, run_id=run_id,
                     lease_token=lease.token,
                     message_id=message_id, context=context, current_text=current_text,
                 )
                 if lost.is_set():
                     raise RuntimeError("worker_lease_lost")
+                if isinstance(result, str):  # Existing local test adapters return text only.
+                    result = AgentResult(result)
+                if not isinstance(result, AgentResult):
+                    raise RuntimeError("agent_result_invalid")
                 with Session(self.engine) as session:
+                    active_job = session.scalar(select(MessageJob).where(
+                        MessageJob.id == lease.item_id, MessageJob.tenant_id == tenant_id,
+                        MessageJob.status == "RUNNING", MessageJob.lease_token == lease.token,
+                        MessageJob.lease_expires_at > datetime.now(timezone.utc),
+                    ).with_for_update())
+                    if active_job is None:
+                        raise RuntimeError("worker_lease_lost")
                     run = session.scalar(select(AgentRun).where(
                         AgentRun.id == run_id, AgentRun.tenant_id == tenant_id,
                         AgentRun.lease_token == lease.token, AgentRun.status == "RUNNING",
                     ).with_for_update())
                     if run is None:
                         raise RuntimeError("agent_run_lease_lost")
-                    run.result_text = answer
+                    proposals = session.scalars(select(AgentProposal).where(
+                        AgentProposal.tenant_id == tenant_id,
+                        AgentProposal.agent_run_id == run_id,
+                        AgentProposal.conversation_id == conversation_id,
+                        AgentProposal.proposal_type == "ACTION",
+                        AgentProposal.visibility == "INTERNAL",
+                    ).order_by(AgentProposal.id)).all()
+                    stored_payload = {
+                        "schema_version": 1,
+                        "ui_proposal": result.ui_proposal,
+                        "ui_fallback_code": result.ui_fallback_code,
+                        "action_proposals": [str(proposal.id) for proposal in proposals],
+                    }
+                    run.result_text = result.text
+                    run.result_payload = stored_payload
                     run.step_count = int(stats.get("step_count", 0))
                     run.input_tokens = stats.get("input_tokens")
                     run.output_tokens = stats.get("output_tokens")
                     run.duration_ms = int((time.monotonic() - started) * 1000)
                     session.commit()
-                stored_result = answer
+                stored_result = result.text
 
             if lost.is_set():
                 raise RuntimeError("worker_lease_lost")
             with Session(self.engine, expire_on_commit=False) as session:
+                active_job = session.scalar(select(MessageJob).where(
+                    MessageJob.id == lease.item_id, MessageJob.tenant_id == lease.tenant_id,
+                    MessageJob.status == "RUNNING", MessageJob.lease_token == lease.token,
+                    MessageJob.lease_expires_at > datetime.now(timezone.utc),
+                ).with_for_update())
+                if active_job is None:
+                    raise RuntimeError("worker_lease_lost")
                 service = ConversationService(session, actor=None)
                 service.publish_agent_response(
                     tenant_id=tenant_id, conversation_id=conversation_id, agent_run_id=run_id,
@@ -331,8 +366,7 @@ class OutboxDispatcher:
             try:
                 if event.conversation_id is None:
                     return False
-                append_conversation_event(session, event.tenant_id, event.conversation_id,
-                                          event.type, event.visibility, event.data)
+                ConversationService.dispatch_outbox_event(session, event)
                 event.published_at = datetime.now(timezone.utc)
                 event.lease_owner = None
                 event.lease_token = None

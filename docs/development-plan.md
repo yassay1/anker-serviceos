@@ -33,22 +33,24 @@
 - [x] 授权 Context Builder、受限本地 SOP 检索
 - [x] AgentRun 审计、模型请求 timeout、模型调用/工具步数限制、单次输出 token 上限和失败处理
 - [x] 受控工具 `lookup_manual`, `request_missing_evidence`, `propose_action`；后两项只记内部草稿，不执行或公开
-- [ ] 定义文本、`ui_proposal`、`action_proposals` 分离的结构化运行结果；UI proposal 失败可退回文本
+- [x] 定义文本、`ui_proposal`、`action_proposals` 分离的结构化运行结果；UI proposal 失败可退回文本（内部结果契约；UI 发布/Renderer 属阶段 3）
 - **验收**：真实 LLM 处理多轮售后问题，刷新不丢运行状态；无需在本阶段实现多模型框架对比
 
-2026-10-13 阶段 2 的代码与离线 PostgreSQL 验收已完成，详见 [阶段 2 验收记录](phase2-validation.md)。当前本地没有模型 Provider 凭据；真实 LLM 多轮、Provider 兼容性与进程级中断恢复演示尚未执行，不以测试替身冒充。
+2026-10-13 阶段 2 的代码与离线 PostgreSQL 验收已完成，详见 [阶段 2 验收记录](phase2-validation.md)及[结果分离切片](../specs/001-agent-result-separation/spec.md)。当前本地没有模型 Provider 凭据；真实 LLM 多轮、Provider 兼容性与进程级中断恢复演示尚未执行，不以测试替身冒充。因此阶段 2 的真实 Provider 验收门槛尚未关闭。
 
 ## 3. 真人与 Agent 共同服务
 
 - [x] `/desk` 同租户会话列表和内部备注（阶段 1 已验收）
-- [ ] `/desk` Case 事实摘要与来源、核验状态展示
-- [ ] 协作模式和发言策略、后端二次授权、切换版本冲突处理
-- [ ] 人工任务、审批结果、Agent 恢复
-- [ ] 公开消息/内部消息隔离，SSE 断线补取
-- [ ] 版本化 UI Schema、受信组件 Catalog 与服务端 Schema/Policy Validator
-- [ ] `/support`、`/desk` Renderer：未知组件、断线或不支持时降级到文本/固定表单
-- [ ] UI action intent 经类型化 API 回到应用服务，重新校验 actor、版本、Rule、审批与幂等
+- [x] `/desk` Case 事实摘要与来源、核验状态展示
+- [x] 协作模式和发言策略、后端二次授权、切换版本冲突处理
+- [x] 人工任务、审批结果、Agent 恢复
+- [x] 公开消息/内部消息隔离，SSE 断线补取
+- [x] 版本化 UI Schema、受信组件 Catalog 与服务端 Schema/Policy Validator
+- [x] `/support`、`/desk` Renderer：未知组件、断线或不支持时降级到文本/固定表单
+- [x] UI action intent 经类型化 API 回到应用服务，重新校验 actor、版本、Rule、审批与幂等
 - **验收**：Agent → 协同 → 真人主导 → Agent 恢复；真人介入不要求用户重述；后台 Agent 不偷发消息
+
+2026-10-13 阶段 3 已完成本地验收，详见 [阶段 3 验收记录](phase3-validation.md)。真实 Provider 仍按阶段 2 记录保持“待验”；阶段 4 的外部动作、真实回执与核验闭环尚未实现。
 
 ## 4. 完整售后演示闭环
 

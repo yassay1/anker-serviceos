@@ -56,6 +56,30 @@ h3 { font-size: 18px; margin: 0 0 7px; }
 .chat-panel { display: flex; flex-direction: column; min-width: 0; min-height: 620px; }
 .chat-heading { padding: 18px 22px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .chat-heading p { color: var(--muted); font-size: 12px; margin: 3px 0 0; }
+.case-summary { padding: 14px 22px; border-bottom: 1px solid var(--border); background: #f6fafb; max-height: 250px; overflow: auto; }
+.case-summary h3, .case-summary h4 { margin: 0 0 7px; }
+.case-summary article + article { border-top: 1px solid var(--border); padding-top: 10px; }
+.case-summary p { margin: 5px 0; color: var(--muted); }
+.case-summary ul { margin: 7px 0 0; padding-left: 20px; }
+.case-summary li { margin: 5px 0; overflow-wrap: anywhere; }
+.case-summary small { color: var(--muted); margin-left: 5px; }
+.collaboration-panel { padding: 14px 22px; border-bottom: 1px solid var(--border); background: #fffdf8; max-height: 310px; overflow: auto; }
+.collaboration-panel h3, .collaboration-panel h4 { margin: 0 0 7px; }
+.collaboration-panel h4 { margin-top: 13px; }
+.collaboration-panel p { margin: 5px 0; color: var(--muted); font-size: 13px; }
+.collaboration-controls, .collaboration-item { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 7px; }
+.collaboration-controls label { display: flex; align-items: center; gap: 5px; }
+.collaboration-controls input { width: min(290px, 100%); }
+.collaboration-item { justify-content: space-between; border-top: 1px solid var(--border); padding-top: 7px; }
+.ui-document { padding: 12px 22px; border-bottom: 1px solid var(--border); max-height: 300px; overflow: auto; background: #f8faf7; }
+.ui-version { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+.ui-card { border: 1px solid var(--border); border-radius: 8px; background: white; padding: 10px 12px; margin: 7px 0; }
+.ui-card h3 { margin: 0 0 5px; font-size: 15px; }
+.ui-card p { margin: 3px 0; white-space: pre-wrap; }
+.ui-card small { display: inline-block; margin-right: 9px; color: var(--muted); }
+.ui-action { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 9px; }
+.ui-action input { width: min(330px, 100%); }
+.ui-fallback { margin: 0; padding: 12px 22px; border-bottom: 1px solid var(--border); color: var(--muted); }
 .state-pill { border-radius: 99px; background: #eaf2ec; color: #2d684b; padding: 4px 11px; font-size: 12px; white-space: nowrap; }
 .message-list-wrap { flex: 1; min-height: 260px; max-height: 580px; overflow-y: auto; padding: 24px 22px; background: #fbfdfe; }
 .message-list { display: flex; flex-direction: column; gap: 14px; }

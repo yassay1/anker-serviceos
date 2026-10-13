@@ -10,11 +10,16 @@ from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
 
 from serviceos_api.bootstrap_local import seed_local_accounts
+from serviceos_api.application.auth import Principal
+from serviceos_api.application.contracts import ClaimTask
+from serviceos_api.application.errors import ServiceError
+from serviceos_api.application.services import ConversationService
 from serviceos_api.main import create_app
 from serviceos_api.persistence.models import (
-    AuthSession, DeviceFact, Message, MessageJob, OutboxEvent, TenantMembership,
+    AuthSession, CaseEvidence, DeviceFact, Message, MessageJob, OutboxEvent, StaffUser, TenantMembership,
 )
 from serviceos_api.settings import Settings
+from serviceos_api.worker.runtime import OutboxDispatcher
 
 
 @pytest.fixture
@@ -148,6 +153,185 @@ def test_case_device_conversation_are_independent_and_versioned(app):
     assert customer.delete(f"/api/v1/devices/{device['id']}").status_code == 409
 
 
+def test_desk_case_summary_sources_and_visibility(app, database_engine):
+    owner, staff = login(app), login(app, "staff")
+    other, outside = login(app, "customer-b"), login(app, "other-tenant")
+    conv = conversation(owner)
+    path = f"/api/v1/conversations/{conv['id']}/case-summaries"
+    assert staff.get(path).json() == []
+    case = owner.post("/api/v1/cases", json={"problem_text": "用户报告无法充电"}).json()
+    assert owner.post(f"/api/v1/cases/{case['id']}/conversations", json={
+        "conversation_id": conv["id"], "expected_version": case["version"],
+    }).status_code == 200
+    device = owner.post("/api/v1/devices", json={"model": "Nano"}).json()
+    assert owner.post(f"/api/v1/cases/{case['id']}/devices", json={
+        "device_id": device["id"], "expected_version": 2,
+    }).status_code == 200
+    candidate = owner.post(f"/api/v1/devices/{device['id']}/facts", json={
+        "expected_device_revision": 1, "fact_key": "port", "value": "USB-C",
+    })
+    assert candidate.status_code == 201
+    with Session(database_engine) as session:
+        session.add(CaseEvidence(tenant_id=owner.get("/api/v1/auth/me").json()["tenant_id"],
+                                 case_id=case["id"], source="customer:chat", claim_type="USER_STATEMENT",
+                                 certainty="LOW", validity="CANDIDATE", summary="插线后无灯"))
+        session.commit()
+    result = staff.get(path)
+    assert result.status_code == 200, result.text
+    facts = result.json()[0]["facts"]
+    assert {item["source"] for item in facts} >= {"customer:chat", "user_statement"}
+    assert all(item["verification"] in ("CANDIDATE", "UNVERIFIED") for item in facts)
+    for client in (owner, other, outside):
+        assert client.get(path).status_code in (403, 404)
+
+
+def test_mode_transition_latest_policy_and_task_claim(app, database_engine):
+    owner, staff = login(app), login(app, "staff")
+    conv = conversation(owner)
+    url = f"/api/v1/conversations/{conv['id']}"
+    assert owner.post(f"{url}/mode-transitions", json={
+        "target_mode": "HUMAN_LEAD", "reply_policy": "HUMAN_ONLY", "expected_version": 1,
+        "reason": "需要人工处理",
+    }).status_code == 403
+    switched = staff.post(f"{url}/mode-transitions", json={
+        "target_mode": "HUMAN_LEAD", "reply_policy": "HUMAN_ONLY", "expected_version": 1,
+        "reason": "需要人工处理",
+    })
+    assert switched.status_code == 200, switched.text
+    assert switched.json()["version"] == 2
+    assert staff.post(f"{url}/mode-transitions", json={
+        "target_mode": "AI_LEAD", "reply_policy": "AI_AUTO", "expected_version": 1,
+        "reason": "需要重新开启",
+    }).status_code == 409
+    task = owner.post(f"{url}/assistance-requests", json={"reason": "请求人工协助"})
+    assert task.status_code == 201, task.text
+    assert owner.get(f"{url}/tasks").status_code == 403
+    assert len(staff.get(f"{url}/tasks").json()) == 1
+    task_id = task.json()["id"]
+    first = staff.post(f"/api/v1/tasks/{task_id}/claim", json={"expected_version": 1})
+    assert first.status_code == 200, first.text
+    assert first.json()["version"] == 2
+    assert staff.post(f"/api/v1/tasks/{task_id}/claim", json={"expected_version": 1}).status_code == 409
+    restored = staff.post(f"{url}/mode-transitions", json={
+        "target_mode": "AI_LEAD", "reply_policy": "AI_AUTO", "expected_version": 2,
+        "reason": "人工已处理完毕",
+    })
+    assert restored.status_code == 200
+    assert restored.json()["collaboration_mode"] == "AI_LEAD"
+
+
+def test_two_staff_claim_same_version_only_one_wins(app, database_engine):
+    owner = login(app)
+    conv = conversation(owner)
+    task = owner.post(f"/api/v1/conversations/{conv['id']}/assistance-requests",
+                      json={"reason": "需要人工协助"}).json()
+    tenant_id = owner.get("/api/v1/auth/me").json()["tenant_id"]
+    staff = login(app, "staff").get("/api/v1/auth/me").json()
+    with Session(database_engine) as session:
+        second = StaffUser(display_name="第二位客服", external_subject=f"test:{uuid4()}")
+        session.add(second)
+        session.flush()
+        session.add(TenantMembership(tenant_id=tenant_id, staff_user_id=second.id, role="SUPPORT"))
+        session.commit()
+        second_id = second.id
+
+    def claim(actor_id):
+        with Session(database_engine) as session:
+            service = ConversationService(session, Principal(tenant_id=tenant_id, actor_id=actor_id,
+                                                            kind="STAFF", display_name="客服", role="SUPPORT"))
+            try:
+                return service.claim_task(task["id"], ClaimTask(expected_version=1)).assignee_id
+            except ServiceError as error:
+                return error.status
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(claim, [staff["actor_id"], second_id]))
+    assert sorted(isinstance(result, int) for result in results) == [False, True]
+    assert 409 in results
+
+
+def test_event_history_filters_internal_and_resumes_without_new_job(app, database_engine):
+    owner, staff = login(app), login(app, "staff")
+    outside = login(app, "other-tenant")
+    conv = conversation(owner)
+    url = f"/api/v1/conversations/{conv['id']}"
+    first = owner.post(f"{url}/messages", json=message_body(text="公开问题"))
+    assert first.status_code == 202
+    internal = staff.post(f"{url}/messages", json=message_body(text="内部备注", visibility="INTERNAL"))
+    assert internal.status_code == 202
+    second = staff.post(f"{url}/messages", json=message_body(text="公开答复"))
+    assert second.status_code == 202
+    with Session(database_engine) as session:
+        jobs_before = session.scalar(select(func.count()).select_from(MessageJob).where(
+            MessageJob.conversation_id == conv["id"],
+        ))
+    OutboxDispatcher(database_engine).dispatch_batch(100)
+    public = owner.get(f"{url}/event-history").json()["items"]
+    all_events = staff.get(f"{url}/event-history").json()["items"]
+    assert all(event["visibility"] == "PUBLIC" for event in public)
+    assert len(all_events) > len(public)
+    assert str(internal.json()["message"]["id"]) not in [
+        event["data"].get("message_id") for event in public
+    ]
+    first_sequence = public[0]["sequence"]
+    resumed = owner.get(f"{url}/event-history", params={"after": first_sequence}).json()["items"]
+    assert [event["sequence"] for event in resumed] == [
+        event["sequence"] for event in public if event["sequence"] > first_sequence
+    ]
+    assert outside.get(f"{url}/event-history").status_code == 404
+    with Session(database_engine) as session:
+        jobs_after = session.scalar(select(func.count()).select_from(MessageJob).where(
+            MessageJob.conversation_id == conv["id"],
+        ))
+    assert jobs_after == jobs_before == 1
+
+
+def test_ui_revision_isolation_and_low_risk_intent(app, database_engine):
+    owner, staff = login(app), login(app, "staff")
+    outside = login(app, "other-tenant")
+    conv = conversation(owner)
+    url = f"/api/v1/conversations/{conv['id']}"
+    public = owner.post(f"{url}/ui-document/refresh")
+    assert public.status_code == 200, public.text
+    doc = public.json()
+    assert doc["revision"] == 1 and doc["visibility"] == "PUBLIC"
+    assert doc["components"][0]["type"] == "ActionBar"
+    assert owner.get(f"{url}/ui-document").json()["ui_id"] == doc["ui_id"]
+    internal = staff.post(f"{url}/ui-document/refresh")
+    assert internal.status_code == 200, internal.text
+    assert internal.json()["visibility"] == "INTERNAL"
+    assert staff.get(f"{url}/ui-document").json()["ui_id"] != doc["ui_id"]
+    assert owner.get(f"{url}/ui-document").json()["ui_id"] == doc["ui_id"]
+    assert outside.get(f"{url}/ui-document").status_code == 404
+    body = {"client_action_id": str(uuid4()), "ui_id": doc["ui_id"], "revision": 1,
+            "action_id": "request-human-assistance", "input": {"reason": "请求客服协助"},
+            "expected_conversation_version": 1}
+    first = owner.post(f"{url}/ui-actions", json=body)
+    assert first.status_code == 200, first.text
+    assert first.json()["replayed"] is False
+    replay = owner.post(f"{url}/ui-actions", json=body)
+    assert replay.status_code == 200 and replay.json()["replayed"] is True
+    assert replay.json()["task_id"] == first.json()["task_id"]
+    changed = {**body, "input": {"reason": "不同原因"}}
+    assert owner.post(f"{url}/ui-actions", json=changed).status_code == 409
+    assert staff.post(f"{url}/ui-actions", json={**body, "client_action_id": str(uuid4())}).status_code == 403
+    switched = staff.post(f"{url}/mode-transitions", json={
+        "target_mode": "HUMAN_LEAD", "reply_policy": "HUMAN_ONLY",
+        "expected_version": 1, "reason": "人工已接管",
+    })
+    assert switched.status_code == 200
+    refreshed = owner.post(f"{url}/ui-document/refresh")
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json()["ui_id"] == doc["ui_id"]
+    assert refreshed.json()["revision"] == 2
+    stale = {**body, "client_action_id": str(uuid4())}
+    assert owner.post(f"{url}/ui-actions", json=stale).status_code == 409
+    OutboxDispatcher(database_engine).dispatch_batch(100)
+    assert all(event["visibility"] == "PUBLIC" for event in owner.get(f"{url}/event-history").json()["items"])
+    assert any(event["type"] == "ui.document.published" and event["visibility"] == "INTERNAL"
+               for event in staff.get(f"{url}/event-history").json()["items"])
+
+
 def test_cross_owner_links_and_payload_privilege_rejected(app):
     first = login(app)
     second = login(app, "customer-b")
@@ -251,7 +435,7 @@ def test_case_status_transition_is_staff_only_versioned_and_recorded(app, databa
         recorded = session.scalars(select(OutboxEvent).where(
             OutboxEvent.type == "case.status_changed",
             OutboxEvent.data["case_id"].astext == case["id"],
-        )).all()
+            ).order_by(OutboxEvent.created_at, OutboxEvent.id)).all()
         assert [item.data["to"] for item in recorded] == ["IN_PROGRESS", "RESOLVED", "CLOSED"]
 
 

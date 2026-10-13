@@ -1,19 +1,23 @@
 import hashlib
 import json
-from datetime import datetime, timezone
-from uuid import UUID
+from datetime import datetime, timedelta, timezone
+from uuid import UUID, uuid4
 
+from pydantic import ValidationError
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from serviceos_api.application.contracts import (
-    DeviceRead, MessagePage, MessageRead, MessageReceipt, VerifiedDeviceFact,
+    CaseRead, DeskCaseSummary, DeviceRead, EventPage, EventRead, MessagePage, MessageRead, MessageReceipt, ProposalRead,
+    SummaryFact, TaskRead, UIActionResult, UIDocumentRead, VerifiedDeviceFact,
 )
 from serviceos_api.application.auth import Principal
 from serviceos_api.application.errors import ServiceError
+from serviceos_api.application.ui_catalog import CATALOG_VERSION, SCHEMA_VERSION, safe_text, validate_components
 from serviceos_api.persistence.models import (
-    AgentRun, CaseConversation, CaseDevice, Conversation, Customer, DeviceFact, DevicePassport,
-    Message, MessageJob, OutboxEvent, ServiceCase,
+    AgentProposal, AgentRun, CaseConversation, CaseDevice, CaseEvidence, Conversation, ConversationEvent, Customer, DeviceFact,
+    DevicePassport, Message, MessageJob, OutboxEvent, ServiceCase, ServiceTask, TaskAssignment,
+    UIActionInvocation, UIDocument,
 )
 
 
@@ -260,6 +264,418 @@ class BusinessService:
 class ConversationService(BusinessService):
     """Only application entry for publishing and reading user-visible messages."""
 
+    @staticmethod
+    def dispatch_outbox_event(session, event: OutboxEvent):
+        conversation = session.scalar(select(Conversation).where(
+            Conversation.id == event.conversation_id, Conversation.tenant_id == event.tenant_id,
+        ).with_for_update())
+        if conversation is None:
+            raise ServiceError(409, "事件所属会话不可用。")
+        if event.visibility == "PUBLIC" and event.type not in (
+            "message.created", "conversations.created", "collaboration.mode_changed",
+            "ui.document.published", "ui.action.accepted",
+        ):
+            raise ServiceError(422, "公开事件类型未获授权。")
+        current = session.scalar(select(ConversationEvent.sequence).where(
+            ConversationEvent.tenant_id == event.tenant_id,
+            ConversationEvent.conversation_id == conversation.id,
+        ).order_by(ConversationEvent.sequence.desc()).limit(1)) or 0
+        row = ConversationEvent(tenant_id=event.tenant_id, conversation_id=conversation.id,
+                                sequence=current + 1, type=event.type,
+                                visibility=event.visibility, data=event.data)
+        session.add(row)
+        return row
+
+    def events(self, conversation_id, after=0, limit=100):
+        conversation = self.resource(Conversation, conversation_id)
+        query = select(ConversationEvent).where(
+            ConversationEvent.tenant_id == self.actor.tenant_id,
+            ConversationEvent.conversation_id == conversation.id,
+            ConversationEvent.sequence > after,
+        )
+        if self.actor.kind == "CUSTOMER":
+            query = query.where(ConversationEvent.visibility == "PUBLIC")
+        rows = self.session.scalars(query.order_by(ConversationEvent.sequence).limit(limit)).all()
+        return EventPage(items=[EventRead.model_validate(row) for row in rows],
+                         next_after=rows[-1].sequence if rows else after)
+
+    def transition_mode(self, conversation_id, request):
+        if self.actor.kind != "STAFF":
+            raise ServiceError(403, "只有客服可切换协作策略。")
+        conversation = self.resource(Conversation, conversation_id, lock=True)
+        if conversation.status != "ACTIVE":
+            raise ServiceError(409, "会话已归档。")
+        if conversation.version != request.expected_version:
+            raise ServiceError(409, "会话版本已更新，请刷新后重试。")
+        if request.target_mode == "HUMAN_LEAD" and request.reply_policy != "HUMAN_ONLY":
+            raise ServiceError(422, "人工主导时 Agent 不能公开发言。")
+        if request.target_mode == "CO_SERVICE" and request.reply_policy == "AI_AUTO" and self.actor.role not in ("SUPERVISOR", "ADMIN"):
+            raise ServiceError(403, "同时服务时允许 Agent 自动发言需要主管授权。")
+        conversation.collaboration_mode = request.target_mode
+        conversation.reply_policy = request.reply_policy
+        conversation.version += 1
+        self.record_event("collaboration.mode_changed", {
+            "mode": conversation.collaboration_mode, "reply_policy": conversation.reply_policy,
+            "version": conversation.version,
+        }, conversation_id=conversation.id)
+        self.session.commit()
+        return conversation
+
+    def request_assistance(self, conversation_id, request, *, commit=True):
+        conversation = self.resource(Conversation, conversation_id, lock=True)
+        if conversation.status != "ACTIVE":
+            raise ServiceError(409, "会话已归档。")
+        if request.case_id:
+            case = self.resource(ServiceCase, request.case_id)
+            if case.customer_id != conversation.customer_id or self.session.get(CaseConversation, (case.id, conversation.id)) is None:
+                raise ServiceError(409, "案例未关联到当前会话。")
+        task = ServiceTask(tenant_id=self.actor.tenant_id, conversation_id=conversation.id,
+                           case_id=request.case_id,
+                           requester_customer_id=self.actor.actor_id if self.actor.kind == "CUSTOMER" else None,
+                           reason=request.reason)
+        self.session.add(task)
+        self.session.flush()
+        self.record_event("assistance.requested", {"task_id": str(task.id)},
+                          visibility="INTERNAL", conversation_id=conversation.id)
+        if commit:
+            self.session.commit()
+        return self._task_read(task)
+
+    def publish_ui_projection(self, conversation_id):
+        conversation = self.resource(Conversation, conversation_id, lock=True)
+        audience = "CUSTOMER" if self.actor.kind == "CUSTOMER" else "STAFF"
+        visibility = "PUBLIC" if audience == "CUSTOMER" else "INTERNAL"
+        if conversation.status != "ACTIVE":
+            raise ServiceError(409, "会话已归档，不能发布新的 UI。")
+        source = {"kind": "CONVERSATION_VIEW", "resource_id": str(conversation.id),
+                  "resource_version": conversation.version, "binding": "assistance"}
+        refs = {("CONVERSATION_VIEW", conversation.id): conversation.version}
+        components = []
+        source_run_id = None
+        if audience == "CUSTOMER":
+            components.append({"id": "request-assistance", "type": "ActionBar",
+                               "props": {"title": "需要真人协助？", "body": "请求会创建人工任务；你仍可继续发送文字消息。"},
+                               "data_source": source,
+                               "actions": [{"action_id": "request-human-assistance", "intent": "REQUEST_ASSISTANCE",
+                                            "input_schema_ref": "serviceos://ui-inputs/assistance-request/v1"}],
+                               "children": []})
+            if conversation.collaboration_mode == "AI_LEAD" and conversation.reply_policy == "AI_AUTO":
+                runs = self.session.scalars(select(AgentRun).where(
+                    AgentRun.tenant_id == self.actor.tenant_id,
+                    AgentRun.conversation_id == conversation.id,
+                    AgentRun.status == "COMPLETED",
+                ).order_by(AgentRun.created_at.desc()).limit(5)).all()
+                for run in runs:
+                    proposal = (run.result_payload or {}).get("ui_proposal")
+                    public_message = self.session.scalar(select(Message.id).where(
+                        Message.tenant_id == self.actor.tenant_id,
+                        Message.conversation_id == conversation.id,
+                        Message.client_message_id == run.id,
+                        Message.visibility == "PUBLIC",
+                    ))
+                    if proposal and proposal.get("audience") == "CUSTOMER" and public_message:
+                        refs[("AGENT_RUN_VIEW", run.id)] = 1
+                        components.append({"id": "agent-question", "type": "QuestionForm",
+                                           "props": {"title": "下一步需要的信息", "body": proposal["purpose"]},
+                                           "data_source": {"kind": "AGENT_RUN_VIEW", "resource_id": str(run.id),
+                                                           "resource_version": 1, "binding": "question"},
+                                           "actions": [], "children": []})
+                        source_run_id = run.id
+                        break
+        else:
+            summaries = self.desk_case_summaries(conversation.id)
+            for summary in summaries[:5]:
+                case = summary.case
+                refs[("CASE_VIEW", case.id)] = case.version
+                components.append({"id": f"case-{str(case.id)[:8]}", "type": "CaseSummaryCard",
+                                   "props": {"title": "案例摘要", "body": case.problem_text[:500],
+                                             "status": case.status, "source": "case:customer_or_staff_statement",
+                                             "verification": "CANDIDATE"},
+                                   "data_source": {"kind": "CASE_VIEW", "resource_id": str(case.id),
+                                                   "resource_version": case.version, "binding": "summary"},
+                                   "actions": [], "children": []})
+                for index, fact in enumerate(summary.facts[1:3]):
+                    components.append({"id": f"evidence-{str(case.id)[:8]}-{index}", "type": "EvidenceSummary",
+                                       "props": {"title": fact.label[:100], "body": fact.value[:500],
+                                                 "source": fact.source[:240], "verification": fact.verification},
+                                       "data_source": {"kind": "CASE_VIEW", "resource_id": str(case.id),
+                                                       "resource_version": case.version, "binding": "evidence"},
+                                       "actions": [], "children": []})
+            tasks = self.tasks(conversation.id)
+            for task in tasks[-3:]:
+                refs[("TASK_VIEW", task.id)] = task.version
+                components.append({"id": f"task-{str(task.id)[:8]}", "type": "HandoffSummary",
+                                   "props": {"title": "人工任务", "body": task.reason[:500], "status": task.status},
+                                   "data_source": {"kind": "TASK_VIEW", "resource_id": str(task.id),
+                                                   "resource_version": task.version, "binding": "handoff"},
+                                   "actions": [], "children": []})
+            if not components:
+                components.append({"id": "conversation-progress", "type": "ProgressTimeline",
+                                   "props": {"title": "会话状态", "body": "会话已建立；尚无关联案例或人工任务。",
+                                             "status": conversation.status},
+                                   "data_source": {"kind": "CONVERSATION_VIEW", "resource_id": str(conversation.id),
+                                                   "resource_version": conversation.version, "binding": "overview"},
+                                   "actions": [], "children": []})
+        components = validate_components(components[:12], audience, refs)
+        fallback = safe_text("交互卡暂不可用，请继续使用文字消息。")
+        signature = hashlib.sha256(json.dumps({"components": components, "mode": conversation.collaboration_mode,
+                                               "policy": conversation.reply_policy}, sort_keys=True,
+                                              ensure_ascii=False).encode()).hexdigest()
+        active = self.session.scalar(select(UIDocument).where(
+            UIDocument.tenant_id == self.actor.tenant_id,
+            UIDocument.conversation_id == conversation.id,
+            UIDocument.audience == audience, UIDocument.status == "ACTIVE",
+        ).with_for_update())
+        now = datetime.now(timezone.utc)
+        if active and active.context_signature == signature and (active.expires_at is None or active.expires_at > now):
+            return UIDocumentRead.model_validate(active)
+        if active:
+            active.status = "SUPERSEDED"
+            ui_id, revision = active.ui_id, active.revision + 1
+            self.session.flush()
+        else:
+            ui_id, revision = uuid4(), 1
+        document = UIDocument(tenant_id=self.actor.tenant_id, conversation_id=conversation.id,
+                              ui_id=ui_id, revision=revision, schema_version=SCHEMA_VERSION,
+                              catalog_version=CATALOG_VERSION,
+                              surface="SUPPORT_INLINE" if audience == "CUSTOMER" else "DESK_PANEL",
+                              audience=audience, visibility=visibility, source_agent_run_id=source_run_id,
+                              context_signature=signature, components=components, fallback_text=fallback,
+                              expires_at=now + timedelta(hours=24))
+        self.session.add(document)
+        self.session.flush()
+        self.record_event("ui.document.published", {"ui_id": str(ui_id), "revision": revision},
+                          visibility=visibility, conversation_id=conversation.id)
+        self.session.commit()
+        return UIDocumentRead.model_validate(document)
+
+    def current_ui(self, conversation_id):
+        conversation = self.resource(Conversation, conversation_id)
+        audience = "CUSTOMER" if self.actor.kind == "CUSTOMER" else "STAFF"
+        active = self.session.scalar(select(UIDocument).where(
+            UIDocument.tenant_id == self.actor.tenant_id,
+            UIDocument.conversation_id == conversation.id,
+            UIDocument.audience == audience, UIDocument.status == "ACTIVE",
+        ))
+        if active and active.expires_at and active.expires_at <= datetime.now(timezone.utc):
+            return None
+        if active and active.source_agent_run_id and not (
+            conversation.collaboration_mode == "AI_LEAD" and conversation.reply_policy == "AI_AUTO"
+        ):
+            return None
+        return UIDocumentRead.model_validate(active) if active else None
+
+    def invoke_ui_action(self, conversation_id, request):
+        if self.actor.kind != "CUSTOMER":
+            raise ServiceError(403, "此低风险动作仅供当前客户使用。")
+        conversation = self.resource(Conversation, conversation_id, lock=True)
+        fingerprint = hashlib.sha256(request.model_dump_json().encode()).hexdigest()
+        existing = self.session.scalar(select(UIActionInvocation).where(
+            UIActionInvocation.tenant_id == self.actor.tenant_id,
+            UIActionInvocation.actor_kind == self.actor.kind,
+            UIActionInvocation.actor_id == self.actor.actor_id,
+            UIActionInvocation.client_action_id == request.client_action_id,
+        ))
+        if existing:
+            if existing.request_hash != fingerprint or existing.ui_document_id not in self.session.scalars(select(UIDocument.id).where(
+                UIDocument.tenant_id == self.actor.tenant_id, UIDocument.conversation_id == conversation.id,
+            )).all():
+                raise ServiceError(409, "同一动作标识已用于不同请求。")
+            return UIActionResult(client_action_id=request.client_action_id, status="ACCEPTED",
+                                  task_id=existing.task_id, replayed=True)
+        document = self.session.scalar(select(UIDocument).where(
+            UIDocument.tenant_id == self.actor.tenant_id,
+            UIDocument.conversation_id == conversation.id,
+            UIDocument.audience == "CUSTOMER", UIDocument.status == "ACTIVE",
+        ).with_for_update())
+        if document is None or document.ui_id != request.ui_id or document.revision != request.revision:
+            raise ServiceError(409, "UI 版本已更新，请刷新卡片后重试。")
+        if document.expires_at and document.expires_at <= datetime.now(timezone.utc):
+            raise ServiceError(409, "UI 卡片已过期，请刷新后重试。")
+        if conversation.version != request.expected_conversation_version:
+            raise ServiceError(409, "会话版本已更新，请刷新后重试。")
+        if not any(component["type"] == "ActionBar" and any(
+            action["action_id"] == request.action_id and action["intent"] == "REQUEST_ASSISTANCE"
+            for action in component["actions"]
+        ) for component in document.components):
+            raise ServiceError(403, "UI 动作不在当前受信目录中。")
+        if set(request.input) != {"reason"}:
+            raise ServiceError(422, "请求人工协助只接受原因。")
+        from serviceos_api.application.contracts import AssistanceRequest
+        try:
+            reason = AssistanceRequest.model_validate(request.input).reason
+        except ValidationError:
+            raise ServiceError(422, "请求人工协助原因无效。") from None
+        task = self.request_assistance(conversation.id, AssistanceRequest(reason=reason), commit=False)
+        self.session.add(UIActionInvocation(tenant_id=self.actor.tenant_id,
+                                            ui_document_id=document.id, client_action_id=request.client_action_id,
+                                            actor_kind=self.actor.kind, actor_id=self.actor.actor_id,
+                                            request_hash=fingerprint, action_id=request.action_id,
+                                            status="ACCEPTED", task_id=task.id,
+                                            result={"task_id": str(task.id)}))
+        self.record_event("ui.action.accepted", {"ui_id": str(document.ui_id), "revision": document.revision,
+                                                 "task_id": str(task.id)}, visibility="PUBLIC",
+                          conversation_id=conversation.id)
+        self.session.commit()
+        return UIActionResult(client_action_id=request.client_action_id, status="ACCEPTED",
+                              task_id=task.id, replayed=False)
+
+    def _task_read(self, task):
+        assignment = self.session.scalar(select(TaskAssignment).where(
+            TaskAssignment.tenant_id == task.tenant_id, TaskAssignment.task_id == task.id,
+            TaskAssignment.ended_at.is_(None),
+        ))
+        return TaskRead.model_validate(task).model_copy(update={"assignee_id": assignment.staff_user_id if assignment else None})
+
+    def tasks(self, conversation_id):
+        if self.actor.kind != "STAFF":
+            raise ServiceError(403, "只有客服可查看人工任务。")
+        conversation = self.resource(Conversation, conversation_id)
+        rows = self.session.scalars(select(ServiceTask).where(
+            ServiceTask.tenant_id == self.actor.tenant_id,
+            ServiceTask.conversation_id == conversation.id,
+        ).order_by(ServiceTask.created_at, ServiceTask.id)).all()
+        return [self._task_read(row) for row in rows]
+
+    def claim_task(self, task_id, request):
+        if self.actor.kind != "STAFF":
+            raise ServiceError(403, "只有客服可接管任务。")
+        task = self.session.scalar(select(ServiceTask).where(
+            ServiceTask.id == task_id, ServiceTask.tenant_id == self.actor.tenant_id,
+        ).with_for_update())
+        if task is None:
+            raise ServiceError(404, "任务不存在或无权访问。")
+        if task.version != request.expected_version or task.status != "OPEN":
+            raise ServiceError(409, "任务已被接管或版本已更新。")
+        task.status = "ASSIGNED"
+        task.version += 1
+        self.session.add(TaskAssignment(tenant_id=self.actor.tenant_id, task_id=task.id,
+                                        staff_user_id=self.actor.actor_id))
+        self.record_event("assistance.assigned", {"task_id": str(task.id), "version": task.version},
+                          visibility="INTERNAL", conversation_id=task.conversation_id)
+        self.session.commit()
+        return self._task_read(task)
+
+    def proposals(self, conversation_id):
+        if self.actor.kind != "STAFF":
+            raise ServiceError(403, "只有客服可查看内部草稿。")
+        conversation = self.resource(Conversation, conversation_id)
+        rows = self.session.scalars(select(AgentProposal).where(
+            AgentProposal.tenant_id == self.actor.tenant_id,
+            AgentProposal.conversation_id == conversation.id,
+        ).order_by(AgentProposal.created_at, AgentProposal.id)).all()
+        return [ProposalRead.model_validate(row) for row in rows]
+
+    def decide_proposal(self, proposal_id, request):
+        if self.actor.kind != "STAFF":
+            raise ServiceError(403, "只有客服可审阅内部草稿。")
+        proposal = self.session.scalar(select(AgentProposal).where(
+            AgentProposal.id == proposal_id, AgentProposal.tenant_id == self.actor.tenant_id,
+        ).with_for_update())
+        if proposal is None:
+            raise ServiceError(404, "草稿不存在或无权访问。")
+        digest = hashlib.sha256(request.model_dump_json().encode()).hexdigest()
+        if proposal.decision_key is not None:
+            if proposal.decision_key != request.decision_id or proposal.decision_hash != digest:
+                raise ServiceError(409, "草稿已经决定，不能重复或改变审阅结果。")
+            return ProposalRead.model_validate(proposal)
+        if proposal.proposal_type == "REPLY" and request.decision == "APPROVED":
+            self._publish_reviewed_reply(proposal)
+        proposal.status = request.decision
+        proposal.decision_key = request.decision_id
+        proposal.decision_hash = digest
+        proposal.decided_by = self.actor.actor_id
+        proposal.decision_reason = request.reason
+        self.record_event("approval.decided", {"proposal_id": str(proposal.id), "decision": proposal.status},
+                          visibility="INTERNAL", conversation_id=proposal.conversation_id)
+        self.session.commit()
+        return ProposalRead.model_validate(proposal)
+
+    def _publish_reviewed_reply(self, proposal):
+        conversation = self.session.scalar(select(Conversation).where(
+            Conversation.id == proposal.conversation_id,
+            Conversation.tenant_id == proposal.tenant_id,
+        ).with_for_update())
+        if conversation is None or conversation.status != "ACTIVE" or (
+            conversation.collaboration_mode == "HUMAN_LEAD" or conversation.reply_policy == "HUMAN_ONLY"
+        ):
+            raise ServiceError(409, "当前发言策略禁止 Agent 公开回复。")
+        try:
+            source_id = UUID(proposal.payload["source_message_id"])
+        except (KeyError, ValueError, TypeError):
+            raise ServiceError(409, "回复草稿缺少有效来源。") from None
+        draft = self.session.scalar(select(Message).where(
+            Message.id == source_id, Message.tenant_id == proposal.tenant_id,
+            Message.conversation_id == conversation.id,
+            Message.author_kind == "AGENT", Message.visibility == "INTERNAL",
+            Message.client_message_id == proposal.agent_run_id,
+        ))
+        if draft is None:
+            raise ServiceError(409, "内部回复草稿不可用。")
+        fingerprint = hashlib.sha256(json.dumps({"proposal_id": str(proposal.id),
+                                                  "content": draft.content}, sort_keys=True,
+                                                 ensure_ascii=False).encode()).hexdigest()
+        published = Message(tenant_id=proposal.tenant_id, conversation_id=conversation.id,
+                            author_kind="AGENT", visibility="PUBLIC", content=draft.content,
+                            related_case_id=draft.related_case_id,
+                            client_message_id=proposal.id, request_hash=fingerprint)
+        self.session.add(published)
+        self.session.flush()
+        self.record_event("message.created", {"message_id": str(published.id),
+                                              "conversation_id": str(conversation.id)},
+                          visibility="PUBLIC", conversation_id=conversation.id)
+
+    def desk_case_summaries(self, conversation_id: UUID) -> list[DeskCaseSummary]:
+        if self.actor.kind != "STAFF":
+            raise ServiceError(403, "只有已授权客服可查看案例摘要。")
+        conversation = self.resource(Conversation, conversation_id)
+        cases = self.session.scalars(select(ServiceCase).join(
+            CaseConversation, and_(CaseConversation.case_id == ServiceCase.id,
+                                   CaseConversation.tenant_id == ServiceCase.tenant_id),
+        ).where(ServiceCase.tenant_id == self.actor.tenant_id,
+                CaseConversation.conversation_id == conversation.id,
+                ServiceCase.customer_id == conversation.customer_id,
+                ServiceCase.archived_at.is_(None)).order_by(ServiceCase.created_at, ServiceCase.id)).all()
+        summaries = []
+        for case in cases:
+            facts = [SummaryFact(label="问题陈述", value=case.problem_text,
+                                 source="case:customer_or_staff_statement", verification="CANDIDATE")]
+            evidence = self.session.scalars(select(CaseEvidence).where(
+                CaseEvidence.tenant_id == self.actor.tenant_id, CaseEvidence.case_id == case.id,
+            ).order_by(CaseEvidence.observed_at, CaseEvidence.id)).all()
+            facts.extend(SummaryFact(label=row.claim_type, value=row.summary,
+                                     source=row.source, verification=row.validity) for row in evidence)
+            links = self.session.scalars(select(CaseDevice).where(
+                CaseDevice.tenant_id == self.actor.tenant_id, CaseDevice.case_id == case.id,
+            ).order_by(CaseDevice.device_id)).all()
+            device_ids = []
+            for link in links:
+                device = self.session.scalar(select(DevicePassport).where(
+                    DevicePassport.tenant_id == self.actor.tenant_id,
+                    DevicePassport.id == link.device_id,
+                    DevicePassport.customer_id == case.customer_id,
+                    DevicePassport.archived_at.is_(None),
+                ))
+                if device is None:
+                    continue
+                device_ids.append(device.id)
+                if device.model:
+                    facts.append(SummaryFact(label="设备型号", value=device.model,
+                                             source=device.identity_source,
+                                             verification=device.identity_status))
+                device_facts = self.session.scalars(select(DeviceFact).where(
+                    DeviceFact.tenant_id == self.actor.tenant_id,
+                    DeviceFact.device_id == device.id,
+                    DeviceFact.validity != "RETRACTED",
+                ).order_by(DeviceFact.created_at, DeviceFact.id)).all()
+                facts.extend(SummaryFact(label=row.fact_key,
+                                         value=json.dumps(row.value, ensure_ascii=False),
+                                         source=row.source, verification=row.validity)
+                             for row in device_facts)
+            summaries.append(DeskCaseSummary(case=CaseRead.model_validate(case), facts=facts,
+                                             device_ids=device_ids))
+        return summaries
+
     def send_message(self, conversation_id, request):
         conversation = self.resource(Conversation, conversation_id, lock=True)
         if conversation.status != "ACTIVE":
@@ -351,6 +767,12 @@ class ConversationService(BusinessService):
         )
         self.session.add(message)
         self.session.flush()
+        if visibility == "INTERNAL":
+            self.session.add(AgentProposal(
+                tenant_id=tenant_id, agent_run_id=run.id, conversation_id=conversation.id,
+                proposal_type="REPLY", idempotency_key="reply-draft",
+                payload={"summary": text, "source_message_id": str(message.id)},
+            ))
         self.session.add(OutboxEvent(
             tenant_id=tenant_id, conversation_id=conversation.id,
             type="message.created", visibility=visibility,

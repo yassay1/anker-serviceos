@@ -360,6 +360,7 @@ class AgentRun(TenantRecord, Base):
     output_tokens: Mapped[int | None] = mapped_column(Integer)
     error_code: Mapped[str | None] = mapped_column(String(80))
     result_text: Mapped[str | None] = mapped_column(Text)
+    result_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
 
 class AgentProposal(TenantRecord, Base):
@@ -368,7 +369,7 @@ class AgentProposal(TenantRecord, Base):
         tenant_reference("agent_run_id", "agent_runs"),
         tenant_reference("conversation_id", "conversations"),
         UniqueConstraint("tenant_id", "agent_run_id", "idempotency_key"),
-        CheckConstraint("proposal_type IN ('MISSING_EVIDENCE','ACTION')", name="type_values"),
+        CheckConstraint("proposal_type IN ('MISSING_EVIDENCE','ACTION','REPLY')", name="type_values"),
         CheckConstraint("status IN ('DRAFT','APPROVED','REJECTED')", name="status_values"),
         CheckConstraint("visibility = 'INTERNAL'", name="internal_only"),
     )
@@ -379,6 +380,42 @@ class AgentProposal(TenantRecord, Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
     status: Mapped[str] = mapped_column(String(24), default="DRAFT", server_default="DRAFT")
     visibility: Mapped[str] = mapped_column(String(16), default="INTERNAL", server_default="INTERNAL")
+    decision_key: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    decision_hash: Mapped[str | None] = mapped_column(String(64))
+    decided_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    decision_reason: Mapped[str | None] = mapped_column(Text)
+
+
+class ServiceTask(TenantRecord, Base):
+    __tablename__ = "service_tasks"
+    __table_args__ = tenant_args(
+        tenant_reference("conversation_id", "conversations"),
+        tenant_reference("case_id", "service_cases"),
+        tenant_reference("requester_customer_id", "customers"),
+        CheckConstraint("status IN ('OPEN','ASSIGNED','CLOSED')", name="status_values"),
+        CheckConstraint("version >= 1", name="version_positive"),
+        Index("ix_service_tasks_conversation", "tenant_id", "conversation_id", "created_at"),
+    )
+    conversation_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    case_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    requester_customer_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    reason: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(24), default="OPEN", server_default="OPEN")
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+
+
+class TaskAssignment(TenantRecord, Base):
+    __tablename__ = "task_assignments"
+    __table_args__ = tenant_args(
+        tenant_reference("task_id", "service_tasks"),
+        tenant_reference("staff_user_id", "tenant_memberships", "staff_user_id"),
+        Index("uq_task_assignments_active", "tenant_id", "task_id", unique=True,
+              postgresql_where=text("ended_at IS NULL")),
+    )
+    task_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    staff_user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ConversationEvent(TenantRecord, Base):
@@ -395,3 +432,52 @@ class ConversationEvent(TenantRecord, Base):
     type: Mapped[str] = mapped_column(String(80))
     visibility: Mapped[str] = mapped_column(String(16))
     data: Mapped[dict[str, Any]] = mapped_column(JSONB)
+
+
+class UIDocument(TenantRecord, Base):
+    __tablename__ = "ui_documents"
+    __table_args__ = tenant_args(
+        tenant_reference("conversation_id", "conversations"),
+        tenant_reference("source_agent_run_id", "agent_runs"),
+        UniqueConstraint("tenant_id", "ui_id", "revision"),
+        CheckConstraint("revision >= 1", name="revision_positive"),
+        CheckConstraint("audience IN ('CUSTOMER','STAFF')", name="audience_values"),
+        CheckConstraint("visibility IN ('PUBLIC','INTERNAL')", name="visibility_values"),
+        CheckConstraint("status IN ('ACTIVE','SUPERSEDED','EXPIRED','INVALID')", name="status_values"),
+        Index("uq_ui_documents_active", "tenant_id", "conversation_id", "audience", unique=True,
+              postgresql_where=text("status = 'ACTIVE'")),
+    )
+    conversation_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    ui_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), default=uuid4)
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    schema_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    catalog_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    surface: Mapped[str] = mapped_column(String(32))
+    audience: Mapped[str] = mapped_column(String(16))
+    visibility: Mapped[str] = mapped_column(String(16))
+    source_agent_run_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    context_signature: Mapped[str] = mapped_column(String(64))
+    components: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    fallback_text: Mapped[str] = mapped_column(String(500))
+    status: Mapped[str] = mapped_column(String(24), default="ACTIVE", server_default="ACTIVE")
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class UIActionInvocation(TenantRecord, Base):
+    __tablename__ = "ui_action_invocations"
+    __table_args__ = tenant_args(
+        tenant_reference("ui_document_id", "ui_documents"),
+        tenant_reference("task_id", "service_tasks"),
+        UniqueConstraint("tenant_id", "actor_kind", "actor_id", "client_action_id"),
+        CheckConstraint("actor_kind IN ('CUSTOMER','STAFF')", name="actor_values"),
+        CheckConstraint("status IN ('ACCEPTED','REJECTED')", name="status_values"),
+    )
+    ui_document_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    client_action_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    actor_kind: Mapped[str] = mapped_column(String(16))
+    actor_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    action_id: Mapped[str] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(16))
+    task_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    result: Mapped[dict[str, Any]] = mapped_column(JSONB)

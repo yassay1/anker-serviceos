@@ -15,6 +15,7 @@ from psycopg.rows import dict_row
 from sqlalchemy.engine import make_url
 
 from serviceos_api.application.agent_services import AgentToolService
+from serviceos_api.agents.result import AgentResult, parse_agent_result
 from serviceos_api.persistence.database import configured_database_url
 from serviceos_api.settings import Settings
 
@@ -26,7 +27,11 @@ SYSTEM_PROMPT = """你是 Anker ServiceOS 的售后协作助手。你只能基�
 不得把模型猜测写成已核验设备事实；不得声称已执行外部动作、已联系 Anker、已完成退款/维修或问题已解决。
 只有实际可见且适用的来源支持时才陈述型号规格；型号不确定时先澄清。优先给出安全、可逆的下一步和明确停止/人工求助条件。
 request_missing_evidence 与 propose_action 只会创建内部草稿，不会通知客户或执行动作。不要暴露内部备注、原始推理、密钥或其他客户信息。
-请用简洁、自然的中文回复客户；如果当前会话不是 AI 自动回复模式，最终回复只会保存为内部草稿供人工查看。"""
+请用简洁、自然的中文回复客户；如果当前会话不是 AI 自动回复模式，最终回复只会保存为内部草稿供人工查看。
+最终回答优先输出 JSON 对象，字段为 text 和可选 ui_proposal。ui_proposal 仅用于内部建议，格式为
+{"purpose":"简短目的","audience":"CUSTOMER 或 STAFF","fallback_text":"无卡片时的简短说明","component_hints":["QuestionForm"]}。
+允许的 component_hints 仅有 QuestionForm、ChoiceGroup、DiagnosticSteps、RiskNotice、HandoffSummary；不包含 props、URL、HTML 或执行动作。
+不需要卡片时省略 ui_proposal。动作提案只通过 propose_action 工具记录，不在最终 JSON 声称动作已执行。"""
 
 
 def _conninfo() -> str:
@@ -65,7 +70,7 @@ class AgentRuntime:
         return self.settings.llm_configured
 
     def invoke(self, *, tenant_id: UUID, conversation_id: UUID, run_id: UUID,
-               lease_token: UUID, message_id: UUID, context: dict, current_text: str) -> tuple[str, dict]:
+               lease_token: UUID, message_id: UUID, context: dict, current_text: str) -> tuple[AgentResult, dict]:
         if not self.configured:
             raise RuntimeError("model_provider_unconfigured")
 
@@ -149,15 +154,14 @@ class AgentRuntime:
             answer = content.strip()
         else:
             answer = "\n".join(str(part.get("text", "")) for part in content if isinstance(part, dict)).strip()
-        if not answer:
-            raise RuntimeError("agent_final_response_empty")
+        parsed = parse_agent_result(answer)
         usage = getattr(final, "usage_metadata", None) or {}
         stats = {
             "step_count": sum(1 for message in messages if getattr(message, "type", "") in ("ai", "tool")),
             "input_tokens": usage.get("input_tokens"),
             "output_tokens": usage.get("output_tokens"),
         }
-        return answer[:8000], stats
+        return parsed, stats
 
 
 @contextmanager

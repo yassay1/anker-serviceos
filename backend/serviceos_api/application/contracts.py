@@ -42,6 +42,48 @@ class ConversationList(Schema):
     items: list[ConversationRead]
 
 
+class ModeTransition(Schema):
+    target_mode: Literal["AI_LEAD", "CO_SERVICE", "HUMAN_LEAD"]
+    reply_policy: Literal["AI_AUTO", "AI_REVIEW_REQUIRED", "HUMAN_ONLY"]
+    expected_version: int = Field(ge=1)
+    reason: str = Field(min_length=3, max_length=1000)
+
+
+class AssistanceRequest(Schema):
+    reason: str = Field(min_length=3, max_length=1000)
+    case_id: UUID | None = None
+
+
+class ClaimTask(Schema):
+    expected_version: int = Field(ge=1)
+
+
+class TaskRead(Schema):
+    id: UUID
+    conversation_id: UUID
+    case_id: UUID | None
+    reason: str
+    status: str
+    version: int
+    assignee_id: UUID | None = None
+    created_at: datetime
+
+
+class ProposalRead(Schema):
+    id: UUID
+    conversation_id: UUID
+    proposal_type: str
+    payload: dict[str, Any]
+    status: str
+    created_at: datetime
+
+
+class ProposalDecision(Schema):
+    decision_id: UUID
+    decision: Literal["APPROVED", "REJECTED"]
+    reason: str = Field(min_length=3, max_length=1000)
+
+
 class CreateCase(Schema):
     customer_id: UUID | None = None
     problem_text: str = Field(min_length=1, max_length=8000)
@@ -68,6 +110,19 @@ class CaseRead(Schema):
     status: str
     version: int
     created_at: datetime
+
+
+class SummaryFact(Schema):
+    label: str
+    value: str
+    source: str
+    verification: Literal["UNVERIFIED", "CANDIDATE", "VERIFIED", "RETRACTED"]
+
+
+class DeskCaseSummary(Schema):
+    case: CaseRead
+    facts: list[SummaryFact]
+    device_ids: list[UUID]
 
 
 class CreateDevice(Schema):
@@ -185,3 +240,72 @@ class MessageReceipt(Schema):
     message: MessageRead
     replayed: bool
     processing_state: Literal["QUEUED", "NOT_SCHEDULED"]
+
+
+class EventRead(Schema):
+    id: UUID
+    conversation_id: UUID
+    sequence: int
+    type: str
+    visibility: Literal["PUBLIC", "INTERNAL"]
+    data: dict[str, Any]
+    created_at: datetime
+
+
+class EventPage(Schema):
+    items: list[EventRead]
+    next_after: int
+
+
+class UIDataSource(Schema):
+    kind: Literal["CONVERSATION_VIEW", "CASE_VIEW", "TASK_VIEW", "AGENT_RUN_VIEW"]
+    resource_id: UUID
+    resource_version: int = Field(ge=1)
+    binding: str
+
+
+class UIAction(Schema):
+    action_id: str
+    intent: Literal["REQUEST_ASSISTANCE"]
+    input_schema_ref: str
+
+
+class UIComponent(Schema):
+    id: str
+    type: str
+    props: dict[str, str]
+    data_source: UIDataSource
+    actions: list[UIAction]
+    children: list[str]
+
+
+class UIDocumentRead(Schema):
+    ui_id: UUID
+    revision: int
+    schema_version: int
+    catalog_version: int
+    surface: str
+    audience: Literal["CUSTOMER", "STAFF"]
+    visibility: Literal["PUBLIC", "INTERNAL"]
+    source_agent_run_id: UUID | None
+    components: list[UIComponent]
+    fallback_text: str
+    status: str
+    created_at: datetime
+    expires_at: datetime | None
+
+
+class UIActionRequest(Schema):
+    client_action_id: UUID
+    ui_id: UUID
+    revision: int = Field(ge=1)
+    action_id: Literal["request-human-assistance"]
+    input: dict[str, Any]
+    expected_conversation_version: int = Field(ge=1)
+
+
+class UIActionResult(Schema):
+    client_action_id: UUID
+    status: Literal["ACCEPTED"]
+    task_id: UUID
+    replayed: bool

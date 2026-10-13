@@ -30,3 +30,19 @@
 - 当前没有 SSE/事件查询 API；Outbox 已可靠写入 `conversation_events`，但面向前端的补取与可见性过滤属于阶段 3。
 - token 约束是每次模型输出上限与总模型调用上限，形成输出 token 总量硬上界；不同 OpenAI-compatible Provider 的实际 tokenizer/input usage 统计尚未实测，不能视为严格的全程输入 token 精算预算。
 - 项目目录没有 `.git`，本记录不提供 Git diff 或提交哈希，也未初始化 Git。
+
+## 2026-10-13 阶段 2 剩余项增量验收
+
+独立切片为 [Agent 结果分离](../specs/001-agent-result-separation/spec.md)。本节记录后续增量，不改写上方历史验收的环境和结果。`AgentRuntime` 现在解析独立文本与可选受限 UI 提案；无效 UI 只留下 `ui_proposal_invalid` 原因码，文本保留。动作引用由同租户、同 Run 的内部 `ACTION` 草稿查询生成，模型最终回答不能直接制造动作。`AgentRun.result_payload` 经迁移 `0005_agent_result` 保存分离结果。Worker 和工具写入均复核当前 Job 租约；公开文本仍由 Conversation Service 复核最新策略。
+
+本次使用现有本地 PostgreSQL 17 容器。命令及结果：
+
+| 命令 | 结果 |
+|---|---|
+| `uv run --project backend --locked pytest backend/tests --require-postgres -q`（设置 `SERVICEOS_TEST_DATABASE_URL`） | `57 passed`；含结果解析、UI 降级、内部动作幂等、恢复复用、HUMAN_LEAD 和租约拒绝 |
+| `uv run --project backend --locked alembic -c backend/alembic.ini upgrade head` | 开发库升级到 `0005_agent_result` |
+| `uv run --project backend --locked alembic -c backend/alembic.ini check` | `No new upgrade operations detected.` |
+| `uv run --project backend --locked python -m serviceos_api.export_openapi --check` | 与应用一致；本切片没有新增 HTTP 路由 |
+| `npm run check:api`、`npm run typecheck`、`npm run build` | 类型与构建通过；无虚构 UI 接口 |
+
+真实 Provider 多轮、目标 Provider 的 JSON/工具协议兼容性和真实模型运行中的强制杀进程恢复仍待凭据后验收。当前 PostgreSQL 测试替身只验证本地逻辑，不表示上述三项通过。阶段 3 的 UIDocument、Catalog、Renderer、UI action 和 SSE 未实现。

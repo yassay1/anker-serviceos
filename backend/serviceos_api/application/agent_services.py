@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
@@ -9,8 +10,8 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from serviceos_api.persistence.models import (
-    AgentProposal, AgentRun, CaseConversation, CaseDevice, Conversation, ConversationEvent,
-    DeviceFact, DevicePassport, Message, ServiceCase,
+    AgentProposal, AgentRun, CaseConversation, CaseDevice, Conversation,
+    DeviceFact, DevicePassport, Message, MessageJob, ServiceCase,
 )
 
 
@@ -145,6 +146,14 @@ class AgentToolService:
         ))
         if run is None:
             raise ValueError("agent_run_unavailable")
+        job = self.session.scalar(select(MessageJob).where(
+            MessageJob.id == run.job_id, MessageJob.tenant_id == self.tenant_id,
+            MessageJob.conversation_id == self.conversation_id,
+            MessageJob.status == "RUNNING", MessageJob.lease_token == self.lease_token,
+            MessageJob.lease_expires_at > datetime.now(timezone.utc),
+        ))
+        if job is None:
+            raise ValueError("agent_run_lease_lost")
         key = hashlib.sha256(f"{proposal_type}:{summary.casefold()}".encode()).hexdigest()
         existing = self.session.scalar(select(AgentProposal).where(
             AgentProposal.tenant_id == self.tenant_id,
@@ -161,20 +170,4 @@ class AgentToolService:
             self.session.commit()
         return f"内部草稿已记录（{existing.id}）。尚未对客户发消息、未改变设备事实，也未执行任何外部动作。"
 
-
-def append_conversation_event(session: Session, tenant_id: UUID, conversation_id: UUID,
-                              type_: str, visibility: str, data: dict) -> ConversationEvent:
-    """Append under a locked conversation row so each stream has stable sequence numbers."""
-    conversation = session.scalar(select(Conversation).where(
-        Conversation.id == conversation_id, Conversation.tenant_id == tenant_id,
-    ).with_for_update())
-    if conversation is None:
-        raise ValueError("conversation_unavailable")
-    current = session.scalar(select(ConversationEvent.sequence).where(
-        ConversationEvent.tenant_id == tenant_id,
-        ConversationEvent.conversation_id == conversation_id,
-    ).order_by(ConversationEvent.sequence.desc()).limit(1)) or 0
-    event = ConversationEvent(tenant_id=tenant_id, conversation_id=conversation_id,
-                              sequence=current + 1, type=type_, visibility=visibility, data=data)
-    session.add(event)
-    return event
+\r\n

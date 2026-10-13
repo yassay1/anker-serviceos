@@ -1,6 +1,6 @@
 # 售后通 V1 · 现有项目合并计划
 
-日期：2026-10-13。主来源：用户提供的 `D:\proj\共享docs` 五份 V1 文件；哈希见 [来源清单](baseline-provenance.json)。阶段 0、阶段 1 已验收；阶段 2 的 Worker/Agent 基础实现已落地，真实 Provider 验收待凭据；阶段 3–5 仍为后续工作，不以目录或草案存在视为完成。2026-10-13 工作区清理后，旧 A1229 原型、旧功能 spec 和旧根级 Python 工程已归档到项目外 `D:\proj\Anker SreviceOS-archive-20261013\legacy\`；本文件内旧路径只用于说明历史设计来源，不代表活动目录。
+日期：2026-10-13。主来源：用户提供的 `D:\proj\共享docs` 五份 V1 文件；哈希见 [来源清单](baseline-provenance.json)。阶段 0、阶段 1 已验收；阶段 2 的 Worker/Agent 基础实现已落地，真实 Provider 验收待凭据；阶段 3 已完成本地验收，阶段 4–5 仍为后续工作，不以目录或草案存在视为完成。2026-10-13 工作区清理后，旧 A1229 原型、旧功能 spec 和旧根级 Python 工程已归档到项目外 `D:\proj\Anker SreviceOS-archive-20261013\legacy\`；本文件内旧路径只用于说明历史设计来源，不代表活动目录。
 
 ## 文档权威与保留范围
 
@@ -73,13 +73,13 @@
 
 当前保护：Checkpointer 使用 `serviceos_checkpoint` 独立 schema；API 不自动建表或启动 Worker；模型目的地、模型名及 API Key 必须显式配置；无凭据时 Worker 在领取任务前拒绝启动。工具写入只形成内部草稿，公开消息通过 ConversationService 幂等落库；`HUMAN_LEAD`、`HUMAN_ONLY` 和需人工审阅策略不会公开 Agent 输出。阶段 2 验收记录见 [phase2-validation.md](phase2-validation.md)。
 
-尚未完成的阶段 2 验收：真实模型多轮售后服务、所选 Provider 的结构化工具兼容性、进程被强制终止后的端到端恢复演示。SSE 尚未实现，因此断线不影响 Worker 的结构由分离进程保证，但尚无前端事件流验证。
+阶段 2 增量已在独立 [Agent 结果分离切片](../specs/001-agent-result-separation/spec.md)中补齐内部结构化结果、受限 UI 提案降级和动作草稿引用；未发布 UIDocument 或 UI action。尚未完成的阶段 2 验收：真实模型多轮售后服务、所选 Provider 的结构化工具兼容性、进程被强制终止后的端到端恢复演示。阶段 3 已实现持久事件与 SSE 补取；真实 Provider 与进程级强制终止恢复仍待阶段 2 的真实环境验收。
 
 ## 阶段 3：人机共同服务
 
-依赖阶段 2。建立客服任务、分配、模式切换、草稿审批、公开/内部事件隔离。当前 handoff 字段用于初始任务上下文，保留来源与脱敏信息。同期先接入只读 UI 文档/Renderer，再接 action intent；不能让动态组件先于对应应用服务和授权规则上线。
+依赖阶段 2。已建立客服任务、分配、模式切换、草稿审批、公开/内部事件隔离。当前 handoff 字段用于初始任务上下文，保留来源与脱敏信息。只读 UI 文档/Renderer 和低风险 action intent 已接入对应应用服务与授权规则。
 
-完成条件：AI → CO_SERVICE → HUMAN_LEAD → AI 恢复；两名客服同版本接管仅一人成功；旧 Agent 在接管后不能公开外发，但授权内部任务可继续；无需用户重述。
+完成条件已在本地 PostgreSQL 回归中覆盖：AI → CO_SERVICE → HUMAN_LEAD 的模式与发言策略校验、两名客服同版本接管仅一人成功、旧 Agent 在接管后不能公开外发但授权内部任务可继续、公开/内部事件隔离与 SSE 补取、旧 UI revision/越权数据源/未知组件拒绝或降级。浏览器自动化因本地开发登录状态请求持续停在加载态，未将其记为通过；详见 [阶段 3 验收记录](phase3-validation.md)。
 
 ## 阶段 4：完整业务纵切面
 
@@ -93,16 +93,16 @@
 
 CI 使用同源契约和关键业务回归。旧原型目录已完成项目外归档，不再是待迁移的活动工程；重新设计旧 spec 或从归档选择性复用模块时，须另建明确任务并通过 V1 边界审查。
 
-## Generative UI 增量清单（全部未实现）
+## Generative UI 增量清单
 
 | ID | 依赖 | 工作 | 验收 |
 |---|---|---|---|
-| G001 | 阶段 2 Context Builder | `UIDocument`、组件 Catalog、UI Schema/Policy Validator 与 fallback 契约 | 未知组件、越权数据源、任意代码/URL 和超限树失败关闭；文本路径仍可用 |
-| G002 | G001、持久事件 | UI revision/snapshot、PUBLIC/INTERNAL 事件与断线恢复 | 刷新可恢复；客户读不到 INTERNAL；旧 revision 可识别但不可操作 |
-| G003 | G001–G002 | React Renderer 与用户侧问题/证据/风险/核验只读或低风险卡 | 键盘、屏幕阅读器、移动端、错误和不支持组件均有明确退路 |
-| G004 | 阶段 3 应用服务 | 客服摘要/Skill/草稿/审批/流程卡和 action intent | HUMAN_LEAD/CO_SERVICE 下不偷发；按钮提交后再次鉴权、锁版本、幂等 |
+| G001 | 阶段 2 Context Builder | `UIDocument`、组件 Catalog、UI Schema/Policy Validator 与 fallback 契约 | 已实现并通过未知组件、越权数据源、任意代码/URL 拒绝及文本降级测试 |
+| G002 | G001、持久事件 | UI revision/snapshot、PUBLIC/INTERNAL 事件与断线恢复 | 已实现；刷新可恢复，客户读不到 INTERNAL，旧 revision 不可操作 |
+| G003 | G001–G002 | React Renderer 与用户侧问题/证据/风险/核验只读或低风险卡 | 已实现 Renderer、错误/不支持组件文本或固定表单降级；浏览器端到端仍受本地登录加载问题限制 |
+| G004 | 阶段 3 应用服务 | 客服摘要/Skill/草稿/审批/流程卡和 action intent | 已实现；HUMAN_LEAD/CO_SERVICE 下不偷发，按钮提交再次鉴权、锁版本、幂等 |
 | G005 | 阶段 4 Action/Verification | 回执、UNKNOWN 对账、核验与纵切面评测 | 动作完成不等于解决；只有真实回执和验证条件可更新状态 |
 
 ## 本轮验证记录
 
-B001–B008 已完成阶段 0 本地验收；D101–D105 已完成阶段 1 本地验收；阶段 2 基础实现及离线数据库验收完成，分别见 [阶段 0](baseline-validation.md)、[阶段 1](phase1-validation.md) 与 [阶段 2](phase2-validation.md) 验收记录。真实 Provider 验收仍待配置；阶段 3–5 未实施。2026-10-13 清理将旧原型和旧 spec 归档至项目外，不影响上述历史验收事实；共享源文件未迁移或修改。
+B001–B008 已完成阶段 0 本地验收；D101–D105 已完成阶段 1 本地验收；阶段 2 基础实现及离线数据库验收完成，分别见 [阶段 0](baseline-validation.md)、[阶段 1](phase1-validation.md) 与 [阶段 2](phase2-validation.md) 验收记录。真实 Provider 验收仍待配置；阶段 3 已完成本地 PostgreSQL、迁移、契约、前端构建和应用服务回归；阶段 4–5 未实施。2026-10-13 清理将旧原型和旧 spec 归档至项目外，不影响上述历史验收事实；共享源文件未迁移或修改。

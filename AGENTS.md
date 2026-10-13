@@ -5,6 +5,7 @@
 1. 阅读 `README.md` 与 `docs/product-definition.md`、`docs/architecture.md`、`docs/domain-and-contracts.md`、`docs/development-plan.md`。
 2. 先检查实际项目文件与依赖，避免重写已有实现；不得把文档草案称为已实现。
 3. 开始每个阶段时指出目标、受影响模块和验收方式；除非明确需要，不得重做技术栈选型、不做 Parlant/LangGraph 对比 Spike。
+4. 修改 `frontend/` 时读 `frontend/README.md`；修改 `backend/` 时读 `backend/README.md`。跨模块接口变更同时遵循 `docs/contributing.md`。
 
 ## 必须遵守的业务规则
 

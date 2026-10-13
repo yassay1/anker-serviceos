@@ -7,6 +7,11 @@ export type Message = components['schemas']['MessageRead']
 export type MessagePage = components['schemas']['MessagePage']
 export type MessageReceipt = components['schemas']['MessageReceipt']
 export type SendBody = components['schemas']['SendMessage']
+export type DeskCaseSummary = components['schemas']['DeskCaseSummary']
+export type Task = components['schemas']['TaskRead']
+export type Proposal = components['schemas']['ProposalRead']
+export type UIDocument = components['schemas']['UIDocumentRead']
+export type UIActionBody = components['schemas']['UIActionRequest']
 
 export const api = createClient<paths>({ baseUrl: '/', credentials: 'same-origin' })
 
@@ -59,6 +64,76 @@ export async function listMessages(conversationId: string, cursor?: string): Pro
     params: { path: { id: conversationId }, query: { limit: 50, cursor: cursor ?? null } },
   })
   return requireData(data, error, response, '消息加载失败。')
+}
+
+export async function listDeskCaseSummaries(conversationId: string): Promise<DeskCaseSummary[]> {
+  const { data, error, response } = await api.GET('/api/v1/conversations/{id}/case-summaries', {
+    params: { path: { id: conversationId } },
+  })
+  return requireData(data, error, response, '案例摘要加载失败。')
+}
+
+export async function transitionMode(conversationId: string, body: components['schemas']['ModeTransition']): Promise<Conversation> {
+  const { data, error, response } = await api.POST('/api/v1/conversations/{id}/mode-transitions', {
+    params: { path: { id: conversationId } }, body,
+  })
+  return requireData(data, error, response, '协作策略更新失败。')
+}
+
+export async function requestAssistance(conversationId: string, reason: string): Promise<Task> {
+  const { data, error, response } = await api.POST('/api/v1/conversations/{id}/assistance-requests', {
+    params: { path: { id: conversationId } }, body: { reason },
+  })
+  return requireData(data, error, response, '人工协助请求失败。')
+}
+
+export async function listTasks(conversationId: string): Promise<Task[]> {
+  const { data, error, response } = await api.GET('/api/v1/conversations/{id}/tasks', {
+    params: { path: { id: conversationId } },
+  })
+  return requireData(data, error, response, '人工任务加载失败。')
+}
+
+export async function claimTask(taskId: string, expectedVersion: number): Promise<Task> {
+  const { data, error, response } = await api.POST('/api/v1/tasks/{id}/claim', {
+    params: { path: { id: taskId } }, body: { expected_version: expectedVersion },
+  })
+  return requireData(data, error, response, '任务接管失败，请刷新后重试。')
+}
+
+export async function listProposals(conversationId: string): Promise<Proposal[]> {
+  const { data, error, response } = await api.GET('/api/v1/conversations/{id}/proposals', {
+    params: { path: { id: conversationId } },
+  })
+  return requireData(data, error, response, '内部草稿加载失败。')
+}
+
+export async function decideProposal(proposalId: string, decision: 'APPROVED' | 'REJECTED', reason: string, decisionId: string): Promise<Proposal> {
+  const { data, error, response } = await api.POST('/api/v1/proposals/{id}/decision', {
+    params: { path: { id: proposalId } }, body: { decision_id: decisionId, decision, reason },
+  })
+  return requireData(data, error, response, '草稿审阅失败。')
+}
+
+export async function readUIDocument(conversationId: string): Promise<UIDocument | null> {
+  const { data, error, response } = await api.GET('/api/v1/conversations/{id}/ui-document', {
+    params: { path: { id: conversationId } },
+  })
+  return requireData(data, error, response, '交互卡加载失败。')
+}
+
+export async function refreshUIDocument(conversationId: string): Promise<UIDocument> {
+  const { data, error, response } = await api.POST('/api/v1/conversations/{id}/ui-document/refresh', {
+    params: { path: { id: conversationId } },
+  })
+  return requireData(data, error, response, '交互卡刷新失败，请继续使用文字消息。')
+}
+
+export async function invokeUIAction(conversationId: string, body: UIActionBody) {
+  const { data, error, response } = await api.POST('/api/v1/conversations/{id}/ui-actions', {
+    params: { path: { id: conversationId } }, body,
+  })
+  return requireData(data, error, response, '操作结果未确认，请用原请求重试或刷新任务。')
 }
 
 export async function sendMessage(conversationId: string, body: SendBody): Promise<MessageReceipt> {

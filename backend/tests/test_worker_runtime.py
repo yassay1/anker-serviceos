@@ -6,12 +6,16 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from serviceos_api.application.agent_services import AgentContextBuilder
+from serviceos_api.application.agent_services import AgentToolService
+from serviceos_api.agents.result import AgentResult
 from serviceos_api.application.auth import Principal
+from serviceos_api.application.contracts import ProposalDecision
+from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.services import ConversationService
 from serviceos_api.bootstrap_local import seed_local_accounts
 from serviceos_api.persistence.models import (
-    AgentRun, CaseConversation, CaseDevice, Conversation, ConversationEvent,
-    Customer, DeviceFact, DevicePassport, Message, MessageJob, OutboxEvent, ServiceCase, Tenant,
+    AgentProposal, AgentRun, CaseConversation, CaseDevice, Conversation, ConversationEvent,
+    Customer, DeviceFact, DevicePassport, Message, MessageJob, OutboxEvent, ServiceCase, StaffUser, Tenant,
 )
 from serviceos_api.settings import Settings
 from serviceos_api.worker.runtime import MessageWorker, OutboxDispatcher
@@ -296,3 +300,204 @@ def test_agent_publication_rechecks_current_policy(database_engine):
         assert session.scalar(select(func.count()).select_from(Message).where(
             Message.conversation_id == conversation.id, Message.visibility == "INTERNAL",
         )) == 1
+
+
+def test_rejected_action_proposal_remains_internal_and_does_not_execute(database_engine):
+    with Session(database_engine) as session:
+        tenant, _, conversation, message, job, _ = seed_message(session)
+        run = AgentRun(tenant_id=tenant.id, job_id=job.id, conversation_id=conversation.id,
+                       message_id=message.id, thread_id=str(conversation.id), lease_token=uuid4(),
+                       provider="test", model="test-only")
+        session.add(run)
+        session.flush()
+        proposal = AgentProposal(tenant_id=tenant.id, conversation_id=conversation.id,
+                                 agent_run_id=run.id, proposal_type="ACTION", idempotency_key="review-test",
+                                 payload={"summary": "模拟售后动作草稿"})
+        session.add(proposal)
+        staff = session.scalar(select(StaffUser).where(StaffUser.external_subject == "local:staff"))
+        session.flush()
+        principal = Principal(tenant.id, staff.id, "STAFF", staff.display_name, "SUPPORT")
+        service = ConversationService(session, principal)
+        request = ProposalDecision(decision_id=uuid4(), decision="REJECTED", reason="缺少用户证据")
+        first = service.decide_proposal(proposal.id, request)
+        assert first.status == "REJECTED"
+        assert service.decide_proposal(proposal.id, request).status == "REJECTED"
+        with pytest.raises(ServiceError) as error:
+            service.decide_proposal(proposal.id, ProposalDecision(
+                decision_id=uuid4(), decision="APPROVED", reason="重复尝试批准"))
+        assert error.value.status == 409
+        assert session.scalar(select(func.count()).select_from(Message).where(
+            Message.conversation_id == conversation.id, Message.author_kind == "AGENT",
+        )) == 0
+        assert session.scalar(select(func.count()).select_from(OutboxEvent).where(
+            OutboxEvent.conversation_id == conversation.id, OutboxEvent.type == "action.completed",
+        )) == 0
+
+
+def test_reply_draft_approval_rechecks_mode_and_publishes_once(database_engine):
+    with Session(database_engine) as session:
+        tenant, _, conversation, message, job, _ = seed_message(session)
+        conversation.collaboration_mode = "CO_SERVICE"
+        conversation.reply_policy = "AI_REVIEW_REQUIRED"
+        run = AgentRun(tenant_id=tenant.id, job_id=job.id, conversation_id=conversation.id,
+                       message_id=message.id, thread_id=str(conversation.id), lease_token=uuid4(),
+                       provider="test", model="test-only")
+        session.add(run)
+        session.flush()
+        draft = ConversationService(session, actor=None).publish_agent_response(
+            tenant.id, conversation.id, run.id, run.lease_token, "请补充接口照片")
+        assert draft.visibility == "INTERNAL"
+        proposal = session.scalar(select(AgentProposal).where(
+            AgentProposal.agent_run_id == run.id, AgentProposal.proposal_type == "REPLY"))
+        staff = session.scalar(select(StaffUser).where(StaffUser.external_subject == "local:staff"))
+        service = ConversationService(session, Principal(tenant.id, staff.id, "STAFF", staff.display_name, "SUPPORT"))
+        request = ProposalDecision(decision_id=uuid4(), decision="APPROVED", reason="内容已核对")
+        assert service.decide_proposal(proposal.id, request).status == "APPROVED"
+        assert service.decide_proposal(proposal.id, request).status == "APPROVED"
+        public = session.scalars(select(Message).where(
+            Message.conversation_id == conversation.id, Message.visibility == "PUBLIC",
+            Message.author_kind == "AGENT")).all()
+        assert len(public) == 1 and public[0].content == draft.content
+
+    with Session(database_engine) as session:
+        tenant, _, conversation, message, job, _ = seed_message(session)
+        conversation.collaboration_mode = "HUMAN_LEAD"
+        conversation.reply_policy = "HUMAN_ONLY"
+        run = AgentRun(tenant_id=tenant.id, job_id=job.id, conversation_id=conversation.id,
+                       message_id=message.id, thread_id=str(conversation.id), lease_token=uuid4(),
+                       provider="test", model="test-only")
+        session.add(run)
+        session.flush()
+        ConversationService(session, actor=None).publish_agent_response(
+            tenant.id, conversation.id, run.id, run.lease_token, "仅作内部工作")
+        proposal = session.scalar(select(AgentProposal).where(
+            AgentProposal.agent_run_id == run.id, AgentProposal.proposal_type == "REPLY"))
+        staff = session.scalar(select(StaffUser).where(StaffUser.external_subject == "local:staff"))
+        service = ConversationService(session, Principal(tenant.id, staff.id, "STAFF", staff.display_name, "SUPPORT"))
+        with pytest.raises(ServiceError) as error:
+            service.decide_proposal(proposal.id, ProposalDecision(
+                decision_id=uuid4(), decision="APPROVED", reason="试图公开旧草稿"))
+        assert error.value.status == 409
+        assert service.decide_proposal(proposal.id, ProposalDecision(
+            decision_id=uuid4(), decision="REJECTED", reason="人工主导不公开")).status == "REJECTED"
+        assert session.scalar(select(func.count()).select_from(Message).where(
+            Message.conversation_id == conversation.id, Message.visibility == "PUBLIC",
+            Message.author_kind == "AGENT")) == 0
+
+
+def test_worker_persists_separated_result_and_only_internal_action_reference(database_engine):
+    class ProposalRuntime:
+        configured = True
+
+        def invoke(self, **kwargs):
+            with Session(database_engine) as session:
+                service = AgentToolService(session, kwargs["tenant_id"], kwargs["conversation_id"],
+                                           kwargs["run_id"], kwargs["lease_token"])
+                service.record_proposal("ACTION", "请客服审核模拟换货申请")
+                service.record_proposal("ACTION", "请客服审核模拟换货申请")
+            return AgentResult("请先确认设备型号。", {
+                "purpose": "确认型号", "audience": "CUSTOMER",
+                "fallback_text": "请用文字说明型号。", "component_hints": ["QuestionForm"],
+            }), {"step_count": 1}
+
+    with Session(database_engine) as session:
+        tenant, _, conversation, message, job, _ = seed_message(session)
+        session.commit()
+        tenant_id, conversation_id, job_id = tenant.id, conversation.id, job.id
+    worker = MessageWorker(database_engine, Settings(environment="test"), runtime=ProposalRuntime())
+    lease = worker.claim_one()
+    assert lease is not None
+    worker.process(lease)
+    with Session(database_engine) as session:
+        run = session.scalar(select(AgentRun).where(AgentRun.job_id == job_id))
+        proposals = session.scalars(select(AgentProposal).where(AgentProposal.agent_run_id == run.id)).all()
+        response = session.scalar(select(Message).where(Message.client_message_id == run.id))
+        assert run.status == "COMPLETED"
+        assert run.result_payload["ui_proposal"]["purpose"] == "确认型号"
+        assert run.result_payload["action_proposals"] == [str(proposals[0].id)]
+        assert len(proposals) == 1 and proposals[0].visibility == "INTERNAL"
+        assert response.visibility == "PUBLIC" and response.content == [{"type": "text", "text": "请先确认设备型号。"}]
+        assert session.scalar(select(func.count()).select_from(Message).where(
+            Message.tenant_id == tenant_id, Message.conversation_id == conversation_id,
+            Message.author_kind == "AGENT",
+        )) == 1
+
+
+def test_worker_reuses_persisted_result_and_rechecks_policy(database_engine):
+    class MustNotRun:
+        configured = True
+
+        def invoke(self, **_):
+            raise AssertionError("saved result must be reused")
+
+    with Session(database_engine) as session:
+        tenant, _, conversation, message, job, _ = seed_message(session)
+        conversation.collaboration_mode = "HUMAN_LEAD"
+        conversation.reply_policy = "HUMAN_ONLY"
+        run = AgentRun(tenant_id=tenant.id, job_id=job.id, conversation_id=conversation.id,
+                       message_id=message.id, thread_id=str(conversation.id), lease_token=uuid4(),
+                       status="FAILED", provider="test", model="test", result_text="内部建议",
+                       result_payload={"schema_version": 1, "ui_proposal": None,
+                                       "ui_fallback_code": "ui_proposal_invalid", "action_proposals": []})
+        session.add(run)
+        session.commit()
+        job_id = job.id
+    worker = MessageWorker(database_engine, Settings(environment="test"), runtime=MustNotRun())
+    lease = worker.claim_one()
+    assert lease is not None
+    worker.process(lease)
+    with Session(database_engine) as session:
+        run = session.scalar(select(AgentRun).where(AgentRun.job_id == job_id))
+        response = session.scalar(select(Message).where(Message.client_message_id == run.id))
+        assert run.status == "COMPLETED" and run.result_payload["ui_fallback_code"] == "ui_proposal_invalid"
+        assert response.visibility == "INTERNAL"
+
+
+def test_old_lease_cannot_store_agent_result(database_engine):
+    class StealLease:
+        configured = True
+
+        def invoke(self, **kwargs):
+            with Session(database_engine) as session:
+                session.execute(update(AgentRun).where(AgentRun.id == kwargs["run_id"]).values(lease_token=uuid4()))
+                session.commit()
+            return AgentResult("旧租约结果"), {"step_count": 1}
+
+    with Session(database_engine) as session:
+        _, _, _, _, job, _ = seed_message(session)
+        session.commit()
+        job_id = job.id
+    worker = MessageWorker(database_engine, Settings(environment="test"), runtime=StealLease())
+    lease = worker.claim_one()
+    assert lease is not None
+    worker.process(lease)
+    with Session(database_engine) as session:
+        run = session.scalar(select(AgentRun).where(AgentRun.job_id == job_id))
+        assert run.result_text is None and run.result_payload is None
+        assert session.scalar(select(func.count()).select_from(Message).where(Message.client_message_id == run.id)) == 0
+
+
+def test_expired_job_lease_cannot_create_action_proposal(database_engine):
+    with Session(database_engine) as session:
+        tenant, _, conversation, message, job, _ = seed_message(session)
+        session.commit()
+        tenant_id, conversation_id, message_id, job_id = tenant.id, conversation.id, message.id, job.id
+    worker = MessageWorker(database_engine, Settings(environment="test"))
+    lease = worker.claim_one()
+    assert lease is not None
+    with Session(database_engine) as session:
+        run = AgentRun(tenant_id=tenant_id, job_id=job_id, conversation_id=conversation_id,
+                       message_id=message_id, thread_id=str(conversation_id),
+                       lease_token=lease.token, provider="test", model="test")
+        session.add(run)
+        session.flush()
+        run_id = run.id
+        session.execute(update(MessageJob).where(MessageJob.id == job_id).values(
+            lease_expires_at=datetime.now(timezone.utc) - timedelta(seconds=1)))
+        session.commit()
+    with Session(database_engine) as session:
+        service = AgentToolService(session, tenant_id, conversation_id, run_id, lease.token)
+        with pytest.raises(ValueError, match="agent_run_lease_lost"):
+            service.record_proposal("ACTION", "stale request")
+        assert session.scalar(select(func.count()).select_from(AgentProposal).where(
+            AgentProposal.agent_run_id == run_id)) == 0
