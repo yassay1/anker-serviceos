@@ -169,5 +169,3 @@ class AgentToolService:
             self.session.add(existing)
             self.session.commit()
         return f"内部草稿已记录（{existing.id}）。尚未对客户发消息、未改变设备事实，也未执行任何外部动作。"
-
-\r\n
