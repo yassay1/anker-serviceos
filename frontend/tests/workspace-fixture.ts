@@ -75,5 +75,5 @@ export async function fixture(page: Page, staff = true) {
     }
     await route.fulfill({ json })
   })
-  return state
+  return { ...state, actor, document }
 }

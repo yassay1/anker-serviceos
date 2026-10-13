@@ -110,6 +110,30 @@ def test_context_excludes_internal_messages_and_candidate_facts(database_engine)
         assert context["linked_cases"][0]["id"] == str(case.id)
 
 
+@pytest.mark.parametrize("same_timestamp", [False, True])
+def test_context_history_stops_before_the_current_customer_turn(database_engine, same_timestamp):
+    from uuid import UUID
+
+    with Session(database_engine) as session:
+        tenant, customer, conversation, message, _, _ = seed_message(session)
+        before = Message(
+            id=UUID(int=message.id.int - 1), tenant_id=tenant.id, conversation_id=conversation.id,
+            author_kind="CUSTOMER", author_customer_id=customer.id, visibility="PUBLIC",
+            content=[{"type": "text", "text": "previous customer turn"}],
+            created_at=message.created_at if same_timestamp else message.created_at - timedelta(seconds=1),
+        )
+        after = Message(
+            id=UUID(int=message.id.int + 1), tenant_id=tenant.id, conversation_id=conversation.id,
+            author_kind="CUSTOMER", author_customer_id=customer.id, visibility="PUBLIC",
+            content=[{"type": "text", "text": "future customer turn"}],
+            created_at=message.created_at if same_timestamp else message.created_at + timedelta(seconds=1),
+        )
+        session.add_all([before, after])
+        session.flush()
+        context = AgentContextBuilder(session, tenant.id).build(conversation.id, message.id)
+        assert context["public_history"] == [{"author": "CUSTOMER", "text": "previous customer turn"}]
+
+
 def test_outbox_dispatch_is_transactional_and_idempotent(database_engine):
     with Session(database_engine) as session:
         tenant, _, conversation, _, _, _ = seed_message(session)
