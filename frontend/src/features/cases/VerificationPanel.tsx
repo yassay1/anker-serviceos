@@ -38,7 +38,7 @@ export function VerificationPanel({ actor, serviceCase }: { actor: Actor, servic
   const queryClient = useQueryClient()
   const pendingKey = `serviceos:verification:${actor.tenant_id}:${actor.actor_id}:${caseId}`
   const [pending, setPending] = useState<VerificationBody | null>(() => readPending(pendingKey))
-  const [observedResult, setObservedResult] = useState<VerificationBody['observed_result']>('WORKING')
+  const [observedResult, setObservedResult] = useState<VerificationBody['observed_result'] | ''>('')
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
@@ -85,7 +85,7 @@ export function VerificationPanel({ actor, serviceCase }: { actor: Actor, servic
   }
 
   function start() {
-    if (pending || !contract.data) return
+    if (pending || !contract.data || !observedResult) return
     const body: VerificationBody = {
       client_verification_id: crypto.randomUUID(), expected_case_version: serviceCase.version,
       expected_resolution_contract_version: contract.data.version, observed_result: observedResult,
@@ -113,14 +113,15 @@ export function VerificationPanel({ actor, serviceCase }: { actor: Actor, servic
     {actor.kind === 'CUSTOMER' && hasAction && serviceCase.status !== 'RESOLVED' && serviceCase.status !== 'CLOSED' && <>
       <h3>告诉我们处理结果</h3>
       <label>现在的实际情况 <select value={observedResult} disabled={busy || Boolean(pending)}
-        onChange={event => setObservedResult(event.target.value as VerificationBody['observed_result'])}>
+        onChange={event => setObservedResult(event.target.value as VerificationBody['observed_result'] | '')}>
+        <option value="">请选择实际结果</option>
         <option value="WORKING">问题已解决</option><option value="NOT_WORKING">仍未解决</option>
         <option value="UNCERTAIN">还需观察</option>
       </select></label>
       {observedResult === 'WORKING' && !canConfirmWorking && <p>模拟动作尚无成功回执；请等待结果，或反馈仍未解决。</p>}
       <label>补充说明 <textarea value={note} maxLength={2000} disabled={busy || Boolean(pending)}
         onChange={event => setNote(event.target.value)} /></label>
-      <button type="button" disabled={busy || Boolean(pending) || !contract.data ||
+      <button type="button" disabled={busy || Boolean(pending) || !contract.data || !observedResult ||
         (observedResult === 'WORKING' && !canConfirmWorking)} onClick={start}>保存观察结果</button>
     </>}
     {pending && <p role="status">上次提交结果尚未确认，保留原核验编号。

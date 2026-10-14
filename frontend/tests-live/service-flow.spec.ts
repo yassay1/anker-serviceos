@@ -158,6 +158,8 @@ test('real API: separate mock request, supervisor approval, worker receipt and c
     await expect(customerActions.getByText(/申请原因/)).toHaveCount(0)
     const verification = customer.getByRole('region', { name: '结果核验' })
     await expect(verification.getByText('模拟服务请求收到成功回执')).toBeVisible()
+    await expect(verification.getByRole('button', { name: '保存观察结果' })).toBeDisabled()
+    await verification.getByLabel('现在的实际情况').selectOption('WORKING')
     await verification.getByLabel('补充说明').fill('客户测试后确认原问题已解决')
     await verification.getByRole('button', { name: '保存观察结果' }).click()
     await expect(verification.getByText('客户确认已保存，案例已核验解决。')).toBeVisible()
