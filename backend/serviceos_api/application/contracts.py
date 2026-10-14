@@ -309,3 +309,32 @@ class UIActionResult(Schema):
     status: Literal["ACCEPTED"]
     task_id: UUID
     replayed: bool
+
+
+class ServiceErrorBody(Schema):
+    code: str | None = None
+    detail: str
+    current_version: int | None = None
+
+
+class UploadEvidence(Schema):
+    client_evidence_id: UUID
+    expected_case_version: int = Field(ge=1)
+    visibility: Literal["PUBLIC", "INTERNAL"] = "PUBLIC"
+
+
+class EvidenceRead(Schema):
+    id: UUID
+    case_id: UUID
+    visibility: Literal["PUBLIC", "INTERNAL"]
+    media_type: Literal["image/jpeg", "image/png", "image/webp"]
+    byte_size: int = Field(ge=1, le=10 * 1024 * 1024)
+    inspection_status: Literal["PENDING", "CLEAN", "REJECTED"]
+    verification: Literal["UNVERIFIED", "VERIFIED", "RETRACTED"]
+    source_kind: Literal["CUSTOMER", "STAFF"]
+    created_at: datetime
+
+
+class EvidencePage(Schema):
+    items: list[EvidenceRead]
+    next_cursor: UUID | None = None

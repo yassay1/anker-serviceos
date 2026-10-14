@@ -129,6 +129,41 @@
         "title": "AttachDevice",
         "type": "object"
       },
+      "Body_upload_case_evidence": {
+        "properties": {
+          "client_evidence_id": {
+            "format": "uuid",
+            "title": "Client Evidence Id",
+            "type": "string"
+          },
+          "expected_case_version": {
+            "minimum": 1.0,
+            "title": "Expected Case Version",
+            "type": "integer"
+          },
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "visibility": {
+            "default": "PUBLIC",
+            "enum": [
+              "PUBLIC",
+              "INTERNAL"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_evidence_id",
+          "expected_case_version",
+          "file"
+        ],
+        "title": "Body_upload_case_evidence",
+        "type": "object"
+      },
       "CandidateFact": {
         "additionalProperties": false,
         "properties": {
@@ -563,6 +598,117 @@
           "created_at"
         ],
         "title": "EventRead",
+        "type": "object"
+      },
+      "EvidencePage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRead"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "EvidencePage",
+        "type": "object"
+      },
+      "EvidenceRead": {
+        "additionalProperties": false,
+        "properties": {
+          "byte_size": {
+            "maximum": 10485760.0,
+            "minimum": 1.0,
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "case_id": {
+            "format": "uuid",
+            "title": "Case Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "inspection_status": {
+            "enum": [
+              "PENDING",
+              "CLEAN",
+              "REJECTED"
+            ],
+            "title": "Inspection Status",
+            "type": "string"
+          },
+          "media_type": {
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ],
+            "title": "Media Type",
+            "type": "string"
+          },
+          "source_kind": {
+            "enum": [
+              "CUSTOMER",
+              "STAFF"
+            ],
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "verification": {
+            "enum": [
+              "UNVERIFIED",
+              "VERIFIED",
+              "RETRACTED"
+            ],
+            "title": "Verification",
+            "type": "string"
+          },
+          "visibility": {
+            "enum": [
+              "PUBLIC",
+              "INTERNAL"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "case_id",
+          "visibility",
+          "media_type",
+          "byte_size",
+          "inspection_status",
+          "verification",
+          "source_kind",
+          "created_at"
+        ],
+        "title": "EvidenceRead",
         "type": "object"
       },
       "FactDecision": {
@@ -1042,6 +1188,42 @@
           "content"
         ],
         "title": "SendMessage",
+        "type": "object"
+      },
+      "ServiceErrorBody": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "current_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Version"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ServiceErrorBody",
         "type": "object"
       },
       "SummaryFact": {
@@ -2043,6 +2225,373 @@
         "summary": "Attach Device",
         "tags": [
           "cases"
+        ]
+      }
+    },
+    "/api/v1/cases/{id}/evidence": {
+      "get": {
+        "operationId": "list_case_evidence",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidencePage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Actor cannot upload evidence"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Case not found or hidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Stale case version or idempotency conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "File exceeds size limit"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Unsupported media type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Invalid metadata or unsafe file"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Storage or inspection unavailable"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "List Case Evidence",
+        "tags": [
+          "evidence"
+        ]
+      },
+      "post": {
+        "operationId": "upload_case_evidence",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_case_evidence"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Actor cannot upload evidence"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Case not found or hidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Stale case version or idempotency conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "File exceeds size limit"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Unsupported media type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Invalid metadata or unsafe file"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Storage or inspection unavailable"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Upload Case Evidence",
+        "tags": [
+          "evidence"
+        ]
+      }
+    },
+    "/api/v1/cases/{id}/evidence/{evidence_id}/content": {
+      "get": {
+        "operationId": "read_case_evidence_content",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "evidence_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Evidence Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "image/jpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Authorized inspected image; Cache-Control no-store"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Not authenticated"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Evidence not found, hidden or not yet safe to serve"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Read Case Evidence Content",
+        "tags": [
+          "evidence"
         ]
       }
     },

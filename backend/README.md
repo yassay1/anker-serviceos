@@ -27,6 +27,14 @@ uv run --project backend --locked python -m serviceos_api.worker.main
 
 Worker 使用独立的 `serviceos_checkpoint` schema 保存执行检查点；业务数据仍以 PostgreSQL 业务 schema 为准。缺少 Provider 配置时 Worker 不领取任务。真实模型多轮和进程强制中断恢复的验收状态见[阶段 2 验收记录](../docs/phase2-validation.md)。
 
+图片证据的结构检查使用另一个进程，不读取模型配置，也不代表病毒扫描或真实 Anker 接口：
+
+```powershell
+uv run --project backend --locked python -m serviceos_api.worker.inspection
+```
+
+未检查通过的图片不能下载。已配置 Provider 的消息 Worker 在领取对话任务之余也会领取图片检查任务；未配置时它仍然在领取任何对话任务前退出。
+
 ## 代码边界
 
 | 位置 | 职责 |
