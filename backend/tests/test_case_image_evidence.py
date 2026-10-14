@@ -1,7 +1,9 @@
 """Controlled image evidence: authorization, idempotency, inspection and recovery."""
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -12,9 +14,11 @@ from serviceos_api.application.auth import Principal
 from serviceos_api.application.contracts import UploadEvidence
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.evidence import EvidenceService
+from serviceos_api.application.evidence_storage import EvidenceStorageFailure
 from serviceos_api.application.image_safety import PROPOSAL_MAX_IMAGE_BYTES
 from serviceos_api.bootstrap_local import seed_local_accounts
 from serviceos_api.main import create_app
+from serviceos_api.integrations.local_evidence_storage import evidence_storage_from_settings
 from serviceos_api.persistence.models import CaseImageEvidence, EvidenceInspectionJob, OutboxEvent
 from serviceos_api.settings import Settings
 from serviceos_api.worker.inspection import EvidenceInspectionWorker
@@ -34,12 +38,17 @@ def defer_other_jobs(engine, evidence_id):
 
 
 @pytest.fixture
-def app(database_engine):
+def app(database_engine, tmp_path):
     with Session(database_engine) as session:
         seed_local_accounts(session)
     return create_app(database_engine=database_engine, settings=Settings(
         environment="test", auth_mode="local", local_password="test-only-password",
+        evidence_storage_dir=str(tmp_path / "evidence"),
     ))
+
+
+def inspection_worker(app, database_engine, **overrides):
+    return EvidenceInspectionWorker(database_engine, replace(app.state.settings, **overrides))
 
 
 def case_for(client, text="端口没有反应"):
@@ -97,7 +106,7 @@ def test_customer_upload_is_pending_then_clean_and_replay_is_stable(app, databas
         assert session.scalar(select(func.count()).select_from(EvidenceInspectionJob).where(
             EvidenceInspectionJob.evidence_id == body["id"])) == 1
     defer_other_jobs(database_engine, UUID(body["id"]))
-    worker = EvidenceInspectionWorker(database_engine, Settings(environment="test", worker_max_attempts=3))
+    worker = inspection_worker(app, database_engine, worker_max_attempts=3)
     assert worker.run_once() is True
     assert worker.run_once() is False
     listed = customer.get(f"/api/v1/cases/{case['id']}/evidence").json()["items"]
@@ -124,7 +133,8 @@ def test_customer_upload_is_pending_then_clean_and_replay_is_stable(app, databas
     with Session(database_engine) as session:
         evidence = session.get(CaseImageEvidence, UUID(body["id"]))
         assert evidence.inspection_status == "CLEAN"
-        assert evidence.content == image
+        assert evidence.storage_key is not None
+        assert worker.storage.read(evidence.storage_key, evidence.byte_size) == image
         after = session.scalar(select(func.count()).select_from(OutboxEvent).where(OutboxEvent.type == "evidence.inspected"))
         assert after == before
     assert staff.get(f"/api/v1/cases/{case['id']}").json()["version"] == case["version"] + 1
@@ -169,7 +179,7 @@ def test_unsafe_image_is_rejected_and_not_served(app, database_engine):
     assert accepted.status_code == 202, accepted.text
     evidence_id = accepted.json()["id"]
     defer_other_jobs(database_engine, UUID(evidence_id))
-    worker = EvidenceInspectionWorker(database_engine, Settings(environment="test"))
+    worker = inspection_worker(app, database_engine)
     assert worker.run_once() is True
     listed = customer.get(f"/api/v1/cases/{case['id']}/evidence").json()["items"][0]
     assert listed["inspection_status"] == "REJECTED"
@@ -177,8 +187,9 @@ def test_unsafe_image_is_rejected_and_not_served(app, database_engine):
     assert customer.get(f"/api/v1/cases/{case['id']}/evidence/{evidence_id}/content").status_code == 404
     with Session(database_engine) as session:
         stored = session.get(CaseImageEvidence, UUID(evidence_id))
-        assert stored.content is None
+        assert stored.storage_key is None
         assert stored.rejection_code == "trailing_data"
+    assert not list(Path(app.state.settings.evidence_storage_dir).rglob("*/*"))
 
 
 def test_inspection_failure_retries_once_then_can_recover(app, database_engine, monkeypatch):
@@ -192,7 +203,7 @@ def test_inspection_failure_retries_once_then_can_recover(app, database_engine, 
         raise RuntimeError("scanner_unavailable")
 
     monkeypatch.setattr("serviceos_api.application.evidence.inspect_image", unavailable)
-    worker = EvidenceInspectionWorker(database_engine, Settings(environment="test", worker_max_attempts=2))
+    worker = inspection_worker(app, database_engine, worker_max_attempts=2)
     assert worker.run_once() is True
     with Session(database_engine) as session:
         stored = session.get(CaseImageEvidence, UUID(evidence_id))
@@ -224,7 +235,7 @@ def test_expired_inspection_lease_recovers_without_a_second_file(app, database_e
         job.lease_token = uuid4()
         job.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=5)
         session.commit()
-    worker = EvidenceInspectionWorker(database_engine, Settings(environment="test"))
+    worker = inspection_worker(app, database_engine)
     assert worker.run_once() is True
     with Session(database_engine) as session:
         stored = session.get(CaseImageEvidence, evidence_id)
@@ -260,7 +271,7 @@ def test_same_case_version_allows_only_one_new_upload(app, database_engine):
 
     def send(key):
         with Session(database_engine) as session:
-            service = EvidenceService(session, actor)
+            service = EvidenceService(session, actor, evidence_storage_from_settings(app.state.settings))
             try:
                 return service.upload(UUID(case["id"]), UploadEvidence(
                     client_evidence_id=key, expected_case_version=case["version"],
@@ -288,3 +299,67 @@ def test_customer_cannot_page_with_hidden_cursor(app):
     listed = staff.get(f"/api/v1/cases/{case['id']}/evidence", params={"limit": 1})
     assert listed.status_code == 200
     assert listed.json()["items"][0]["id"] == cursor
+
+
+def test_database_failure_removes_private_object(app, database_engine, monkeypatch):
+    customer = login(app)
+    case = case_for(customer)
+    me = customer.get("/api/v1/auth/me").json()
+    actor = Principal(tenant_id=UUID(me["tenant_id"]), actor_id=UUID(me["actor_id"]),
+                      kind="CUSTOMER", display_name=me["display_name"])
+    with Session(database_engine) as session:
+        service = EvidenceService(session, actor, evidence_storage_from_settings(app.state.settings))
+
+        def fail_commit():
+            raise RuntimeError("simulated database failure")
+
+        monkeypatch.setattr(session, "commit", fail_commit)
+        with pytest.raises(RuntimeError, match="simulated database failure"):
+            service.upload(UUID(case["id"]), UploadEvidence(
+                client_evidence_id=uuid4(), expected_case_version=case["version"],
+            ), png_image(), "image/png")
+    with Session(database_engine) as session:
+        assert session.scalar(select(func.count()).select_from(CaseImageEvidence).where(
+            CaseImageEvidence.case_id == UUID(case["id"]))) == 0
+    assert not list(Path(app.state.settings.evidence_storage_dir).rglob("*/*"))
+
+
+def test_rejected_object_cleanup_retries_without_duplicate_event(app, database_engine, monkeypatch):
+    customer = login(app)
+    case = case_for(customer)
+    accepted = upload(customer, case, png_image() + b"<script>")
+    evidence_id = UUID(accepted.json()["id"])
+    defer_other_jobs(database_engine, evidence_id)
+    worker = inspection_worker(app, database_engine, worker_max_attempts=1)
+    original_delete = worker.storage.delete
+    attempts = 0
+
+    def fail_once(key):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise EvidenceStorageFailure("simulated cleanup failure")
+        original_delete(key)
+
+    monkeypatch.setattr(worker.storage, "delete", fail_once)
+    assert worker.run_once() is True
+    with Session(database_engine) as session:
+        evidence = session.get(CaseImageEvidence, evidence_id)
+        job = session.scalar(select(EvidenceInspectionJob).where(EvidenceInspectionJob.evidence_id == evidence_id))
+        assert evidence.inspection_status == "REJECTED"
+        assert evidence.storage_key is not None
+        assert job.status == "QUEUED"
+        inspected_events = session.scalar(select(func.count()).select_from(OutboxEvent).where(
+            OutboxEvent.type == "evidence.inspected", OutboxEvent.tenant_id == evidence.tenant_id,
+        ))
+        job.available_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.commit()
+    assert worker.run_once() is True
+    with Session(database_engine) as session:
+        evidence = session.get(CaseImageEvidence, evidence_id)
+        job = session.scalar(select(EvidenceInspectionJob).where(EvidenceInspectionJob.evidence_id == evidence_id))
+        assert evidence.storage_key is None
+        assert job.status == "COMPLETED"
+        assert session.scalar(select(func.count()).select_from(OutboxEvent).where(
+            OutboxEvent.type == "evidence.inspected", OutboxEvent.tenant_id == evidence.tenant_id,
+        )) == inspected_events

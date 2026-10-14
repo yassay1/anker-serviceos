@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi import Request
 from fastapi.responses import Response
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -12,13 +13,19 @@ from serviceos_api.api.dependencies import get_actor, get_session
 from serviceos_api.application.contracts import EvidencePage, EvidenceRead, ServiceErrorBody, UploadEvidence
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.evidence import EvidenceService
+from serviceos_api.application.evidence_storage import EvidenceStorageFailure
 from serviceos_api.application.image_safety import PROPOSAL_MAX_IMAGE_BYTES
+from serviceos_api.integrations.local_evidence_storage import evidence_storage_from_settings
 
 router = APIRouter(prefix="/api/v1")
 
 
-def get_evidence_service(actor=Depends(get_actor), session: Session = Depends(get_session)):
-    return EvidenceService(session, actor)
+def get_evidence_service(request: Request, actor=Depends(get_actor), session: Session = Depends(get_session)):
+    try:
+        storage = evidence_storage_from_settings(request.app.state.settings)
+    except EvidenceStorageFailure as error:
+        raise ServiceError(503, "图片存储暂不可用。", code="EVIDENCE_STORAGE_UNAVAILABLE") from error
+    return EvidenceService(session, actor, storage)
 
 
 EvidenceBusiness = Annotated[EvidenceService, Depends(get_evidence_service)]

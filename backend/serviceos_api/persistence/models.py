@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     Boolean, CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, Index,
-    Integer, LargeBinary, MetaData, String, Text, UniqueConstraint, func, text,
+    Integer, MetaData, String, Text, UniqueConstraint, func, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -204,7 +204,7 @@ class CaseEvidence(TenantRecord, Base):
 
 
 class CaseImageEvidence(TenantRecord, Base):
-    """Image bytes for a case. Distinct from textual CaseEvidence claims."""
+    """Image metadata and private object reference for a case."""
 
     __tablename__ = "case_image_evidence"
     __table_args__ = tenant_args(
@@ -224,8 +224,8 @@ class CaseImageEvidence(TenantRecord, Base):
             name="author_identity",
         ),
         CheckConstraint(
-            "(inspection_status = 'REJECTED' AND rejection_code IS NOT NULL AND content IS NULL) OR "
-            "(inspection_status IN ('PENDING','CLEAN') AND rejection_code IS NULL AND content IS NOT NULL)",
+            "(inspection_status = 'REJECTED' AND rejection_code IS NOT NULL) OR "
+            "(inspection_status IN ('PENDING','CLEAN') AND rejection_code IS NULL AND storage_key IS NOT NULL)",
             name="inspection_payload",
         ),
         Index("ix_case_image_evidence_case", "tenant_id", "case_id", "created_at", "id"),
@@ -242,7 +242,7 @@ class CaseImageEvidence(TenantRecord, Base):
     source_kind: Mapped[str] = mapped_column(String(16))
     author_customer_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     author_staff_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
-    content: Mapped[bytes | None] = mapped_column(LargeBinary)
+    storage_key: Mapped[str | None] = mapped_column(String(160))
     rejection_code: Mapped[str | None] = mapped_column(String(80))
 
 

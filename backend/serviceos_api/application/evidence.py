@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import hashlib
 import json
-from uuid import UUID
+import logging
+from uuid import UUID, uuid4
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from serviceos_api.application.contracts import EvidencePage, EvidenceRead, UploadEvidence
 from serviceos_api.application.errors import ServiceError
+from serviceos_api.application.evidence_storage import EvidenceStorage, EvidenceStorageFailure
 from serviceos_api.application.image_safety import PROPOSAL_MAX_IMAGE_BYTES, PROPOSAL_MEDIA_TYPES, inspect_image, sniff_media_type
 from serviceos_api.application.services import BusinessService
 from serviceos_api.persistence.models import CaseConversation, CaseImageEvidence, EvidenceInspectionJob, OutboxEvent, ServiceCase
+
+logger = logging.getLogger("serviceos.evidence")
 
 
 def _request_hash(visibility: str, file_digest: str) -> str:
@@ -33,30 +37,39 @@ def enqueue_case_events(session: Session, tenant_id: UUID, case_id: UUID, type_:
         ))
 
 
-def complete_inspection(session: Session, tenant_id: UUID, evidence_id: UUID) -> str:
-    """Move PENDING evidence to CLEAN or REJECTED. Repeat calls do not change a terminal result."""
+def complete_inspection(session: Session, tenant_id: UUID, evidence_id: UUID,
+                        storage: EvidenceStorage) -> tuple[str, str | None]:
+    """Inspect once; return a rejected object's key for idempotent cleanup."""
     evidence = session.scalar(select(CaseImageEvidence).where(
         CaseImageEvidence.tenant_id == tenant_id, CaseImageEvidence.id == evidence_id,
     ).with_for_update())
     if evidence is None:
         raise RuntimeError("evidence_missing")
     if evidence.inspection_status != "PENDING":
-        return evidence.inspection_status
-    reason = inspect_image(evidence.media_type, bytes(evidence.content or b""))
+        return evidence.inspection_status, evidence.storage_key if evidence.inspection_status == "REJECTED" else None
+    if evidence.storage_key is None:
+        raise EvidenceStorageFailure("Pending evidence has no object reference.")
+    payload = storage.read(evidence.storage_key, evidence.byte_size)
+    reason = "storage_mismatch" if (
+        len(payload) != evidence.byte_size or hashlib.sha256(payload).hexdigest() != evidence.file_digest
+    ) else inspect_image(evidence.media_type, payload)
     if reason is None:
         evidence.inspection_status = "CLEAN"
     else:
         evidence.inspection_status = "REJECTED"
         evidence.rejection_code = reason
-        evidence.content = None
     enqueue_case_events(session, tenant_id, evidence.case_id, "evidence.inspected", {
         "evidence_id": str(evidence.id), "case_id": str(evidence.case_id),
         "inspection_status": evidence.inspection_status,
     }, evidence.visibility)
-    return evidence.inspection_status
+    return evidence.inspection_status, evidence.storage_key if reason is not None else None
 
 
 class EvidenceService(BusinessService):
+    def __init__(self, session: Session, actor, storage: EvidenceStorage):
+        super().__init__(session, actor)
+        self.storage = storage
+
     def upload(self, case_id: UUID, command: UploadEvidence, payload: bytes, declared_type: str | None) -> CaseImageEvidence:
         case = self.resource(ServiceCase, case_id, lock=True)
         digest = hashlib.sha256(payload).hexdigest() if payload else ""
@@ -83,23 +96,39 @@ class EvidenceService(BusinessService):
             raise ServiceError(409, "已关闭案例不能追加图片证据。", code="CASE_CLOSED", current_version=case.version)
         media_type = sniff_media_type(payload)
         assert media_type is not None
+        evidence_id = uuid4()
+        storage_key = f"{case.tenant_id}/{evidence_id}"
         evidence = CaseImageEvidence(
+            id=evidence_id,
             tenant_id=case.tenant_id, case_id=case.id, client_evidence_id=command.client_evidence_id,
             file_digest=digest, request_hash=fingerprint, visibility=command.visibility,
             media_type=media_type, byte_size=len(payload), inspection_status="PENDING",
-            verification="UNVERIFIED", source_kind=self.actor.kind, content=payload,
+            verification="UNVERIFIED", source_kind=self.actor.kind, storage_key=storage_key,
             author_customer_id=self.actor.actor_id if self.actor.kind == "CUSTOMER" else None,
             author_staff_id=self.actor.actor_id if self.actor.kind == "STAFF" else None,
         )
-        self.session.add(evidence)
-        self.session.flush()
-        self.session.add(EvidenceInspectionJob(tenant_id=case.tenant_id, evidence_id=evidence.id))
-        case.version += 1
-        enqueue_case_events(self.session, case.tenant_id, case.id, "evidence.received", {
-            "evidence_id": str(evidence.id), "case_id": str(case.id),
-            "inspection_status": "PENDING", "case_version": case.version,
-        }, evidence.visibility)
-        self.session.commit()
+        try:
+            self.storage.put(storage_key, payload)
+        except EvidenceStorageFailure as error:
+            self.session.rollback()
+            raise ServiceError(503, "图片存储暂不可用。", code="EVIDENCE_STORAGE_UNAVAILABLE") from error
+        try:
+            self.session.add(evidence)
+            self.session.flush()
+            self.session.add(EvidenceInspectionJob(tenant_id=case.tenant_id, evidence_id=evidence.id))
+            case.version += 1
+            enqueue_case_events(self.session, case.tenant_id, case.id, "evidence.received", {
+                "evidence_id": str(evidence.id), "case_id": str(case.id),
+                "inspection_status": "PENDING", "case_version": case.version,
+            }, evidence.visibility)
+            self.session.commit()
+        except Exception:
+            self.session.rollback()
+            try:
+                self.storage.delete(storage_key)
+            except EvidenceStorageFailure:
+                logger.warning("Could not remove evidence object after database failure.")
+            raise
         return evidence
 
     def list_evidence(self, case_id: UUID, cursor: UUID | None, limit: int) -> EvidencePage:
@@ -134,9 +163,17 @@ class EvidenceService(BusinessService):
         if self.actor.kind == "CUSTOMER":
             query = query.where(CaseImageEvidence.visibility == "PUBLIC")
         evidence = self.session.scalar(query)
-        if evidence is None or not evidence.content:
+        if evidence is None:
             raise ServiceError(404, "图片不存在、无权访问或尚未通过安全检查。")
-        return bytes(evidence.content), evidence.media_type
+        if evidence.storage_key is None:
+            raise ServiceError(503, "图片存储暂不可用。", code="EVIDENCE_STORAGE_UNAVAILABLE")
+        try:
+            payload = self.storage.read(evidence.storage_key, evidence.byte_size)
+        except EvidenceStorageFailure as error:
+            raise ServiceError(503, "图片存储暂不可用。", code="EVIDENCE_STORAGE_UNAVAILABLE") from error
+        if len(payload) != evidence.byte_size or hashlib.sha256(payload).hexdigest() != evidence.file_digest:
+            raise ServiceError(503, "图片存储内容校验失败。", code="EVIDENCE_STORAGE_MISMATCH")
+        return payload, evidence.media_type
 
     @staticmethod
     def _validate_payload(payload: bytes, declared_type: str | None) -> None:

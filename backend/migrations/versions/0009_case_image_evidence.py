@@ -33,7 +33,7 @@ def upgrade() -> None:
         sa.Column("source_kind", sa.String(16), nullable=False),
         sa.Column("author_customer_id", UUID(as_uuid=True)),
         sa.Column("author_staff_id", UUID(as_uuid=True)),
-        sa.Column("content", sa.LargeBinary()),
+        sa.Column("storage_key", sa.String(160)),
         sa.Column("rejection_code", sa.String(80)),
         sa.CheckConstraint("visibility IN ('PUBLIC','INTERNAL')", name="ck_case_image_evidence_visibility_values"),
         sa.CheckConstraint("media_type IN ('image/jpeg','image/png','image/webp')", name="ck_case_image_evidence_media_values"),
@@ -47,8 +47,8 @@ def upgrade() -> None:
             name="ck_case_image_evidence_author_identity",
         ),
         sa.CheckConstraint(
-            "(inspection_status = 'REJECTED' AND rejection_code IS NOT NULL AND content IS NULL) OR "
-            "(inspection_status IN ('PENDING','CLEAN') AND rejection_code IS NULL AND content IS NOT NULL)",
+            "(inspection_status = 'REJECTED' AND rejection_code IS NOT NULL) OR "
+            "(inspection_status IN ('PENDING','CLEAN') AND rejection_code IS NULL AND storage_key IS NOT NULL)",
             name="ck_case_image_evidence_inspection_payload",
         ),
         sa.ForeignKeyConstraint(["tenant_id"], [f"{SCHEMA}.tenants.id"], name="fk_case_image_evidence_tenant_id_tenants"),

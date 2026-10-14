@@ -11,8 +11,9 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from serviceos_api.application.evidence import complete_inspection
+from serviceos_api.integrations.local_evidence_storage import evidence_storage_from_settings
 from serviceos_api.persistence.database import build_engine
-from serviceos_api.persistence.models import EvidenceInspectionJob
+from serviceos_api.persistence.models import CaseImageEvidence, EvidenceInspectionJob
 from serviceos_api.settings import Settings
 from serviceos_api.worker.runtime import Lease
 
@@ -24,15 +25,23 @@ class EvidenceInspectionWorker:
         self.engine = engine
         self.settings = settings
         self.worker_id = worker_id or f"evidence-{uuid4()}"
+        self.storage = evidence_storage_from_settings(settings)
 
     def claim_one(self) -> Lease | None:
         now = datetime.now(timezone.utc)
         limit = self.settings.worker_max_attempts
+        cleanup_required = select(CaseImageEvidence.id).where(
+            CaseImageEvidence.id == EvidenceInspectionJob.evidence_id,
+            CaseImageEvidence.tenant_id == EvidenceInspectionJob.tenant_id,
+            CaseImageEvidence.inspection_status == "REJECTED",
+            CaseImageEvidence.storage_key.is_not(None),
+        ).exists()
         with Session(self.engine, expire_on_commit=False) as session:
             exhausted = session.scalars(select(EvidenceInspectionJob).where(
                 EvidenceInspectionJob.status == "RUNNING",
                 EvidenceInspectionJob.lease_expires_at <= now,
                 EvidenceInspectionJob.attempt_count >= func.least(EvidenceInspectionJob.max_attempts, limit),
+                ~cleanup_required,
             ).with_for_update(skip_locked=True).limit(20)).all()
             for row in exhausted:
                 row.status = "FAILED"
@@ -41,7 +50,8 @@ class EvidenceInspectionWorker:
                 row.lease_token = None
                 row.lease_expires_at = None
             job = session.scalars(select(EvidenceInspectionJob).where(
-                EvidenceInspectionJob.attempt_count < func.least(EvidenceInspectionJob.max_attempts, limit),
+                or_(EvidenceInspectionJob.attempt_count < func.least(EvidenceInspectionJob.max_attempts, limit),
+                    cleanup_required),
                 or_(
                     and_(EvidenceInspectionJob.status == "QUEUED", EvidenceInspectionJob.available_at <= now),
                     and_(EvidenceInspectionJob.status == "RUNNING", EvidenceInspectionJob.lease_expires_at <= now),
@@ -65,6 +75,7 @@ class EvidenceInspectionWorker:
 
     def process(self, lease: Lease) -> None:
         try:
+            cleanup_key = None
             with Session(self.engine) as session:
                 job = session.scalar(select(EvidenceInspectionJob).where(
                     EvidenceInspectionJob.id == lease.item_id,
@@ -74,16 +85,43 @@ class EvidenceInspectionWorker:
                 ).with_for_update())
                 if job is None:
                     return
-                complete_inspection(session, lease.tenant_id, job.evidence_id)
-                job.status = "COMPLETED"
-                job.completed_at = datetime.now(timezone.utc)
-                job.lease_owner = None
-                job.lease_token = None
-                job.lease_expires_at = None
-                job.last_error_code = None
+                _, cleanup_key = complete_inspection(session, lease.tenant_id, job.evidence_id, self.storage)
+                if cleanup_key is None:
+                    self._complete(job)
                 session.commit()
+            if cleanup_key is not None:
+                # Commit REJECTED first. A failed delete or interrupted process can
+                # retry this step without repeating the inspection event.
+                self.storage.delete(cleanup_key)
+                with Session(self.engine) as session:
+                    job = session.scalar(select(EvidenceInspectionJob).where(
+                        EvidenceInspectionJob.id == lease.item_id,
+                        EvidenceInspectionJob.tenant_id == lease.tenant_id,
+                        EvidenceInspectionJob.lease_token == lease.token,
+                        EvidenceInspectionJob.status == "RUNNING",
+                    ).with_for_update())
+                    if job is None:
+                        return
+                    evidence = session.scalar(select(CaseImageEvidence).where(
+                        CaseImageEvidence.tenant_id == lease.tenant_id,
+                        CaseImageEvidence.id == job.evidence_id,
+                    ).with_for_update())
+                    if evidence is None:
+                        raise RuntimeError("evidence_missing")
+                    evidence.storage_key = None
+                    self._complete(job)
+                    session.commit()
         except Exception:
             self._requeue(lease, "evidence_inspection_failed")
+
+    @staticmethod
+    def _complete(job: EvidenceInspectionJob) -> None:
+        job.status = "COMPLETED"
+        job.completed_at = datetime.now(timezone.utc)
+        job.lease_owner = None
+        job.lease_token = None
+        job.lease_expires_at = None
+        job.last_error_code = None
 
     def _requeue(self, lease: Lease, error_code: str) -> None:
         now = datetime.now(timezone.utc)
@@ -95,7 +133,10 @@ class EvidenceInspectionWorker:
             ).with_for_update())
             if job is None:
                 return
-            terminal = job.attempt_count >= min(job.max_attempts, self.settings.worker_max_attempts)
+            evidence = session.get(CaseImageEvidence, job.evidence_id)
+            cleanup_pending = bool(evidence is not None and evidence.tenant_id == lease.tenant_id
+                                   and evidence.inspection_status == "REJECTED" and evidence.storage_key)
+            terminal = not cleanup_pending and job.attempt_count >= min(job.max_attempts, self.settings.worker_max_attempts)
             job.status = "FAILED" if terminal else "QUEUED"
             job.last_error_code = error_code
             job.available_at = now + timedelta(seconds=min(300, 2 ** job.attempt_count))

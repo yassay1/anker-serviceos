@@ -38,5 +38,5 @@
 2026-10-14 增量：现有前端已补齐 409 后主动刷新协作状态，并增加七个 HTTP 受控浏览器回归（含 390px 键盘操作）；实际 OpenAPI、生成 Client、类型、构建及八个无数据库后端测试通过。证据和限制见[前端对接验证](frontend-integration-validation.md)。该增量不等于 PostgreSQL、真实并发、SSE 恢复或 Provider 的端到端验收，不关闭上文待验项。
 
 - 真实模型 Provider 的多轮服务、结构化工具兼容性和进程级强制终止恢复仍待真实凭据与环境验收。
-- 阶段 4 的图片、多模态、明确 Mock 售后 Adapter、真实/模拟回执、UNKNOWN 对账、核验与 Device 可信事实归档未实现。
+- 阶段 4 已有图片证据后端 API 与开发环境本地结构检查切片；图片上传界面、多模态、明确 Mock 售后 Adapter、真实/模拟回执、UNKNOWN 对账、核验与 Device 可信事实归档未实现。图片切片的验收范围见[功能契约](../specs/006-case-image-evidence/contracts/feature-contract.md)。
 - 生产身份源、部署和 AWS 资源均未配置。

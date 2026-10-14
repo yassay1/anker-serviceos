@@ -47,6 +47,7 @@
 - `evidence.inspected` 只在 `PENDING` 第一次变成 `CLEAN` 或 `REJECTED` 时写入。Worker 重试已终态的检查不会再写事件，也不会改字节。
 - 客户 SSE 只能看到 `PUBLIC`。内部图片事件为 `INTERNAL`。
 - 检查由 `python -m serviceos_api.worker.inspection` 领取。它不调用模型 Provider。消息 Worker 在未配置 Provider 时仍然拒绝领取对话任务；配置了 Provider 时，消息 Worker 循环里也会领取检查任务。
+- 图片原文经应用服务的存储端口写入开发环境私有本地目录；`case_image_evidence` 只保留元数据和服务端生成的对象引用。API 和检查 Worker 共用同一目录。数据库提交失败时补偿删除已写对象；检查拒绝后先持久化拒绝状态，再删除对象并清空引用，删除失败由检查任务重试。生产对象存储适配器未配置，不能以本地目录充当生产存储，也不创建 AWS 资源。
 - API 受理后立即返回 `PENDING`。未检查通过的图片不能下载。检查失败会按租约重试；用尽次数后任务失败，图片保持 `PENDING` 且不可下载。
 - 不发布新的 UI Schema。文本 `CaseEvidence` 和既有 UI 投影保持原样。
 - 读取案例版本、证据列表和关联会话事件即可看到新状态。
