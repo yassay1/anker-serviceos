@@ -647,3 +647,61 @@ def test_failure_progress_is_fixed_and_retry_creates_fenced_new_attempt(database
             OutboxEvent.conversation_id == conversation_id, OutboxEvent.type == "agent.progress")).all()
         assert sorted(row.data["stage"] for row in events) == ["FAILED", "FAILED", "RUNNING", "RUNNING"]
         assert all("SECRET" not in str(row.data) for row in events)
+
+
+def test_customer_projection_renders_agent_options_as_a_choice_group(database_engine):
+    """The projection must read the proposal instead of always emitting a plain QuestionForm."""
+    options = [{"label": "指示灯完全不亮", "value": "no-light"}, {"label": "指示灯常亮", "value": "steady"}]
+
+    class ChoiceRuntime:
+        configured = True
+
+        def invoke(self, **_):
+            return AgentResult("指示灯现在是什么状态？", {
+                "purpose": "确认指示灯状态", "audience": "CUSTOMER",
+                "fallback_text": "也可用文字说明。", "component_hints": ["ChoiceGroup"],
+                "options": options,
+            }), {"step_count": 1}
+
+    with Session(database_engine) as session:
+        tenant, customer, conversation, _, _, _ = seed_message(session)
+        session.commit()
+        tenant_id, customer_id, conversation_id = tenant.id, customer.id, conversation.id
+    worker = MessageWorker(database_engine, Settings(environment="test"), runtime=ChoiceRuntime())
+    worker.process(worker.claim_one())
+
+    with Session(database_engine) as session:
+        principal = Principal(tenant_id, customer_id, "CUSTOMER", "客户")
+        projected = ConversationService(session, principal).publish_ui_projection(conversation_id)
+        assert projected.catalog_version == 2
+        assert projected.components[0].type == "ActionBar", "the assistance action stays first"
+        choice = next(item for item in projected.components if item.type == "ChoiceGroup")
+        assert choice.id == "agent-choice"
+        assert [item.label for item in choice.options] == [option["label"] for option in options]
+        assert choice.actions == [], "a choice is a message, not a new action surface"
+
+
+def test_customer_projection_without_options_keeps_the_question_form(database_engine):
+    class QuestionRuntime:
+        configured = True
+
+        def invoke(self, **_):
+            return AgentResult("请说明充电头的功率。", {
+                "purpose": "补充充电头规格", "audience": "CUSTOMER",
+                "fallback_text": "也可用文字说明。", "component_hints": ["QuestionForm"],
+            }), {"step_count": 1}
+
+    with Session(database_engine) as session:
+        tenant, customer, conversation, _, _, _ = seed_message(session)
+        session.commit()
+        tenant_id, customer_id, conversation_id = tenant.id, customer.id, conversation.id
+    worker = MessageWorker(database_engine, Settings(environment="test"), runtime=QuestionRuntime())
+    worker.process(worker.claim_one())
+
+    with Session(database_engine) as session:
+        principal = Principal(tenant_id, customer_id, "CUSTOMER", "客户")
+        projected = ConversationService(session, principal).publish_ui_projection(conversation_id)
+        kinds = [item.type for item in projected.components]
+        assert "ChoiceGroup" not in kinds
+        question = next(item for item in projected.components if item.type == "QuestionForm")
+        assert question.options == []

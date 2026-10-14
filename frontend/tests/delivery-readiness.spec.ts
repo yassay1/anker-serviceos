@@ -291,3 +291,80 @@ test('delivery UI: catalog types are distinct, text remains inert, and mobile ca
   await page.locator('.message-list-wrap').evaluate(element => { element.scrollTop = 0 })
   await page.screenshot({ path: testInfo.outputPath('delivery-support-mobile.png'), fullPage: true })
 })
+
+
+function withChoices(state: Awaited<ReturnType<typeof fixture>>, options: unknown) {
+  const document = structuredClone(state.document) as unknown as Record<string, unknown>
+  document.catalog_version = 2
+  const cards = document.components as (S['UIComponent'] & { options?: unknown })[]
+  cards.push({ id: 'agent-choice', type: 'ChoiceGroup',
+    props: { title: '下一步需要的信息', body: '指示灯现在是什么状态？' },
+    actions: [], children: [], options: options as { label: string, value: string }[],
+    data_source: { kind: 'CONVERSATION_VIEW', binding: 'assistance', resource_id: ids.conversation, resource_version: 3 } })
+  return document
+}
+
+test('delivery UI: clicking a choice sends it as an ordinary customer message', async ({ page }) => {
+  const state = await fixture(page, false)
+  await page.route('**/ui-document/refresh', route => route.fulfill({
+    json: withChoices(state, [{ label: '指示灯完全不亮', value: 'no-light' }, { label: '指示灯常亮', value: 'steady' }]),
+  }))
+  await page.goto('/support')
+  const region = page.getByRole('region', { name: '服务交互卡', exact: true })
+  const choices = region.getByRole('group', { name: '下一步需要的信息' })
+  await expect(choices.getByRole('button')).toHaveCount(2)
+  await choices.getByRole('button', { name: '指示灯完全不亮' }).click()
+  await expect(region.getByRole('status')).toHaveText('已发送：指示灯完全不亮')
+  expect(state.sent.at(-1)).toMatchObject({
+    content: [{ type: 'text', text: '指示灯完全不亮' }], visibility: 'PUBLIC', related_case_id: null,
+  })
+  expect(state.sent.at(-1)?.client_message_id).toMatch(/^[0-9a-f-]{36}$/)
+  // The choice path must not touch the assistance action surface.
+  expect(await region.getByRole('button', { name: '请求人工协助' }).count()).toBe(1)
+})
+
+test('delivery UI: choices disappear at expiry and the text path stays available', async ({ page }) => {
+  const state = await fixture(page, false)
+  const document = withChoices(state, [{ label: '指示灯完全不亮', value: 'no-light' }, { label: '指示灯常亮', value: 'steady' }])
+  document.expires_at = new Date(Date.now() + 4000).toISOString()
+  await page.route('**/ui-document/refresh', route => route.fulfill({ json: document }))
+  await page.goto('/support')
+  const region = page.getByRole('region', { name: '服务交互卡', exact: true })
+  await expect(region.getByRole('button', { name: '指示灯完全不亮' })).toBeEnabled()
+  // Expiry is handled like every other unsupported document: the card falls back rather than
+  // offering a stale write, and the message path never depends on it.
+  await expect(region.getByRole('button', { name: '刷新交互卡' })).toBeVisible({ timeout: 8000 })
+  await expect(region.locator('.ui-choices')).toHaveCount(0)
+  await expect(page.getByLabel('描述你的问题')).toBeEnabled()
+})
+
+test('delivery UI: an archived conversation disables every card control and the composer', async ({ page }) => {
+  const state = await fixture(page, false)
+  state.conversations[0].status = 'ARCHIVED'
+  await page.goto('/support')
+  const region = page.getByRole('region', { name: '服务交互卡', exact: true })
+  await expect(region.getByRole('button', { name: '请求人工协助' })).toBeDisabled()
+  await expect(region.getByRole('button', { name: '填写回复' })).toBeDisabled()
+  await expect(page.getByLabel('描述你的问题')).toBeDisabled()
+  // Choices reuse that same activity gate, so no stale choice can be sent from an archive.
+  await expect(page.locator('.ui-choices button:not([disabled])')).toHaveCount(0)
+})
+
+for (const [name, options] of [
+  ['single', [{ label: '只有一个', value: 'only' }]],
+  ['unsafe-label', [{ label: '<img src=x onerror=alert(1)>', value: 'ok' }, { label: '乙', value: 'ok-2' }]],
+  ['bad-slug', [{ label: '甲', value: 'Not A Slug' }, { label: '乙', value: 'ok' }]],
+  ['duplicate', [{ label: '重复', value: 'a' }, { label: '重复', value: 'b' }]],
+  ['with-endpoint', [{ label: '甲', value: 'ok', endpoint: '/api/v1/anything' }, { label: '乙', value: 'ok-2' }]],
+] as const) {
+  test(`delivery UI: ${name} choices fall back without offering a click`, async ({ page }) => {
+    const state = await fixture(page, false)
+    await page.route('**/ui-document/refresh', route => route.fulfill({ json: withChoices(state, options) }))
+    await page.goto('/support')
+    const region = page.getByRole('region', { name: '服务交互卡', exact: true })
+    await expect(region.getByRole('button', { name: '刷新交互卡' })).toBeVisible()
+    await expect(region.locator('.ui-choices')).toHaveCount(0)
+    await expect(region.locator('img, script, iframe')).toHaveCount(0)
+    await expect(page.getByLabel('描述你的问题')).toBeEnabled()
+  })
+}

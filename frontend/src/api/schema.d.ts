@@ -1830,6 +1830,8 @@ export interface components {
             data_source: components["schemas"]["UIDataSource"];
             /** Id */
             id: string;
+            /** Options */
+            options?: components["schemas"]["UIOption"][];
             /** Props */
             props: {
                 [key: string]: string;
@@ -1894,6 +1896,16 @@ export interface components {
              * @enum {string}
              */
             visibility: "PUBLIC" | "INTERNAL";
+        };
+        /**
+         * UIOption
+         * @description An inert choice. Clicking one sends the label as an ordinary customer message.
+         */
+        UIOption: {
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
         };
         /** UpdateCase */
         UpdateCase: {

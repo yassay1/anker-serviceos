@@ -100,6 +100,13 @@
 .ui-QuestionForm h3 svg { color: var(--accent-hover); }
 .ui-question-reply { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
 .ui-question-reply button { margin-left: auto; color: var(--accent-hover); font-size: 12px; }
+.ui-choices { margin-top: 14px; }
+.ui-choices small { display: block; color: var(--muted); font-size: 12px; }
+.ui-choices [role="group"] { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.ui-choices button { border: 1px solid var(--border); border-radius: 999px; padding: 7px 14px; font-size: 13px; text-align: left; }
+.ui-choices button:hover:not(:disabled) { border-color: var(--accent-hover); color: var(--accent-hover); }
+.ui-choices button:disabled { opacity: .55; }
+.ui-ChoiceGroup { border-left: 3px solid var(--accent-hover); }
 .ui-EvidenceSummary { border-left: 3px solid #9aaac1; }
 .ui-evidence-meta { padding-top: 10px; margin: 12px 0 0; border-top: 1px solid var(--border); font-size: 12px; }
 .ui-evidence-meta > div { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; margin-top: 5px; }
@@ -143,6 +150,8 @@
 @media (max-width: 760px) {
   .ui-card { padding: 14px; }
   .ui-question-reply button { width: 100%; }
+  .ui-choices [role="group"] { flex-direction: column; }
+  .ui-choices button { width: 100%; min-height: 44px; }
   .case-disclosure summary { min-height: 44px; }
   .stream-note { white-space: normal; }
   .context-ui .ui-document { padding: 16px; }

@@ -6,16 +6,23 @@ from uuid import UUID
 from serviceos_api.application.errors import ServiceError
 
 SCHEMA_VERSION = 1
-CATALOG_VERSION = 1
+# 2 adds ChoiceGroup. Documents published as version 1 stay valid: the renderer
+# accepts both, and a version-1 document simply never contains the new type.
+CATALOG_VERSION = 2
 CATALOG = {
     "CaseSummaryCard": ("title", "body", "status", "source", "verification"),
     "EvidenceSummary": ("title", "body", "source", "verification"),
     "QuestionForm": ("title", "body"),
+    "ChoiceGroup": ("title", "body"),
     "RiskAlert": ("title", "body"),
     "ProgressTimeline": ("title", "body", "status"),
     "HandoffSummary": ("title", "body", "status"),
     "ActionBar": ("title", "body"),
 }
+# Only these types may carry options, and they still may not carry actions.
+OPTION_TYPES = ("ChoiceGroup",)
+MIN_OPTIONS = 2
+MAX_OPTIONS = 5
 BINDINGS = {
     "CONVERSATION_VIEW": {"overview", "assistance", "mode"},
     "CASE_VIEW": {"summary", "evidence"},
@@ -31,6 +38,34 @@ def safe_text(value: object, *, limit: int = 500) -> str:
     return value.strip()
 
 
+def _safe_options(value: object) -> list[dict[str, str]]:
+    """Inert choices only: a label the customer may send and a stable slug. No actions.
+
+    An empty list means the component carries no choices at all; a non-empty list
+    must be a real choice, so a single option is rejected.
+    """
+    if not isinstance(value, list) or len(value) > MAX_OPTIONS:
+        raise ServiceError(422, "UI 选项数量超出限制。")
+    if value and len(value) < MIN_OPTIONS:
+        raise ServiceError(422, "UI 选项数量不足。")
+    labels, slugs = set(), set()
+    normalized = []
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {"label", "value"}:
+            raise ServiceError(422, "UI 选项结构无效。")
+        label, slug = item["label"], item["value"]
+        if not isinstance(label, str) or not label.strip() or len(label) > 40 or UNSAFE.search(label):
+            raise ServiceError(422, "UI 选项文本无效或不安全。")
+        if not isinstance(slug, str) or not re.fullmatch(r"[a-z0-9-]{1,32}", slug):
+            raise ServiceError(422, "UI 选项标识无效。")
+        if label.strip() in labels or slug in slugs:
+            raise ServiceError(422, "UI 选项重复。")
+        labels.add(label.strip())
+        slugs.add(slug)
+        normalized.append({"label": label.strip(), "value": slug})
+    return normalized
+
+
 def validate_components(components: list[dict], audience: str,
                         allowed_refs: dict[tuple[str, UUID], int]) -> list[dict]:
     if not isinstance(components, list) or not 1 <= len(components) <= 12:
@@ -38,7 +73,12 @@ def validate_components(components: list[dict], audience: str,
     ids = set()
     normalized = []
     for item in components:
-        if not isinstance(item, dict) or set(item) != {"id", "type", "props", "data_source", "actions", "children"}:
+        if not isinstance(item, dict):
+            raise ServiceError(422, "UI 组件结构无效。")
+        component_keys = set(item)
+        # options is optional and stays outside props: prop values are always strings,
+        # and a type that is not allowed to carry them must not smuggle them in.
+        if component_keys - {"options"} != {"id", "type", "props", "data_source", "actions", "children"}:
             raise ServiceError(422, "UI 组件结构无效。")
         component_id = item["id"]
         if not isinstance(component_id, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", component_id) or component_id in ids:
@@ -47,6 +87,10 @@ def validate_components(components: list[dict], audience: str,
         kind = item["type"]
         if kind not in CATALOG:
             raise ServiceError(422, "UI 组件不在受信目录中。")
+        options = item.get("options", [])
+        if options and kind not in OPTION_TYPES:
+            raise ServiceError(422, "此组件不能携带选项。")
+        options = _safe_options(options)
         props = item["props"]
         if not isinstance(props, dict) or set(props) != set(CATALOG[kind]):
             raise ServiceError(422, "UI 组件属性不符合目录。")
@@ -81,7 +125,7 @@ def validate_components(components: list[dict], audience: str,
                            "data_source": {"kind": source["kind"], "resource_id": str(resource_id),
                                            "resource_version": source["resource_version"],
                                            "binding": source["binding"]},
-                           "actions": actions, "children": children})
+                           "actions": actions, "children": children, "options": options})
     by_id = {component["id"]: component for component in normalized}
     def visit(component_id: str, path: set[str], depth: int):
         if depth > 2 or component_id in path or component_id not in by_id:

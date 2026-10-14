@@ -321,6 +321,12 @@ class UIAction(Schema):
     input_schema_ref: str
 
 
+class UIOption(Schema):
+    """An inert choice. Clicking one sends the label as an ordinary customer message."""
+    label: str = Field(min_length=1, max_length=40)
+    value: str = Field(pattern=r"^[a-z0-9-]{1,32}$")
+
+
 class UIComponent(Schema):
     id: str
     type: str
@@ -328,6 +334,7 @@ class UIComponent(Schema):
     data_source: UIDataSource
     actions: list[UIAction]
     children: list[str]
+    options: list[UIOption] = Field(default_factory=list)
 
 
 class UIDocumentRead(Schema):

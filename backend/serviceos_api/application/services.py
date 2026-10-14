@@ -533,11 +533,14 @@ class ConversationService(BusinessService):
                     ))
                     if proposal and proposal.get("audience") == "CUSTOMER" and public_message:
                         refs[("AGENT_RUN_VIEW", run.id)] = 1
-                        components.append({"id": "agent-question", "type": "QuestionForm",
+                        options = proposal.get("options") or []
+                        kind = "ChoiceGroup" if len(options) >= 2 else "QuestionForm"
+                        components.append({"id": "agent-choice" if kind == "ChoiceGroup" else "agent-question",
+                                           "type": kind,
                                            "props": {"title": "下一步需要的信息", "body": proposal["purpose"]},
                                            "data_source": {"kind": "AGENT_RUN_VIEW", "resource_id": str(run.id),
                                                            "resource_version": 1, "binding": "question"},
-                                           "actions": [], "children": []})
+                                           "actions": [], "children": [], "options": options})
                         source_run_id = run.id
                         break
         else:

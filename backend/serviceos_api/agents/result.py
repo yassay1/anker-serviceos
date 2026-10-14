@@ -47,7 +47,12 @@ def _text(value: Any) -> str:
 
 
 def _ui_proposal(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != {"purpose", "audience", "fallback_text", "component_hints"}:
+    required = {"purpose", "audience", "fallback_text", "component_hints"}
+    if not isinstance(value, dict):
+        raise ValueError("ui_proposal_invalid")
+    keys = set(value)
+    # Everything required, nothing beyond the optional options: an unknown key still fails here.
+    if not required <= keys or keys - required - {"options"}:
         raise ValueError("ui_proposal_invalid")
     if value["audience"] not in ("CUSTOMER", "STAFF"):
         raise ValueError("ui_proposal_invalid")
@@ -61,4 +66,28 @@ def _ui_proposal(value: Any) -> dict[str, Any]:
         not isinstance(hint, str) or hint not in ALLOWED_HINTS for hint in hints
     ) or len(set(hints)) != len(hints):
         raise ValueError("ui_proposal_invalid")
+    if "options" in value:
+        _options(value["options"])
+    return value
+
+
+def _options(value: Any) -> list[dict[str, str]]:
+    """Bounded, inert choices. The value is a slug; the label is what the customer sends."""
+    if not isinstance(value, list) or not 2 <= len(value) <= 5:
+        raise ValueError("ui_proposal_invalid")
+    labels, values = set(), set()
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {"label", "value"}:
+            raise ValueError("ui_proposal_invalid")
+        label, slug = item["label"], item["value"]
+        if not isinstance(label, str) or not label.strip() or len(label) > 40:
+            raise ValueError("ui_proposal_invalid")
+        if re.search(r"<|>|https?://|javascript:|data:|\bon\w+\s*=", label, re.IGNORECASE):
+            raise ValueError("ui_proposal_invalid")
+        if not isinstance(slug, str) or not re.fullmatch(r"[a-z0-9-]{1,32}", slug):
+            raise ValueError("ui_proposal_invalid")
+        if label.strip() in labels or slug in values:
+            raise ValueError("ui_proposal_invalid")
+        labels.add(label.strip())
+        values.add(slug)
     return value
