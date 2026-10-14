@@ -326,6 +326,7 @@ class UploadEvidence(Schema):
 class EvidenceRead(Schema):
     id: UUID
     case_id: UUID
+    client_evidence_id: UUID
     visibility: Literal["PUBLIC", "INTERNAL"]
     media_type: Literal["image/jpeg", "image/png", "image/webp"]
     byte_size: int = Field(ge=1, le=10 * 1024 * 1024)

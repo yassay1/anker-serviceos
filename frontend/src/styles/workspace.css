@@ -189,4 +189,13 @@
 .case-action-item, .case-approval-item { border: 1px solid var(--border); border-radius: 8px; padding: 13px; margin: 10px 0; overflow-wrap: anywhere; }
 .case-action-item p { margin: 8px 0 0; }
 .case-approval-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.case-evidence { border-top: 1px solid var(--border); margin-top: 24px; padding-top: 18px; }
+.case-evidence > p { color: var(--muted); }
+.case-evidence label { display: block; margin: 12px 0; }
+.case-evidence input, .case-evidence select { display: block; max-width: 100%; margin-top: 6px; }
+.case-evidence-list { list-style: none; padding: 0; margin: 16px 0; }
+.case-evidence-list li { border: 1px solid var(--border); border-radius: 8px; padding: 13px; margin: 10px 0; overflow-wrap: anywhere; }
+.case-evidence-list small { display: block; color: var(--muted); margin: 6px 0; }
+.case-evidence-preview { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 12px; }
+.case-evidence-preview img { display: block; max-width: 100%; max-height: 60vh; object-fit: contain; margin: 8px auto 0; }
 @media (max-width: 760px) { .cases-page { padding: 18px 14px 48px; } .cases-layout { grid-template-columns: 1fr; } }

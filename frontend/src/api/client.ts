@@ -16,6 +16,8 @@ export type Device = components['schemas']['DeviceRead']
 export type ServiceCase = components['schemas']['CaseRead']
 export type CaseAction = components['schemas']['CaseActionRead']
 export type ActionApproval = components['schemas']['ActionApprovalRead']
+export type CaseImageEvidence = components['schemas']['EvidenceRead']
+export type EvidencePage = components['schemas']['EvidencePage']
 
 export const api = createClient<paths>({ baseUrl: '/', credentials: 'same-origin' })
 
@@ -173,6 +175,39 @@ export async function listCases(): Promise<ServiceCase[]> {
 export async function readCase(id: string): Promise<ServiceCase> {
   const { data, error, response } = await api.GET('/api/v1/cases/{id}', { params: { path: { id } } })
   return requireData(data, error, response, '案例不存在或当前账号无权访问。')
+}
+
+export async function listCaseEvidence(caseId: string, cursor?: string): Promise<EvidencePage> {
+  const { data, error, response } = await api.GET('/api/v1/cases/{id}/evidence', {
+    params: { path: { id: caseId }, query: { limit: 50, cursor: cursor ?? null } },
+  })
+  return requireData(data, error, response, '图片证据加载失败。')
+}
+
+export async function uploadCaseEvidence(caseId: string, file: File, clientEvidenceId: string,
+  expectedCaseVersion: number, visibility: 'PUBLIC' | 'INTERNAL'): Promise<CaseImageEvidence> {
+  const body = new FormData()
+  body.set('client_evidence_id', clientEvidenceId)
+  body.set('expected_case_version', String(expectedCaseVersion))
+  body.set('visibility', visibility)
+  body.set('file', file)
+  const response = await fetch(`/api/v1/cases/${encodeURIComponent(caseId)}/evidence`, {
+    method: 'POST', credentials: 'same-origin', body,
+  })
+  if (!response.ok) {
+    const error: unknown = await response.json().catch(() => null)
+    const detail = error && typeof error === 'object' && 'detail' in error ? (error as { detail: unknown }).detail : null
+    throw new ApiFailure(response.status, typeof detail === 'string' ? detail : '图片上传失败。')
+  }
+  return response.json() as Promise<CaseImageEvidence>
+}
+
+export async function readCaseEvidenceImage(caseId: string, evidenceId: string): Promise<Blob> {
+  const response = await fetch(`/api/v1/cases/${encodeURIComponent(caseId)}/evidence/${encodeURIComponent(evidenceId)}/content`, {
+    credentials: 'same-origin', cache: 'no-store',
+  })
+  if (!response.ok) throw new ApiFailure(response.status, '图片不可查看，可能尚未通过检查或当前账号无权访问。')
+  return response.blob()
 }
 
 export async function listCaseActions(caseId: string): Promise<CaseAction[]> {

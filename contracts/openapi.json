@@ -832,6 +832,11 @@
             "title": "Case Id",
             "type": "string"
           },
+          "client_evidence_id": {
+            "format": "uuid",
+            "title": "Client Evidence Id",
+            "type": "string"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -889,6 +894,7 @@
         "required": [
           "id",
           "case_id",
+          "client_evidence_id",
           "visibility",
           "media_type",
           "byte_size",

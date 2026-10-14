@@ -155,11 +155,19 @@ class EvidenceInspectionWorker:
 
 
 def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Inspect queued case image evidence")
+    parser.add_argument("--once", action="store_true", help="Process one available job and exit")
+    arguments = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     settings = Settings.from_environment()
     engine = build_engine()
     worker = EvidenceInspectionWorker(engine, settings)
     try:
+        if arguments.once:
+            worker.run_once()
+            return
         while True:
             if not worker.run_once():
                 time.sleep(1)

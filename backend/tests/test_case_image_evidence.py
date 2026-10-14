@@ -88,6 +88,7 @@ def test_customer_upload_is_pending_then_clean_and_replay_is_stable(app, databas
     first = upload(customer, case, image, key=key)
     assert first.status_code == 202, first.text
     body = first.json()
+    assert body["client_evidence_id"] == str(key)
     assert body["inspection_status"] == "PENDING"
     assert body["verification"] == "UNVERIFIED"
     assert body["source_kind"] == "CUSTOMER"
@@ -110,6 +111,7 @@ def test_customer_upload_is_pending_then_clean_and_replay_is_stable(app, databas
     assert worker.run_once() is True
     assert worker.run_once() is False
     listed = customer.get(f"/api/v1/cases/{case['id']}/evidence").json()["items"]
+    assert listed[0]["client_evidence_id"] == str(key)
     assert listed[0]["inspection_status"] == "CLEAN"
     content = customer.get(f"/api/v1/cases/{case['id']}/evidence/{body['id']}/content")
     assert content.status_code == 200, content.text
