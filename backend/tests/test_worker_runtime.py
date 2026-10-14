@@ -705,3 +705,42 @@ def test_customer_projection_without_options_keeps_the_question_form(database_en
         assert "ChoiceGroup" not in kinds
         question = next(item for item in projected.components if item.type == "QuestionForm")
         assert question.options == []
+
+
+def test_an_answered_question_is_not_projected_again(database_engine):
+    """The card kept asking the same question: once the customer replies, that question is
+    answered, and an older run's proposal must not be resurrected from the lookback window."""
+
+    class ChoiceRuntime:
+        configured = True
+
+        def invoke(self, **_):
+            return AgentResult("请确认指示灯状态。", {
+                "purpose": "确认指示灯状态", "audience": "CUSTOMER", "fallback_text": "也可用文字说明。",
+                "component_hints": ["ChoiceGroup"],
+                "options": [{"label": "完全不亮", "value": "no-light"}, {"label": "常亮", "value": "steady"}],
+            }), {"step_count": 1}
+
+    with Session(database_engine) as session:
+        tenant, customer, conversation, _, _, _ = seed_message(session)
+        session.commit()
+        tenant_id, customer_id, conversation_id = tenant.id, customer.id, conversation.id
+    worker = MessageWorker(database_engine, Settings(environment="test"), runtime=ChoiceRuntime())
+    worker.process(worker.claim_one())
+    principal = Principal(tenant_id, customer_id, "CUSTOMER", "客户")
+
+    with Session(database_engine) as session:
+        first = ConversationService(session, principal).publish_ui_projection(conversation_id)
+        assert any(item.type == "ChoiceGroup" for item in first.components), "the question is projected while it is open"
+
+    with Session(database_engine) as session:
+        session.add(Message(tenant_id=tenant_id, conversation_id=conversation_id, author_kind="CUSTOMER",
+                            author_customer_id=customer_id, visibility="PUBLIC",
+                            content=[{"type": "text", "text": "完全不亮"}], client_message_id=uuid4(),
+                            request_hash="b" * 64))
+        session.commit()
+
+    with Session(database_engine) as session:
+        answered = ConversationService(session, principal).publish_ui_projection(conversation_id)
+        assert [item.type for item in answered.components] == ["ActionBar"], \
+            "an answered question must not come back"

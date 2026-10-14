@@ -16,11 +16,27 @@ class AgentResult:
     ui_fallback_code: str | None = None
 
 
+# Models routinely fence their structured result. The fence must be removed before deciding,
+# otherwise the whole object is treated as prose and shown to the customer verbatim.
+FENCED = re.compile(r"```[A-Za-z0-9_-]*\s*\n?(?P<body>.*?)\n?```", re.DOTALL)
+
+
+def _structured_candidate(raw: str) -> str:
+    """Prefer a fenced JSON object; otherwise unwrap a fence that spans the whole content."""
+    for match in FENCED.finditer(raw):
+        body = match.group("body").strip()
+        if body.startswith("{"):
+            return body
+    whole = FENCED.fullmatch(raw)
+    return whole.group("body").strip() if whole else raw
+
+
 def parse_agent_result(content: str) -> AgentResult:
     """Accept plain text; reject malformed structured output without publishing its raw JSON."""
     raw = content.strip()
     if not raw:
         raise ValueError("agent_final_response_empty")
+    raw = _structured_candidate(raw)
     if not raw.startswith("{"):
         return AgentResult(_text(raw))
     try:
@@ -40,10 +56,18 @@ def parse_agent_result(content: str) -> AgentResult:
     return AgentResult(answer, ui_proposal=proposal)
 
 
+# Internal keys that must never reach a customer, whatever the model does with formatting.
+INTERNAL_KEYS = ("ui_proposal", "component_hints", "fallback_text", "action_proposals")
+
+
 def _text(value: Any) -> str:
     if not isinstance(value, str) or not value.strip() or len(value.strip()) > 8000:
         raise ValueError("agent_final_response_invalid_text")
-    return value.strip()
+    text = value.strip()
+    if any(key in text for key in INTERNAL_KEYS):
+        # Failing the run is strictly better than publishing our internal structure.
+        raise ValueError("agent_final_response_leaks_internal_keys")
+    return text
 
 
 def _ui_proposal(value: Any) -> dict[str, Any]:

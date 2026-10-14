@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, true
 from sqlalchemy.orm import Session
 
 from serviceos_api.application.contracts import (
@@ -518,10 +518,21 @@ class ConversationService(BusinessService):
                                             "input_schema_ref": "serviceos://ui-inputs/assistance-request/v1"}],
                                "children": []})
             if conversation.collaboration_mode == "AI_LEAD" and conversation.reply_policy == "AI_AUTO":
+                # Only answer questions that are still open: an agent card belongs to a turn
+                # that came after the customer's latest message. Without this, a run whose
+                # proposal was unusable made the projection resurrect the previous question,
+                # asking the customer the same thing again and again.
+                latest_customer_turn = self.session.scalar(select(Message.created_at).where(
+                    Message.tenant_id == self.actor.tenant_id,
+                    Message.conversation_id == conversation.id,
+                    Message.author_kind == "CUSTOMER",
+                    Message.visibility == "PUBLIC",
+                ).order_by(Message.created_at.desc(), Message.id.desc()).limit(1))
                 runs = self.session.scalars(select(AgentRun).where(
                     AgentRun.tenant_id == self.actor.tenant_id,
                     AgentRun.conversation_id == conversation.id,
                     AgentRun.status == "COMPLETED",
+                    AgentRun.created_at > latest_customer_turn if latest_customer_turn else true(),
                 ).order_by(AgentRun.created_at.desc()).limit(5)).all()
                 for run in runs:
                     proposal = (run.result_payload or {}).get("ui_proposal")
