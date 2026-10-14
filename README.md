@@ -22,6 +22,7 @@
 - [阶段 3 验收记录](docs/phase3-validation.md)：真人与 Agent 协作、持久事件、受控 UI 与本地回归结果。
 - [阶段 4 模拟动作增量](docs/phase4-mock-action-validation.md)：明确标识的模拟售后请求、独立审批、Worker 回执及待完成范围。
 - [阶段 4 图片界面增量](docs/phase4-image-ui-validation.md)：真实上传、检查状态、授权预览和未知上传对账。
+- [阶段 4 结果状态保护](docs/phase4-resolution-guard-validation.md)：有售后动作的案例在正式核验前禁止直接标记为已解决。
 - [前端适配验证](docs/backend-based-frontend-validation.md)与[全面逻辑检查](docs/comprehensive-logic-audit.md)：真实接口适配、浏览器路径、恢复修复及仍待验的边界。
 
 ## 当前实现范围

@@ -114,6 +114,33 @@ def test_approval_rejection_and_self_approval_do_not_execute(app, database_engin
             MockServiceOperation.action_id == UUID(other_action["id"]))) == 0
 
 
+@pytest.mark.parametrize("result", ["SUCCEEDED", "FAILED", "REJECTED"])
+def test_terminal_action_receipt_cannot_bypass_result_verification(app, database_engine, result):
+    customer = login(app)
+    staff = login(app, "staff")
+    supervisor = login(app, "supervisor")
+    case = case_for(customer)
+    action = request_action(staff, case).json()
+    decision = "REJECTED" if result == "REJECTED" else "APPROVED"
+    assert approve(supervisor, action["approval_id"], decision).status_code == 200
+    if result != "REJECTED":
+        action_id = UUID(action["id"])
+        defer_other_actions(database_engine, action_id)
+        settings = replace(app.state.settings, mock_action_result=result)
+        assert MockActionWorker(database_engine, settings).run_once()
+        assert staff.get(f"/api/v1/actions/{action_id}").json()["status"] == result
+    current = staff.get(f"/api/v1/cases/{case['id']}").json()
+    progress = staff.post(f"/api/v1/cases/{case['id']}/transitions", json={
+        "target_status": "IN_PROGRESS", "expected_version": current["version"], "reason": "开始服务",
+    })
+    assert progress.status_code == 200, progress.text
+    blocked = staff.post(f"/api/v1/cases/{case['id']}/transitions", json={
+        "target_status": "RESOLVED", "expected_version": progress.json()["version"], "reason": "回执不等于核验",
+    })
+    assert blocked.status_code == 409 and blocked.json()["code"] == "VERIFICATION_REQUIRED"
+    assert staff.get(f"/api/v1/cases/{case['id']}").json()["status"] == "IN_PROGRESS"
+
+
 def test_failed_mock_receipt_and_unknown_reconcile_without_second_operation(app, database_engine):
     customer = login(app)
     staff = login(app, "staff")

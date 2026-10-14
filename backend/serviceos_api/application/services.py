@@ -114,6 +114,13 @@ class BusinessService:
             ).limit(1))
             if active_action is not None:
                 raise ServiceError(409, "案例仍有待审批、执行或对账的售后动作。", code="ACTION_UNSETTLED")
+        if request.target_status == "RESOLVED":
+            recorded_action = self.session.scalar(select(CaseAction.id).where(
+                CaseAction.tenant_id == case.tenant_id, CaseAction.case_id == case.id,
+            ).limit(1))
+            if recorded_action is not None:
+                raise ServiceError(409, "售后动作已有记录，但问题结果尚未经核验；不能直接标为已解决。",
+                                   code="VERIFICATION_REQUIRED")
         previous = case.status
         case.status = request.target_status
         case.version += 1
