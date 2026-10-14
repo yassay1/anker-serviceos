@@ -47,5 +47,44 @@ jobs:
         working-directory: frontend
       - run: npm run check:api
         working-directory: frontend
+      - run: npm run typecheck
+        working-directory: frontend
       - run: npm run build
         working-directory: frontend
+      - run: npm exec -- playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm run test:browser
+        working-directory: frontend
+      - name: Prepare isolated database for live browser regression
+        run: |
+          uv run --project backend --locked python - <<'PY'
+          import os
+          from sqlalchemy import create_engine, text
+          from sqlalchemy.engine import make_url
+          url = make_url(os.environ['SERVICEOS_DATABASE_URL'])
+          assert url.host == '127.0.0.1' and url.database == 'serviceos_dev' and url.username == 'serviceos_ci'
+          engine = create_engine(url.set(database='postgres'), isolation_level='AUTOCOMMIT', hide_parameters=True)
+          with engine.connect() as connection:
+              connection.execute(text('CREATE DATABASE serviceos_dev'))
+          engine.dispose()
+          PY
+          uv run --project backend --locked alembic -c backend/alembic.ini upgrade head
+          uv run --project backend --locked python -m serviceos_api.bootstrap_local
+        env:
+          SERVICEOS_DATABASE_URL: postgresql+psycopg://serviceos_ci:serviceos_ci_only@127.0.0.1:5432/serviceos_dev
+          SERVICEOS_ENV: development
+          SERVICEOS_AUTH_MODE: local
+          SERVICEOS_LOCAL_AUTH_PASSWORD: serviceos_ci_only
+      - run: npm run test:live
+        working-directory: frontend
+        env:
+          SERVICEOS_DATABASE_URL: postgresql+psycopg://serviceos_ci:serviceos_ci_only@127.0.0.1:5432/serviceos_dev
+          SERVICEOS_ENV: development
+          SERVICEOS_AUTH_MODE: local
+          SERVICEOS_LOCAL_AUTH_PASSWORD: serviceos_ci_only
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-browser-evidence
+          path: frontend/test-results/
+          retention-days: 7

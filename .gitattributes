@@ -1,0 +1,2 @@
+# Proposal provenance hashes the actual OpenAPI bytes; keep checkout bytes stable.
+/contracts/openapi.json text eol=lf

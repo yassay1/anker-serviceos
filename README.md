@@ -20,6 +20,7 @@
 - [阶段 1 实际验收记录](docs/phase1-validation.md)：PostgreSQL、业务 API、权限、前端消息和范围边界。
 - [阶段 2 验收记录](docs/phase2-validation.md)：Worker/Agent 落地范围、离线测试和真实 Provider 待验证项。
 - [阶段 3 验收记录](docs/phase3-validation.md)：真人与 Agent 协作、持久事件、受控 UI 与本地回归结果。
+- [前端适配验证](docs/backend-based-frontend-validation.md)与[全面逻辑检查](docs/comprehensive-logic-audit.md)：真实接口适配、浏览器路径、恢复修复及仍待验的边界。
 
 ## 当前实现范围
 
