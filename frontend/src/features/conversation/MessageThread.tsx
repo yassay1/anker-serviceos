@@ -1,6 +1,6 @@
 import { type Actor, type Message, type SendBody } from '../../api/client'
 import { MessageSquareText } from 'lucide-react'
-import { useLayoutEffect, useRef } from 'react'
+import { type ReactNode, useLayoutEffect, useRef } from 'react'
 
 type PendingMessage = {
   conversationId: string
@@ -23,9 +23,10 @@ function MessageItem({ message, actor }: { message: Message, actor: Actor }) {
   </li>
 }
 
-export function MessageThread({ actor, desk, messages, pending, loading, error, hasMore, loadingMore, onMore, onRetry }: {
+export function MessageThread({ actor, desk, messages, pending, loading, error, hasMore, loadingMore, onMore, onRetry, children }: {
   actor: Actor
   desk: boolean
+  children?: ReactNode
   messages: Message[]
   pending: PendingMessage[]
   loading: boolean
@@ -36,21 +37,27 @@ export function MessageThread({ actor, desk, messages, pending, loading, error, 
   onRetry: (item: PendingMessage) => void
 }) {
   const thread = useRef<HTMLDivElement>(null)
+  const messageList = useRef<HTMLOListElement>(null)
   const followTail = useRef(true)
   useLayoutEffect(() => {
-    if (thread.current && followTail.current) thread.current.scrollTop = thread.current.scrollHeight
+    const element = thread.current
+    if (element && messageList.current && followTail.current) {
+      // Keep the latest reply readable; a large inline card must not scroll it away.
+      const distance = messageList.current.getBoundingClientRect().bottom - element.getBoundingClientRect().bottom
+      element.scrollTop = Math.max(0, element.scrollTop + distance + 16)
+    }
   }, [messages, pending])
 
-  return <div className="message-list-wrap" ref={thread} onScroll={() => {
+  return <div className="message-list-wrap" ref={thread} tabIndex={0} aria-label="消息与当前交互" onScroll={() => {
     const element = thread.current
-    if (element) followTail.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 64
+    if (element && messageList.current) followTail.current = messageList.current.getBoundingClientRect().bottom - element.getBoundingClientRect().bottom <= 64
   }}>
     {hasMore && <button type="button" className="load-more" disabled={loadingMore} onClick={onMore}>{loadingMore ? '正在读取后续消息…' : '加载后续消息'}</button>}
     {loading && <p className="message-empty">正在加载消息…</p>}
-    {error && <p className="form-error" role="alert">{error}</p>}
+    {error && <div><p className="form-error" role="alert">{error}</p>{!hasMore && <button type="button" onClick={onMore}>重试消息</button>}</div>}
     {!loading && messages.length === 0 && pending.length === 0 && <div className="message-empty"><span className="empty-symbol"><MessageSquareText size={28} aria-hidden="true" /></span><h3>{desk ? '等待这段对话开始' : '你的服务，从这里开始'}</h3>
       <p>{desk ? '客户发送的消息会显示在这里。' : '描述遇到的问题；客服可以在同一会话继续处理。'}</p></div>}
-    <ol className="message-list" aria-live="polite">
+    <ol className="message-list" ref={messageList} aria-live="polite">
       {messages.map((message) => <MessageItem key={message.id} message={message} actor={actor} />)}
       {pending.map((item) => <li className={`message own-message pending-message ${item.body.visibility === 'INTERNAL' ? 'internal-message' : ''}`}
         key={item.body.client_message_id}>
@@ -62,5 +69,6 @@ export function MessageThread({ actor, desk, messages, pending, loading, error, 
           <button type="button" onClick={() => onRetry(item)}>用原消息重试</button></div>}
       </li>)}
     </ol>
+    {children}
   </div>
 }

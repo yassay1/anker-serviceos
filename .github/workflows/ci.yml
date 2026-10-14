@@ -1,4 +1,4 @@
-name: Baseline checks
+name: ServiceOS checks
 
 on:
   push:
@@ -38,10 +38,12 @@ jobs:
       - run: uv sync --project backend --locked
       - run: uv run --project backend --locked pytest backend/tests --require-postgres
         env:
+          SERVICEOS_ENV: test
+          SERVICEOS_AUTH_MODE: disabled
           SERVICEOS_TEST_DATABASE_URL: postgresql+psycopg://serviceos_ci:serviceos_ci_only@127.0.0.1:5432/serviceos_ci
       - run: uv run --project backend --locked python -m serviceos_api.export_openapi --check
       - run: uv run --project backend --locked python contracts/proposed/v1/sync_implemented.py --check
-      - run: npm ci
+      - run: npm ci --registry=https://registry.npmjs.org
         working-directory: frontend
       - run: npm exec -- openapi-typescript ../contracts/proposed/v1/openapi.yaml -o /tmp/serviceos-proposed-v1.d.ts
         working-directory: frontend
@@ -87,4 +89,91 @@ jobs:
         with:
           name: frontend-browser-evidence
           path: frontend/test-results/
+          retention-days: 7
+
+  delivery-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate standalone Compose configurations without printing environments
+        run: |
+          docker compose --env-file deploy/local/.env.example -f compose.yaml --profile seed --profile agent config -q
+          docker compose --env-file deploy/test/.env.example -f deploy/compose.test.yaml config -q
+          docker compose --env-file deploy/production/.env.example -f compose.production.yaml --profile agent config -q
+          if SERVICEOS_LOCAL_AUTH_PASSWORD= docker compose --env-file deploy/local/.env.example -f compose.yaml config -q 2>/dev/null; then
+            exit 1
+          fi
+          if SERVICEOS_DATABASE_URL= docker compose --env-file deploy/production/.env.example -f compose.production.yaml config -q 2>/dev/null; then
+            exit 1
+          fi
+      - name: Reject insecure production transport and configuration leakage
+        run: python -m unittest discover -s deploy -p test_preflight.py -v
+
+  container-smoke:
+    needs: delivery-config
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the locked backend and web images
+        run: docker compose --env-file deploy/local/.env.example -f compose.yaml build api web
+      - name: Start isolated non-model services and seed explicitly
+        run: |
+          docker compose --env-file deploy/local/.env.example -f compose.yaml up -d --no-build --wait --wait-timeout 180
+          docker compose --env-file deploy/local/.env.example -f compose.yaml --profile seed run --rm --no-deps seed
+          docker compose --env-file deploy/local/.env.example -f compose.yaml exec -T web nginx -t
+          curl --fail --silent --show-error http://127.0.0.1:8080/api/v1/readiness --output /dev/null
+          curl --fail --silent --show-error http://127.0.0.1:8080/support --output /dev/null
+      - name: Check non-root shared evidence volume across restart
+        run: |
+          docker compose --env-file deploy/local/.env.example -f compose.yaml exec -T api python -c "import os,pathlib; assert os.getuid() == 10001; pathlib.Path('/data/evidence/.ci-smoke').write_text('persistent')"
+          docker compose --env-file deploy/local/.env.example -f compose.yaml restart postgres api inspection
+          docker compose --env-file deploy/local/.env.example -f compose.yaml up -d --no-build --wait --wait-timeout 180
+          docker compose --env-file deploy/local/.env.example -f compose.yaml exec -T inspection python -c "import pathlib; p=pathlib.Path('/data/evidence/.ci-smoke'); assert p.read_text() == 'persistent'; p.unlink()"
+          curl --fail --silent --show-error http://127.0.0.1:8080/api/v1/readiness --output /dev/null
+      - name: Validate HTTPS template with an ephemeral self-signed test certificate
+        run: |
+          mkdir -p "$RUNNER_TEMP/serviceos-tls"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=service.example.invalid -keyout "$RUNNER_TEMP/serviceos-tls/privkey.pem" -out "$RUNNER_TEMP/serviceos-tls/fullchain.pem"
+          # Readable only for this disposable test certificate, never a production key.
+          chmod 644 "$RUNNER_TEMP/serviceos-tls/privkey.pem"
+          docker run --rm --network none -e SERVICEOS_PUBLIC_HOSTNAME=service.example.invalid -e NGINX_ENVSUBST_FILTER=SERVICEOS_PUBLIC_HOSTNAME -v "$PWD/deploy/nginx/production.conf.template:/etc/nginx/templates/default.conf.template:ro" -v "$RUNNER_TEMP/serviceos-tls:/etc/nginx/tls:ro" serviceos-web:local nginx -t
+      - name: Report container state (not resolved environments)
+        if: always()
+        run: docker compose --env-file deploy/local/.env.example -f compose.yaml ps -a
+      - name: Remove only this disposable CI stack and its volumes
+        if: always()
+        run: docker compose --env-file deploy/local/.env.example -f compose.yaml --profile seed --profile agent down --volumes --remove-orphans
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: python -m pip install --index-url https://pypi.org/simple uv==0.12.5
+      - run: npm ci --registry=https://registry.npmjs.org
+        working-directory: frontend
+      - name: Audit all locked npm dependencies (high and critical fail the job)
+        run: npm audit --audit-level=high --registry=https://registry.npmjs.org --json > "$RUNNER_TEMP/npm-audit.json"
+        working-directory: frontend
+      - name: Audit locked Python runtime dependencies (findings or network errors fail)
+        if: always()
+        run: |
+          uv export --project backend --locked --no-dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/serviceos-requirements.txt"
+          uvx --from pip-audit==2.9.0 pip-audit --requirement "$RUNNER_TEMP/serviceos-requirements.txt" --no-deps --disable-pip --format json --output "$RUNNER_TEMP/python-audit.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-audit-results
+          path: |
+            ${{ runner.temp }}/npm-audit.json
+            ${{ runner.temp }}/python-audit.json
           retention-days: 7

@@ -1,18 +1,24 @@
 """The simulated operation is separate from approval and remains auditable after uncertainty."""
 
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from threading import Barrier
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 
+from serviceos_api.application.actions import ServiceActionService
+from serviceos_api.application.auth import Principal
+from serviceos_api.application.contracts import ActionApprovalDecision, MockActionRequest
+from serviceos_api.application.errors import ServiceError
 from serviceos_api.bootstrap_local import seed_local_accounts
 from serviceos_api.integrations.mock_service_adapter import MockServiceAdapter
 from serviceos_api.main import create_app
-from serviceos_api.persistence.models import CaseAction, CaseActionApproval, MockServiceOperation, OutboxEvent
+from serviceos_api.persistence.models import CaseAction, CaseActionApproval, MockServiceOperation, OutboxEvent, ServiceCase
 from serviceos_api.settings import Settings
 from serviceos_api.worker.actions import MockActionWorker
 from test_business_api import login
@@ -141,7 +147,7 @@ def test_terminal_action_receipt_cannot_bypass_result_verification(app, database
     assert staff.get(f"/api/v1/cases/{case['id']}").json()["status"] == "IN_PROGRESS"
 
 
-def test_failed_mock_receipt_and_unknown_reconcile_without_second_operation(app, database_engine):
+def test_failed_mock_receipt_and_unknown_reconcile_without_second_operation(app, database_engine, caplog, monkeypatch):
     customer = login(app)
     staff = login(app, "staff")
     supervisor = login(app, "supervisor")
@@ -152,6 +158,11 @@ def test_failed_mock_receipt_and_unknown_reconcile_without_second_operation(app,
     defer_other_actions(database_engine, action_id)
     failed_settings = replace(app.state.settings, mock_action_result="FAILED")
     adapter = MockServiceAdapter(database_engine, failed_settings)
+    # Capture raw records independently of app and Alembic logging configuration.
+    action_logger = logging.getLogger("serviceos.actions")
+    monkeypatch.setattr(action_logger, "handlers", [caplog.handler])
+    monkeypatch.setattr(action_logger, "disabled", False)
+    monkeypatch.setattr(action_logger, "propagate", False)
 
     class LostResponse:
         def execute(self, tenant_id, current_action_id):
@@ -176,6 +187,11 @@ def test_failed_mock_receipt_and_unknown_reconcile_without_second_operation(app,
             MockServiceOperation.action_id == action_id)) == 1
         assert session.scalar(select(func.count()).select_from(OutboxEvent).where(
             OutboxEvent.type == "action.state_changed", OutboxEvent.data["action_id"].astext == str(action_id))) == 1
+    assert "response lost after mock commit" not in caplog.text
+    records = [record for record in caplog.records if record.name == "serviceos.actions"]
+    assert len(records) == 1 and records[0].exc_info is None
+    assert "mock_outcome_unknown" in records[0].getMessage()
+    assert records[0].error_code == "mock_outcome_unknown"
 
 
 def test_expired_execution_without_receipt_stays_unknown_and_case_cannot_resolve(app, database_engine):
@@ -359,3 +375,209 @@ def test_newer_rejected_action_cannot_use_older_success_receipt(app, database_en
     observed = customer.post(f"{path}/verifications", json=verification_body(current["version"]))
     assert observed.status_code == 201 and observed.json()["decision"] == "PENDING"
     assert customer.get(path).json()["status"] != "RESOLVED"
+
+
+@pytest.mark.parametrize("older_status", ["WAITING_APPROVAL", "APPROVED", "EXECUTING", "UNKNOWN"])
+def test_latest_success_cannot_resolve_with_older_unsettled_action(app, database_engine, older_status):
+    customer = login(app)
+    staff = login(app, "staff")
+    supervisor = login(app, "supervisor")
+    case = case_for(customer)
+    older = request_action(staff, case).json()
+    older_id = UUID(older["id"])
+    if older_status != "WAITING_APPROVAL":
+        assert approve(supervisor, older["approval_id"]).status_code == 200
+    worker = MockActionWorker(database_engine, app.state.settings)
+    if older_status in ("EXECUTING", "UNKNOWN"):
+        defer_other_actions(database_engine, older_id)
+        lease = worker.claim_one()
+        assert lease and lease.action_id == older_id
+        if older_status == "UNKNOWN":
+            worker._finish(lease, None)
+    path = f"/api/v1/cases/{case['id']}"
+    latest = request_action(staff, customer.get(path).json()).json()
+    assert approve(supervisor, latest["approval_id"]).status_code == 200
+    defer_other_actions(database_engine, UUID(latest["id"]))
+    assert worker.run_once()
+    assert customer.get(f"/api/v1/actions/{latest['id']}").json()["status"] == "SUCCEEDED"
+    assert customer.get(f"/api/v1/actions/{older_id}").json()["status"] == older_status
+    current = customer.get(path).json()
+    body = verification_body(current["version"])
+    pending = customer.post(f"{path}/verifications", json=body)
+    assert pending.status_code == 201, pending.text
+    assert pending.json()["decision"] == "PENDING"
+    assert customer.get(path).json()["status"] == current["status"]
+    assert customer.post(f"{path}/verifications", json=body).json() == pending.json()
+    current = customer.get(path).json()
+    not_working = customer.post(f"{path}/verifications", json=verification_body(
+        current["version"], result="NOT_WORKING"))
+    assert not_working.status_code == 201, not_working.text
+    assert not_working.json()["decision"] == "NOT_RESOLVED"
+    assert customer.get(path).json()["status"] == "IN_PROGRESS"
+    with Session(database_engine) as session:
+        assert session.get(ServiceCase, UUID(case["id"])).resolved_at is None
+
+
+def test_unknown_reconciliation_lease_cannot_be_stolen_before_expiry(app, database_engine):
+    customer = login(app)
+    staff = login(app, "staff")
+    supervisor = login(app, "supervisor")
+    action = request_action(staff, case_for(customer)).json()
+    assert approve(supervisor, action["approval_id"]).status_code == 200
+    action_id = UUID(action["id"])
+    defer_other_actions(database_engine, action_id)
+    adapter = MockServiceAdapter(database_engine, app.state.settings)
+    execute_calls = 0
+
+    class LostResponse:
+        def execute(self, tenant_id, current_action_id):
+            nonlocal execute_calls
+            execute_calls += 1
+            adapter.execute(tenant_id, current_action_id)
+            raise TimeoutError("lost response")
+
+        def lookup(self, tenant_id, current_action_id):
+            return adapter.lookup(tenant_id, current_action_id)
+
+    first = MockActionWorker(database_engine, app.state.settings, LostResponse())
+    second = MockActionWorker(database_engine, app.state.settings, LostResponse())
+    assert first.run_once()
+    with Session(database_engine) as session:
+        action = session.get(CaseAction, action_id)
+        assert action.status == "UNKNOWN" and action.lease_expires_at is None
+        action.available_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.commit()
+    lease = first.claim_one()
+    assert lease and lease.action_id == action_id and lease.reconcile_only
+    assert second.claim_one() is None
+    with Session(database_engine) as session:
+        action = session.get(CaseAction, action_id)
+        assert action.lease_token == lease.token and action.attempt_count == 2
+        action.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.commit()
+    recovered = second.claim_one()
+    assert recovered and recovered.reconcile_only and recovered.token != lease.token
+    assert first.claim_one() is None
+    first.process(lease)  # A late result from the old owner cannot clear the new lease.
+    with Session(database_engine) as session:
+        assert session.get(CaseAction, action_id).lease_token == recovered.token
+    second.process(recovered)
+    assert execute_calls == 1
+    with Session(database_engine) as session:
+        action = session.get(CaseAction, action_id)
+        assert action.status == "SUCCEEDED" and action.lease_token is None
+        assert session.scalar(select(func.count()).select_from(MockServiceOperation).where(
+            MockServiceOperation.action_id == action_id)) == 1
+        assert session.scalar(select(func.count()).select_from(OutboxEvent).where(
+            OutboxEvent.type == "action.state_changed", OutboxEvent.data["action_id"].astext == str(action_id))) == 1
+
+
+def principal_for(client):
+    me = client.get("/api/v1/auth/me").json()
+    return Principal(tenant_id=UUID(me["tenant_id"]), actor_id=UUID(me["actor_id"]),
+                     kind=me["kind"], display_name=me["display_name"], role=me["role"])
+
+
+def test_concurrent_request_replay_and_approval_use_consistent_locks(app, database_engine):
+    customer = login(app)
+    staff = login(app, "staff")
+    supervisor = login(app, "supervisor")
+    case = case_for(customer)
+    key = uuid4()
+    action = request_action(staff, case, key=key).json()
+    staff_actor, supervisor_actor = principal_for(staff), principal_for(supervisor)
+    barrier = Barrier(2)
+
+    def perform(replay):
+        with Session(database_engine) as session:
+            session.execute(text("SET LOCAL lock_timeout = '5s'"))
+            session.execute(text("SET LOCAL statement_timeout = '10s'"))
+            service = ServiceActionService(session, staff_actor if replay else supervisor_actor)
+            resource = service.resource
+
+            def synchronized_resource(model, id_, lock=False):
+                if model is ServiceCase and lock and not replay:
+                    barrier.wait(timeout=5)
+                result = resource(model, id_, lock=lock)
+                if model is ServiceCase and lock and replay:
+                    barrier.wait(timeout=5)
+                return result
+
+            service.resource = synchronized_resource
+            if replay:
+                return service.request(UUID(case["id"]), MockActionRequest(
+                    client_action_id=key, expected_case_version=case["version"],
+                    action_kind="MOCK_SERVICE_REQUEST", reason="需要模拟售后服务申请",
+                ))
+            return service.decide(UUID(action["approval_id"]), ActionApprovalDecision(
+                decision_id=uuid4(), expected_version=1, decision="APPROVED", reason="已核对模拟操作条件",
+            ))
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        replay = pool.submit(perform, True)
+        approval = pool.submit(perform, False)
+        assert replay.result(timeout=15).id == UUID(action["id"])
+        assert approval.result(timeout=15).status == "APPROVED"
+    with Session(database_engine) as session:
+        assert session.get(CaseAction, UUID(action["id"])).status == "APPROVED"
+        assert session.scalar(select(func.count()).select_from(CaseAction).where(
+            CaseAction.case_id == UUID(case["id"]))) == 1
+        assert session.scalar(select(func.count()).select_from(OutboxEvent).where(
+            OutboxEvent.type == "action.approval_decided",
+            OutboxEvent.data["action_id"].astext == action["id"])) == 1
+
+
+def test_approval_refreshes_preloaded_state_after_another_decision(app, database_engine):
+    customer = login(app)
+    staff = login(app, "staff")
+    supervisor = login(app, "supervisor")
+    case = case_for(customer)
+    action = request_action(staff, case).json()
+    with Session(database_engine, expire_on_commit=False) as session:
+        cached_case = session.get(ServiceCase, UUID(case["id"]))
+        cached_action = session.get(CaseAction, UUID(action["id"]))
+        cached_approval = session.get(CaseActionApproval, UUID(action["approval_id"]))
+        assert approve(supervisor, action["approval_id"]).status_code == 200
+        service = ServiceActionService(session, principal_for(supervisor))
+        with pytest.raises(ServiceError) as caught:
+            service.decide(cached_approval.id, ActionApprovalDecision(
+                decision_id=uuid4(), expected_version=1, decision="REJECTED", reason="旧页面中的不同决定",
+            ))
+        assert caught.value.code == "APPROVAL_ALREADY_DECIDED"
+        assert cached_case.id == UUID(case["id"])
+        assert cached_action.status == "APPROVED" and cached_approval.status == "APPROVED"
+    assert staff.get(f"/api/v1/actions/{action['id']}").json()["status"] == "APPROVED"
+
+
+def test_request_replay_refreshes_preloaded_action_after_approval(app, database_engine):
+    customer = login(app)
+    staff = login(app, "staff")
+    supervisor = login(app, "supervisor")
+    case = case_for(customer)
+    key = uuid4()
+    action = request_action(staff, case, key=key).json()
+    with Session(database_engine, expire_on_commit=False) as session:
+        cached_action = session.get(CaseAction, UUID(action["id"]))
+        assert approve(supervisor, action["approval_id"]).status_code == 200
+        replay = ServiceActionService(session, principal_for(staff)).request(UUID(case["id"]), MockActionRequest(
+            client_action_id=key, expected_case_version=case["version"],
+            action_kind="MOCK_SERVICE_REQUEST", reason="需要模拟售后服务申请",
+        ))
+        assert replay.id == cached_action.id and replay.status == "APPROVED"
+
+
+def test_approval_identity_lookup_is_tenant_scoped(app, database_engine):
+    customer = login(app)
+    staff = login(app, "staff")
+    supervisor = login(app, "supervisor")
+    outsider = login(app, "other-tenant")
+    action = request_action(staff, case_for(customer)).json()
+    actor = replace(principal_for(supervisor), tenant_id=UUID(outsider.get("/api/v1/auth/me").json()["tenant_id"]))
+    with Session(database_engine) as session:
+        service = ServiceActionService(session, actor)
+        with pytest.raises(ServiceError) as caught:
+            service.decide(UUID(action["approval_id"]), ActionApprovalDecision(
+                decision_id=uuid4(), expected_version=1, decision="APPROVED", reason="其他租户尝试审批",
+            ))
+        assert caught.value.status == 404
+    assert staff.get(f"/api/v1/actions/{action['id']}").json()["status"] == "WAITING_APPROVAL"

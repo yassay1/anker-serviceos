@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import argparse
-import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
@@ -17,6 +16,10 @@ from serviceos_api.integrations.mock_service_adapter import MockReceipt, MockSer
 from serviceos_api.persistence.database import build_engine
 from serviceos_api.persistence.models import CaseAction, ServiceCase
 from serviceos_api.settings import Settings
+from serviceos_api.worker.health import run_loop
+
+# Single source of truth for the container healthcheck role.
+ROLE = "actions"
 
 logger = logging.getLogger("serviceos.actions")
 
@@ -39,7 +42,9 @@ class MockActionWorker:
         now = datetime.now(timezone.utc)
         with Session(self.engine, expire_on_commit=False) as session:
             action = session.scalars(select(CaseAction).where(or_(
-                and_(CaseAction.status.in_(("APPROVED", "UNKNOWN")), CaseAction.available_at <= now),
+                and_(CaseAction.status == "APPROVED", CaseAction.available_at <= now),
+                and_(CaseAction.status == "UNKNOWN", CaseAction.available_at <= now,
+                     or_(CaseAction.lease_expires_at.is_(None), CaseAction.lease_expires_at <= now)),
                 and_(CaseAction.status == "EXECUTING", CaseAction.lease_expires_at <= now),
             )).order_by(CaseAction.available_at, CaseAction.created_at, CaseAction.id)
                 .with_for_update(skip_locked=True).limit(1)).first()
@@ -112,7 +117,8 @@ class MockActionWorker:
         except Exception:
             # The adapter may have committed before a timeout. Never execute
             # again after an uncertain result; subsequent leases only query.
-            logger.exception("Mock action outcome is uncertain; reconciliation required.")
+            logger.warning("Mock action requires reconciliation: error_code=mock_outcome_unknown",
+                           extra={"error_code": "mock_outcome_unknown"})
             self._finish(lease, None, "mock_outcome_unknown")
 
     def run_once(self) -> bool:
@@ -127,17 +133,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the development-only mock service action worker.")
     parser.add_argument("--once", action="store_true", help="Process at most one ready action and exit.")
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     settings = Settings.from_environment()
     engine = build_engine()
     worker = MockActionWorker(engine, settings)
     try:
         if args.once:
+            logging.basicConfig(level=logging.INFO)
             worker.run_once()
             return
-        while True:
-            if not worker.run_once():
-                time.sleep(1)
+        # run_loop writes the heartbeat that the container healthcheck reads.
+        run_loop(ROLE, worker.run_once)
     finally:
         engine.dispose()
 

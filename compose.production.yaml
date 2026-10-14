@@ -1,0 +1,160 @@
+# Standalone production PREPARATION, never merge with compose.yaml.
+# Auth is deliberately disabled until a real production identity adapter exists.
+name: serviceos-production
+
+x-environment: &environment
+  SERVICEOS_ENV: production
+  SERVICEOS_AUTH_MODE: disabled
+  SERVICEOS_DATABASE_URL: ${SERVICEOS_DATABASE_URL:?Supply the external RDS URL with verify-full TLS}
+  SERVICEOS_ALLOWED_ORIGINS: https://${SERVICEOS_PUBLIC_HOSTNAME:?Supply the public DNS hostname}
+  SERVICEOS_PUBLIC_HOSTNAME: ${SERVICEOS_PUBLIC_HOSTNAME:?Supply the public DNS hostname}
+  SERVICEOS_EVIDENCE_STORAGE_BACKEND: s3
+  SERVICEOS_S3_BUCKET: ${SERVICEOS_S3_BUCKET:?Supply the private evidence bucket}
+  SERVICEOS_S3_REGION: ${SERVICEOS_S3_REGION:?Supply the AWS region}
+  SERVICEOS_S3_PREFIX: ${SERVICEOS_S3_PREFIX:?Supply a dedicated evidence prefix}
+
+x-backend: &backend
+  image: ${SERVICEOS_BACKEND_IMAGE:?Supply a tested immutable backend image reference}
+  environment: *environment
+  init: true
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777
+  volumes:
+    - type: bind
+      source: ${SERVICEOS_RDS_CA_FILE:?Supply the absolute RDS CA bundle path}
+      target: /etc/serviceos/rds/global-bundle.pem
+      read_only: true
+      bind:
+        create_host_path: false
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: 60s
+  networks: [application]
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+x-worker-health: &worker-health
+  interval: 20s
+  timeout: 5s
+  retries: 3
+  start_period: 30s
+
+services:
+  preflight:
+    <<: *backend
+    command: [python, /app/deploy/preflight.py]
+    restart: "no"
+    depends_on: {}
+
+  migrate:
+    <<: *backend
+    command: [alembic, -c, backend/alembic.ini, upgrade, head]
+    restart: "no"
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
+
+  api:
+    <<: *backend
+    command: [uvicorn, serviceos_api.main:app, --host, 0.0.0.0, --port, "8000", --no-proxy-headers, --no-access-log]
+    # Liveness only: readiness remains 503 while production auth is disabled.
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=4).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  inspection:
+    <<: *backend
+    command: [python, -m, serviceos_api.worker.inspection]
+    healthcheck:
+      <<: *worker-health
+      test: [CMD, python, -m, serviceos_api.worker.health, --role, inspection]
+
+  followups:
+    <<: *backend
+    command: [python, -m, serviceos_api.worker.followups]
+    healthcheck:
+      <<: *worker-health
+      test: [CMD, python, -m, serviceos_api.worker.health, --role, followups]
+
+  outbox:
+    <<: *backend
+    command: [python, -m, serviceos_api.worker.outbox]
+    healthcheck:
+      <<: *worker-health
+      test: [CMD, python, -m, serviceos_api.worker.health, --role, outbox]
+
+  checkpoints:
+    <<: *backend
+    profiles: [agent]
+    command: [python, -m, serviceos_api.checkpoints]
+    restart: "no"
+
+  agent:
+    <<: *backend
+    profiles: [agent]
+    command: [python, -m, serviceos_api.worker.main]
+    environment:
+      <<: *environment
+      SERVICEOS_LLM_MODEL: ${SERVICEOS_LLM_MODEL:-}
+      SERVICEOS_LLM_BASE_URL: ${SERVICEOS_LLM_BASE_URL:-}
+      SERVICEOS_LLM_API_KEY: ${SERVICEOS_LLM_API_KEY:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      checkpoints:
+        condition: service_completed_successfully
+    healthcheck:
+      <<: *worker-health
+      test: [CMD, python, -m, serviceos_api.worker.health, --role, agent]
+
+  web:
+    image: ${SERVICEOS_WEB_IMAGE:?Supply a tested immutable web image reference}
+    environment:
+      SERVICEOS_PUBLIC_HOSTNAME: ${SERVICEOS_PUBLIC_HOSTNAME:?Supply the public DNS hostname}
+      NGINX_ENVSUBST_FILTER: SERVICEOS_PUBLIC_HOSTNAME
+    ports:
+      - "80:8080"
+      - "443:8443"
+    volumes:
+      - type: bind
+        source: ./deploy/nginx/production.conf.template
+        target: /etc/nginx/templates/default.conf.template
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${SERVICEOS_TLS_DIR:?Supply the absolute TLS certificate directory}
+        target: /etc/nginx/tls
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/nginx-health]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777
+    networks: [application]
+    logging: *logging
+
+networks:
+  application:
+    driver: bridge

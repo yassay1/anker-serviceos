@@ -81,6 +81,12 @@ class AgentRuntime:
                 return service.lookup_manual(query)
 
         @tool
+        def load_skill(skill_id: str, version: str) -> dict:
+            """Load an eligible fixed Skill version. LOADED is not completed; PREPARED is not callable."""
+            with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
+                return service.load_skill(skill_id, version)
+
+        @tool
         def request_missing_evidence(summary: str) -> str:
             """Record an internal draft requesting evidence; does not send a message."""
             with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
@@ -102,7 +108,7 @@ class AgentRuntime:
             max_completion_tokens=1000,
             stream_usage=True,
         )
-        tools = [lookup_manual, request_missing_evidence, propose_action]
+        tools = [lookup_manual, load_skill, request_missing_evidence, propose_action]
         with checkpoint_connection() as connection:
             from langgraph.checkpoint.postgres import PostgresSaver
 

@@ -72,7 +72,7 @@ class ServiceActionService(BusinessService):
         previous = self.session.scalar(select(CaseAction).where(
             CaseAction.tenant_id == case.tenant_id, CaseAction.case_id == case.id,
             CaseAction.client_action_id == command.client_action_id,
-        ).with_for_update())
+        ).with_for_update().execution_options(populate_existing=True))
         if previous is not None:
             if previous.request_hash != fingerprint or previous.requested_by != self.actor.actor_id:
                 raise ServiceError(409, "动作编号已用于其他请求。", code="IDEMPOTENCY_CONFLICT")
@@ -135,19 +135,33 @@ class ServiceActionService(BusinessService):
         self._staff()
         if self.actor.role not in ("SUPERVISOR", "ADMIN"):
             raise ServiceError(403, "需要主管审批权限。", code="APPROVAL_FORBIDDEN")
-        approval = self.session.scalar(select(CaseActionApproval).where(
+        # Discover only tenant-scoped identities before acquiring locks. Request
+        # replays lock Case -> Action, so decisions must use the same order.
+        identity = self.session.execute(select(CaseAction.id, CaseAction.case_id).join(
+            CaseActionApproval, (CaseActionApproval.action_id == CaseAction.id)
+            & (CaseActionApproval.tenant_id == CaseAction.tenant_id),
+        ).where(
+            CaseAction.tenant_id == self.actor.tenant_id,
             CaseActionApproval.tenant_id == self.actor.tenant_id,
             CaseActionApproval.id == approval_id,
-        ).with_for_update())
-        if approval is None:
+        )).one_or_none()
+        if identity is None:
             raise ServiceError(404, "审批记录不存在或不可见。")
+        case = self.resource(ServiceCase, identity.case_id, lock=True)
+        self.session.refresh(case)
         action = self.session.scalar(select(CaseAction).where(
-            CaseAction.tenant_id == self.actor.tenant_id,
-            CaseAction.id == approval.action_id,
-        ).with_for_update())
+            CaseAction.tenant_id == case.tenant_id, CaseAction.case_id == case.id,
+            CaseAction.id == identity.id,
+        ).with_for_update().execution_options(populate_existing=True))
         if action is None:
             raise ServiceError(404, "售后动作不存在或不可见。")
-        case = self.resource(ServiceCase, action.case_id, lock=True)
+        approval = self.session.scalar(select(CaseActionApproval).where(
+            CaseActionApproval.tenant_id == case.tenant_id,
+            CaseActionApproval.action_id == action.id,
+            CaseActionApproval.id == approval_id,
+        ).with_for_update().execution_options(populate_existing=True))
+        if approval is None:
+            raise ServiceError(404, "审批记录不存在或不可见。")
         reason = command.reason.strip()
         if len(reason) < 3:
             raise ServiceError(422, "审批原因不能为空。", code="DECISION_REASON_REQUIRED")

@@ -326,12 +326,18 @@ def test_database_failure_removes_private_object(app, database_engine, monkeypat
     assert not list(Path(app.state.settings.evidence_storage_dir).rglob("*/*"))
 
 
-def test_rejected_object_cleanup_retries_without_duplicate_event(app, database_engine, monkeypatch):
+@pytest.mark.parametrize("max_attempts", [1, 5])
+@pytest.mark.parametrize("recovery", ["retry", "expired"])
+def test_rejected_object_cleanup_retries_without_duplicate_event(app, database_engine, monkeypatch, max_attempts, recovery):
     customer = login(app)
     case = case_for(customer)
     accepted = upload(customer, case, png_image() + b"<script>")
     evidence_id = UUID(accepted.json()["id"])
     defer_other_jobs(database_engine, evidence_id)
+    with Session(database_engine) as session:
+        job = session.scalar(select(EvidenceInspectionJob).where(EvidenceInspectionJob.evidence_id == evidence_id))
+        job.max_attempts = max_attempts
+        session.commit()
     worker = inspection_worker(app, database_engine, worker_max_attempts=1)
     original_delete = worker.storage.delete
     attempts = 0
@@ -350,18 +356,31 @@ def test_rejected_object_cleanup_retries_without_duplicate_event(app, database_e
         job = session.scalar(select(EvidenceInspectionJob).where(EvidenceInspectionJob.evidence_id == evidence_id))
         assert evidence.inspection_status == "REJECTED"
         assert evidence.storage_key is not None
-        assert job.status == "QUEUED"
+        assert job.status == "QUEUED" and job.attempt_count == 1
         inspected_events = session.scalar(select(func.count()).select_from(OutboxEvent).where(
-            OutboxEvent.type == "evidence.inspected", OutboxEvent.tenant_id == evidence.tenant_id,
+            OutboxEvent.type == "evidence.inspected", OutboxEvent.data["evidence_id"].astext == str(evidence_id),
         ))
+        assert inspected_events == 1
         job.available_at = datetime.now(timezone.utc) - timedelta(seconds=1)
         session.commit()
+    if recovery == "expired":
+        abandoned = worker.claim_one()
+        assert abandoned is not None
+        with Session(database_engine) as session:
+            job = session.get(EvidenceInspectionJob, abandoned.item_id)
+            assert job.attempt_count == 1
+            job.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+            session.commit()
     assert worker.run_once() is True
+    assert attempts == 2
     with Session(database_engine) as session:
         evidence = session.get(CaseImageEvidence, evidence_id)
         job = session.scalar(select(EvidenceInspectionJob).where(EvidenceInspectionJob.evidence_id == evidence_id))
         assert evidence.storage_key is None
-        assert job.status == "COMPLETED"
+        assert job.status == "COMPLETED" and job.attempt_count == 1
+        assert job.max_attempts == max_attempts
+        assert job.lease_token is None and job.lease_expires_at is None
         assert session.scalar(select(func.count()).select_from(OutboxEvent).where(
-            OutboxEvent.type == "evidence.inspected", OutboxEvent.tenant_id == evidence.tenant_id,
+            OutboxEvent.type == "evidence.inspected", OutboxEvent.data["evidence_id"].astext == str(evidence_id),
         )) == inspected_events
+    assert not worker.run_once()

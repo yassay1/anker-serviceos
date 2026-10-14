@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import type { components } from '../src/api/schema'
 
 type S = components['schemas']
-const contextOptions = { baseURL: 'http://127.0.0.1:5173', viewport: { width: 1440, height: 1000 } }
+const contextOptions = { baseURL: process.env.SERVICEOS_LIVE_BASE_URL || 'http://127.0.0.1:5173', viewport: { width: 1440, height: 1000 } }
 const evidencePng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC', 'base64')
 
 async function login(page: Page, username: string, desk = false) {

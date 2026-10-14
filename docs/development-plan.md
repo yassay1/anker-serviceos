@@ -75,10 +75,10 @@
 
 ## 5. 交付/部署
 
-- [ ] Dockerfiles + Compose 本地集成环境（生产/开发配置分离）
-- [ ] EC2/Nginx HTTPS，RDS 网络、备份、安全组权限，S3 受控上传
-- [ ] 日志脱敏、端到端性能验收、依赖安全检查
-- [ ] 演示数据清理和重置脚本
+- [x] Dockerfiles + Compose 本地集成环境（生产/开发配置分离）：`compose.yaml`、`compose.production.yaml`、`deploy/compose.test.yaml` 三种配置可独立校验；独立 API/Worker 进程、一次性迁移、持久卷、Nginx SSE 与 HTTPS 模板已就位。本机镜像构建受网络限制，实际构建/重启演练见[阶段 5 验收记录](phase5-validation.md)。
+- [ ] EC2/Nginx HTTPS，RDS 网络、备份、安全组权限，S3 受控上传：配置、预检与部署文档已完成（`docs/operations.md`、`deploy/production/` 策略文件），但未创建任何云资源，未做真实 HTTPS 握手与真实存储桶联调。
+- [x] 日志脱敏、端到端性能验收、依赖安全检查：结构化脱敏日志与请求耗时已实现并有测试；CI 增加部署配置校验（delivery-config）、容器冒烟（container-smoke）与依赖审计（dependency-audit）。端到端性能指标中的 `model_ttft_ms`、`queue_delay_ms` 等仍需真实 Provider 才能采集，属未测项。
+- [x] 演示数据清理和重置脚本：`serviceos_api.operations` 提供受守卫的 `init` / `reset` / `clean`，仅允许显式隔离的演示目标并要求确认。
 
 ## 响应性能采集指标
 

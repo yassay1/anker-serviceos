@@ -20,6 +20,10 @@ from serviceos_api.persistence.models import (
 
 CONFIRMED_CONDITIONS = ["模拟服务请求收到成功回执", "客户明确确认问题已解决"]
 
+# 仍在流程中的动作稍后仍可能执行并改变设备，因此不能作为已核验的解决依据。
+# 条件列表保持稳定（冻结记录不可回溯变更），该前置判断属于“成功回执”的适用范围。
+UNSETTLED_ACTION_STATUSES = ("WAITING_APPROVAL", "APPROVED", "EXECUTING", "UNKNOWN")
+
 
 def _fingerprint(command: VerificationRequest) -> str:
     fields = {
@@ -39,6 +43,17 @@ class VerificationService(BusinessService):
         if action is None:
             raise ServiceError(404, "此案例尚无可核验的模拟售后动作。", code="CONTRACT_NOT_FOUND")
         return action
+
+    def _has_unsettled_action(self, case: ServiceCase, latest: CaseAction) -> bool:
+        """A later success cannot settle the case while an earlier action may still run.
+
+        UNKNOWN/EXECUTING/APPROVED/WAITING_APPROVAL actions can still change the device
+        afterwards, so their case is not verifiable yet even with a successful latest receipt.
+        """
+        return self.session.scalar(select(CaseAction.id).where(
+            CaseAction.tenant_id == case.tenant_id, CaseAction.case_id == case.id,
+            CaseAction.id != latest.id, CaseAction.status.in_(UNSETTLED_ACTION_STATUSES),
+        ).limit(1)) is not None
 
     def _contract(self, case: ServiceCase, action: CaseAction) -> ResolutionContract:
         contract = self.session.scalar(select(ResolutionContract).where(
@@ -97,7 +112,7 @@ class VerificationService(BusinessService):
             if visible != evidence_ids:
                 raise ServiceError(404, "证据不存在、不可见或尚未通过检查。", code="EVIDENCE_NOT_AVAILABLE")
         receipt_succeeded = action.status == "SUCCEEDED" and action.receipt_result == "SUCCEEDED"
-        if command.observed_result == "WORKING" and receipt_succeeded:
+        if command.observed_result == "WORKING" and receipt_succeeded and not self._has_unsettled_action(case, action):
             decision = "VERIFIED_RESOLVED"
             case.status = "RESOLVED"
             case.resolved_at = datetime.now(timezone.utc)

@@ -26,6 +26,12 @@ def seed_message(session, *, with_case=False):
     session.execute(update(MessageJob).where(
         MessageJob.status.in_(("QUEUED", "RUNNING")),
     ).values(status="CANCELLED", lease_owner=None, lease_token=None, lease_expires_at=None))
+    # Earlier tests in this shared database leave publishable events (e.g. agent.progress) that no
+    # dispatcher consumed. Retire them so a later test's claim_batch() sees only its own event.
+    session.execute(update(OutboxEvent).where(
+        OutboxEvent.published_at.is_(None), OutboxEvent.dead_lettered_at.is_(None),
+    ).values(published_at=datetime.now(timezone.utc), lease_owner=None, lease_token=None,
+             lease_expires_at=None))
     seed_local_accounts(session)
     tenant = session.scalar(select(Tenant).where(Tenant.slug == "local-demo-a"))
     customer = session.scalar(select(Customer).where(
@@ -525,3 +531,119 @@ def test_expired_job_lease_cannot_create_action_proposal(database_engine):
             service.record_proposal("ACTION", "stale request")
         assert session.scalar(select(func.count()).select_from(AgentProposal).where(
             AgentProposal.agent_run_id == run_id)) == 0
+
+
+@pytest.mark.parametrize("mode,policy,visibility", [
+    ("AI_LEAD", "AI_AUTO", "PUBLIC"),
+    ("CO_SERVICE", "AI_REVIEW_REQUIRED", "INTERNAL"),
+    ("HUMAN_LEAD", "HUMAN_ONLY", "INTERNAL"),
+])
+def test_worker_real_progress_and_skill_audit_survive_result_storage(database_engine, mode, policy, visibility):
+    class SkillRuntime:
+        configured = True
+
+        def invoke(self, **kwargs):
+            with Session(database_engine) as session:
+                service = AgentToolService(session, kwargs["tenant_id"], kwargs["conversation_id"],
+                                           kwargs["run_id"], kwargs["lease_token"])
+                service.load_skill("diagnose-no-charge", "1.0.0")
+                assert "SOURCE:" in service.lookup_manual("SECRET TOOL ARGUMENT")
+                service.lookup_manual("SECRET RETRY")
+                service.record_proposal("MISSING_EVIDENCE", "INTERNAL DRAFT")
+            return AgentResult("请确认型号。"), {"step_count": 3}
+
+    with Session(database_engine) as session:
+        _, _, conversation, _, job, _ = seed_message(session)
+        conversation.collaboration_mode, conversation.reply_policy = mode, policy
+        session.commit()
+        conversation_id, job_id = conversation.id, job.id
+    worker = MessageWorker(database_engine, Settings(environment="test"), runtime=SkillRuntime())
+    lease = worker.claim_one()
+    worker.process(lease)
+    worker.process(lease)  # A stale retry cannot generate another logical progress event.
+    with Session(database_engine) as session:
+        run = session.scalar(select(AgentRun).where(AgentRun.job_id == job_id))
+        assert run.status == "COMPLETED"
+        assert run.result_payload["skill_executions"][0]["status"] == "LOADED"
+        events = session.scalars(select(OutboxEvent).where(
+            OutboxEvent.conversation_id == conversation_id, OutboxEvent.type == "agent.progress",
+        ).order_by(OutboxEvent.created_at, OutboxEvent.id)).all()
+        assert sorted(row.data["stage"] for row in events) == ["COMPLETED", "LOOKUP", "RUNNING", "RUNNING"]
+        assert all(row.visibility == visibility for row in events)
+        assert all(set(row.data) == {"run_id", "stage", "summary"} for row in events)
+        assert all("SECRET" not in str(row.data) and "INTERNAL DRAFT" not in str(row.data) for row in events)
+        assert not any(row.data["stage"].startswith("WAITING") for row in events)
+        for event in events:
+            ConversationService.dispatch_outbox_event(session, event)
+        session.commit()
+        customer = session.get(Conversation, conversation_id).customer_id
+        public = ConversationService(session, Principal(run.tenant_id, customer, "CUSTOMER", "客户")).events(conversation_id)
+        assert len(public.items) == (4 if visibility == "PUBLIC" else 0)
+
+
+def test_progress_rechecks_mode_on_dispatch_and_rejects_unknown_fields(db_session):
+    from test_skills import active_skill_run
+
+    tenant, _, conversation, _, _, run = active_skill_run(db_session)
+    event = ConversationService.record_agent_progress(
+        db_session, tenant.id, conversation.id, run.id, run.lease_token, "worker_started")
+    db_session.flush()
+    assert event.visibility == "PUBLIC"
+    assert ConversationService.record_agent_progress(
+        db_session, tenant.id, conversation.id, run.id, run.lease_token, "worker_started").id == event.id
+    conversation.collaboration_mode, conversation.reply_policy = "HUMAN_LEAD", "HUMAN_ONLY"
+    db_session.flush()
+    published = ConversationService.dispatch_outbox_event(db_session, event)
+    db_session.flush()
+    assert published.visibility == "INTERNAL"
+    assert ConversationService.dispatch_outbox_event(db_session, event).id == published.id
+    for data in (dict(event.data, raw_reasoning="private"), dict(event.data, summary="model guess"),
+                 dict(event.data, stage="THINKING"), dict(event.data, run_id=str(uuid4()))):
+        forged = OutboxEvent(tenant_id=tenant.id, conversation_id=conversation.id,
+                             type="agent.progress", visibility="PUBLIC", data=data)
+        with pytest.raises(ServiceError):
+            ConversationService.dispatch_outbox_event(db_session, forged)
+
+
+def test_progress_generation_rejects_stale_lease_and_false_completion(db_session):
+    from test_skills import active_skill_run
+
+    tenant, _, conversation, _, job, run = active_skill_run(db_session)
+    with pytest.raises(ValueError):
+        ConversationService.record_agent_progress(db_session, tenant.id, conversation.id, run.id,
+                                                   run.lease_token, "worker_completed")
+    job.lease_token = uuid4()
+    db_session.flush()
+    with pytest.raises(ValueError):
+        ConversationService.record_agent_progress(db_session, tenant.id, conversation.id, run.id,
+                                                   run.lease_token, "worker_started")
+    assert not db_session.scalars(select(OutboxEvent).where(
+        OutboxEvent.conversation_id == conversation.id, OutboxEvent.type == "agent.progress")).all()
+
+
+def test_failure_progress_is_fixed_and_retry_creates_fenced_new_attempt(database_engine):
+    class FailingRuntime:
+        configured = True
+
+        def invoke(self, **_):
+            raise RuntimeError("SECRET PROVIDER ERROR")
+
+    with Session(database_engine) as session:
+        _, _, conversation, _, job, _ = seed_message(session)
+        session.commit()
+        conversation_id, job_id = conversation.id, job.id
+    worker = MessageWorker(database_engine, Settings(environment="test"), runtime=FailingRuntime())
+    first = worker.claim_one()
+    worker.process(first)
+    with Session(database_engine) as session:
+        job = session.get(MessageJob, job_id)
+        job.available_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.commit()
+    second = worker.claim_one()
+    assert second.token != first.token
+    worker.process(second)
+    with Session(database_engine) as session:
+        events = session.scalars(select(OutboxEvent).where(
+            OutboxEvent.conversation_id == conversation_id, OutboxEvent.type == "agent.progress")).all()
+        assert sorted(row.data["stage"] for row in events) == ["FAILED", "FAILED", "RUNNING", "RUNNING"]
+        assert all("SECRET" not in str(row.data) for row in events)

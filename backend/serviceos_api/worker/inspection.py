@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -15,7 +14,11 @@ from serviceos_api.integrations.local_evidence_storage import evidence_storage_f
 from serviceos_api.persistence.database import build_engine
 from serviceos_api.persistence.models import CaseImageEvidence, EvidenceInspectionJob
 from serviceos_api.settings import Settings
+from serviceos_api.worker.health import run_loop
 from serviceos_api.worker.runtime import Lease
+
+# Single source of truth for the container healthcheck role.
+ROLE = "inspection"
 
 logger = logging.getLogger("serviceos.evidence")
 
@@ -49,7 +52,7 @@ class EvidenceInspectionWorker:
                 row.lease_owner = None
                 row.lease_token = None
                 row.lease_expires_at = None
-            job = session.scalars(select(EvidenceInspectionJob).where(
+            claimed = session.execute(select(EvidenceInspectionJob, cleanup_required).where(
                 or_(EvidenceInspectionJob.attempt_count < func.least(EvidenceInspectionJob.max_attempts, limit),
                     cleanup_required),
                 or_(
@@ -58,12 +61,15 @@ class EvidenceInspectionWorker:
                 ),
             ).order_by(EvidenceInspectionJob.available_at, EvidenceInspectionJob.created_at, EvidenceInspectionJob.id)
              .with_for_update(skip_locked=True).limit(1)).first()
-            if job is None:
+            if claimed is None:
                 session.commit()
                 return None
+            job, cleanup_only = claimed
             token = uuid4()
             job.status = "RUNNING"
-            job.attempt_count += 1
+            # Deleting an already rejected object is not another inspection.
+            if not cleanup_only:
+                job.attempt_count += 1
             job.lease_owner = self.worker_id
             job.lease_token = token
             job.lease_expires_at = now + timedelta(seconds=self.settings.worker_lease_seconds)
@@ -160,17 +166,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Inspect queued case image evidence")
     parser.add_argument("--once", action="store_true", help="Process one available job and exit")
     arguments = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     settings = Settings.from_environment()
     engine = build_engine()
     worker = EvidenceInspectionWorker(engine, settings)
     try:
         if arguments.once:
+            logging.basicConfig(level=logging.INFO)
             worker.run_once()
             return
-        while True:
-            if not worker.run_once():
-                time.sleep(1)
+        # run_loop writes the heartbeat that the container healthcheck reads.
+        run_loop(ROLE, worker.run_once)
     finally:
         engine.dispose()
 
