@@ -33,6 +33,8 @@ Worker 使用独立的 `serviceos_checkpoint` schema 保存执行检查点；业
 uv run --project backend --locked python -m serviceos_api.worker.inspection
 ```
 
+隔离验收可在命令末尾加 `--once`，只处理当前一条待检查记录后退出。
+
 未检查通过的图片不能下载。已配置 Provider 的消息 Worker 在领取对话任务之余也会领取图片检查任务；未配置时它仍然在领取任何对话任务前退出。
 开发环境的图片原文保存在私有 `backend/.data/evidence/`，数据库只保存元数据和对象引用。API 与图片检查 Worker 必须使用同一个本地目录；需要放在别处时，在两个进程的环境中设置相同的绝对路径 `SERVICEOS_EVIDENCE_STORAGE_DIR`。生产对象存储适配器尚未配置，图片证据接口在生产配置下返回不可用，不会静默写入进程本地磁盘。
 

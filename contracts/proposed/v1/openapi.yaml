@@ -4,7 +4,7 @@ info:
   title: Anker ServiceOS API
   version: 0.1.0
 x-serviceos-proposal-status: draft
-x-serviceos-implemented-sha256: 88259ef8f9c4b3273da8c08175365bb07f5bb6d3031b28dd6cc7c89255649e6a
+x-serviceos-implemented-sha256: 30403e1de7f0218d87e1a4d6e7597d413656ee32216edfa44e3e9059ac1a4421
 x-serviceos-planned-source: contracts/proposed/v1/planned.yaml
 paths:
   /api/v1/actions/{id}:
@@ -2600,6 +2600,10 @@ components:
           format: uuid
           title: Case Id
           type: string
+        client_evidence_id:
+          format: uuid
+          title: Client Evidence Id
+          type: string
         created_at:
           format: date-time
           title: Created At
@@ -2644,6 +2648,7 @@ components:
       required:
       - id
       - case_id
+      - client_evidence_id
       - visibility
       - media_type
       - byte_size

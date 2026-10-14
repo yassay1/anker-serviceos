@@ -1009,6 +1009,11 @@ export interface components {
              */
             case_id: string;
             /**
+             * Client Evidence Id
+             * Format: uuid
+             */
+            client_evidence_id: string;
+            /**
              * Created At
              * Format: date-time
              */

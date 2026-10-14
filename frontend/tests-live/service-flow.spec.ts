@@ -4,6 +4,7 @@ import type { components } from '../src/api/schema'
 
 type S = components['schemas']
 const contextOptions = { baseURL: 'http://127.0.0.1:5173', viewport: { width: 1440, height: 1000 } }
+const evidencePng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC', 'base64')
 
 async function login(page: Page, username: string, desk = false) {
   const password = process.env.SERVICEOS_LOCAL_AUTH_PASSWORD
@@ -166,5 +167,65 @@ test('real API: separate mock request, supervisor approval, worker receipt and c
     await customerContext.close()
     await staffContext.close()
     await supervisorContext.close()
+  }
+})
+
+test('real API: customer image upload, inspection and authorized preview', async ({ browser }) => {
+  const ownerContext = await browser.newContext(contextOptions)
+  const otherContext = await browser.newContext(contextOptions)
+  const staffContext = await browser.newContext(contextOptions)
+  try {
+    const owner = await ownerContext.newPage()
+    const other = await otherContext.newPage()
+    const staff = await staffContext.newPage()
+    await login(owner, 'customer-a')
+    const created = await ownerContext.request.post('/api/v1/cases', { data: {
+      problem_text: `图片上传联调案例 ${Date.now()}`,
+    } })
+    expect(created.status()).toBe(201)
+    const serviceCase = await created.json() as S['CaseRead']
+    await owner.goto(`/cases/${serviceCase.id}`)
+    const panel = owner.getByRole('region', { name: '案例图片证据' })
+    await panel.getByLabel('选择图片').setInputFiles({ name: 'evidence.png', mimeType: 'image/png', buffer: evidencePng })
+    await panel.getByRole('button', { name: '提交图片' }).click()
+    await expect(panel.getByText(/图片已受理，等待服务端结构检查/)).toBeVisible()
+    await expect(panel.getByText(/待检查/).last()).toBeVisible()
+    await expect(panel.getByRole('button', { name: '查看图片' })).toHaveCount(0)
+    const before = await ownerContext.request.get(`/api/v1/cases/${serviceCase.id}/evidence`)
+    expect(before.status()).toBe(200)
+    const evidence = ((await before.json() as S['EvidencePage']).items)[0]
+    expect(evidence.inspection_status).toBe('PENDING')
+    const forbiddenBefore = await ownerContext.request.get(`/api/v1/cases/${serviceCase.id}/evidence/${evidence.id}/content`)
+    expect(forbiddenBefore.status()).toBe(404)
+    for (let attempt = 0; attempt < 10; attempt++) {
+      execFileSync('uv', ['run', '--project', '../backend', '--locked', 'python', '-m', 'serviceos_api.worker.inspection', '--once'], {
+        cwd: process.cwd(), env: process.env, timeout: 30_000,
+      })
+      const listed = await ownerContext.request.get(`/api/v1/cases/${serviceCase.id}/evidence`)
+      if ((await listed.json() as S['EvidencePage']).items[0].inspection_status === 'CLEAN') break
+    }
+    await owner.reload()
+    await panel.getByRole('button', { name: '查看图片' }).click()
+    await expect(panel.getByRole('dialog').getByRole('img')).toBeVisible()
+    await login(other, 'customer-b')
+    const hidden = await otherContext.request.get(`/api/v1/cases/${serviceCase.id}/evidence`)
+    expect(hidden.status()).toBe(404)
+    await login(staff, 'staff', true)
+    await staff.goto(`/cases/${serviceCase.id}`)
+    const staffPanel = staff.getByRole('region', { name: '案例图片证据' })
+    await staffPanel.getByLabel('可见范围').selectOption('INTERNAL')
+    await staffPanel.getByLabel('选择图片').setInputFiles({ name: 'internal.png', mimeType: 'image/png', buffer: evidencePng })
+    await staffPanel.getByRole('button', { name: '提交图片' }).click()
+    await expect(staffPanel.getByText(/图片已受理/)).toBeVisible()
+    await owner.reload()
+    const customerList = await ownerContext.request.get(`/api/v1/cases/${serviceCase.id}/evidence`)
+    expect((await customerList.json() as S['EvidencePage']).items).toHaveLength(1)
+    await owner.setViewportSize({ width: 390, height: 844 })
+    expect(await owner.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await owner.screenshot({ path: 'test-results/live-case-evidence-mobile.png', fullPage: true })
+  } finally {
+    await ownerContext.close()
+    await otherContext.close()
+    await staffContext.close()
   }
 })
