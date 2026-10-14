@@ -133,6 +133,33 @@
         "title": "ActorRead",
         "type": "object"
       },
+      "ArchiveCaseFact": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_case_version": {
+            "minimum": 1.0,
+            "title": "Expected Case Version",
+            "type": "integer"
+          },
+          "expected_device_revision": {
+            "minimum": 1.0,
+            "title": "Expected Device Revision",
+            "type": "integer"
+          },
+          "expected_fact_revision": {
+            "minimum": 1.0,
+            "title": "Expected Fact Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_case_version",
+          "expected_device_revision",
+          "expected_fact_revision"
+        ],
+        "title": "ArchiveCaseFact",
+        "type": "object"
+      },
       "AssistanceRequest": {
         "additionalProperties": false,
         "properties": {
@@ -253,6 +280,18 @@
       "CandidateFact": {
         "additionalProperties": false,
         "properties": {
+          "client_fact_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Fact Id"
+          },
           "expected_device_revision": {
             "minimum": 1.0,
             "title": "Expected Device Revision",
@@ -264,6 +303,18 @@
             "pattern": "^[a-z][a-z0-9_]*$",
             "title": "Fact Key",
             "type": "string"
+          },
+          "source_case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Case Id"
           },
           "value": {
             "title": "Value"
@@ -937,6 +988,42 @@
       "FactRead": {
         "additionalProperties": false,
         "properties": {
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "archived_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived By"
+          },
+          "client_fact_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Fact Id"
+          },
           "device_id": {
             "format": "uuid",
             "title": "Device Id",
@@ -982,6 +1069,18 @@
             "title": "Source",
             "type": "string"
           },
+          "source_case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Case Id"
+          },
           "source_kind": {
             "title": "Source Kind",
             "type": "string"
@@ -1020,6 +1119,8 @@
         "required": [
           "id",
           "device_id",
+          "client_fact_id",
+          "source_case_id",
           "fact_key",
           "value",
           "source_kind",
@@ -1029,7 +1130,9 @@
           "verified_by",
           "verified_at",
           "retracted_at",
-          "retraction_reason"
+          "retraction_reason",
+          "archived_at",
+          "archived_by"
         ],
         "title": "FactRead",
         "type": "object"
@@ -2433,6 +2536,18 @@
       "VerifiedDeviceFact": {
         "additionalProperties": false,
         "properties": {
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
           "fact_key": {
             "title": "Fact Key",
             "type": "string"
@@ -2442,9 +2557,25 @@
             "title": "Id",
             "type": "string"
           },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
           "source": {
             "title": "Source",
             "type": "string"
+          },
+          "source_case_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Case Id"
           },
           "value": {
             "title": "Value"
@@ -2464,8 +2595,11 @@
           "fact_key",
           "value",
           "source",
+          "source_case_id",
+          "revision",
           "verified_by",
-          "verified_at"
+          "verified_at",
+          "archived_at"
         ],
         "title": "VerifiedDeviceFact",
         "type": "object"
@@ -2748,6 +2882,84 @@
         "summary": "Create Case",
         "tags": [
           "cases"
+        ]
+      }
+    },
+    "/api/v1/cases/{case_id}/devices/{device_id}/facts/{fact_id}/archive": {
+      "post": {
+        "operationId": "archive_case_device_fact",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Case Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Device Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "fact_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Fact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveCaseFact"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Archive Case Device Fact",
+        "tags": [
+          "devices"
         ]
       }
     },
@@ -5299,6 +5511,58 @@
           }
         ],
         "summary": "List Candidate Facts",
+        "tags": [
+          "devices"
+        ]
+      }
+    },
+    "/api/v1/devices/{id}/fact-review": {
+      "get": {
+        "operationId": "list_case_fact_review",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FactRead"
+                  },
+                  "title": "Response List Case Fact Review",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "List Case Fact Review",
         "tags": [
           "devices"
         ]

@@ -71,6 +71,7 @@ class AgentContextBuilder:
             facts = self.session.scalars(select(DeviceFact).where(
                 DeviceFact.tenant_id == self.tenant_id,
                 DeviceFact.device_id.in_(list(by_device)), DeviceFact.validity == "VERIFIED",
+                or_(DeviceFact.source_case_id.is_(None), DeviceFact.archived_at.is_not(None)),
             ).order_by(DeviceFact.verified_at.desc(), DeviceFact.id).limit(30)).all() if by_device else []
             for fact in facts:
                 by_device[fact.device_id]["verified_facts"].append({

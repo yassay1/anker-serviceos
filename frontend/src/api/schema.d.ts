@@ -90,6 +90,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cases/{case_id}/devices/{device_id}/facts/{fact_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive Case Device Fact */
+        post: operations["archive_case_device_fact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cases/{id}": {
         parameters: {
             query?: never;
@@ -611,6 +628,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/devices/{id}/fact-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Case Fact Review */
+        get: operations["list_case_fact_review"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/devices/{id}/facts": {
         parameters: {
             query?: never;
@@ -798,6 +832,15 @@ export interface components {
              */
             tenant_id: string;
         };
+        /** ArchiveCaseFact */
+        ArchiveCaseFact: {
+            /** Expected Case Version */
+            expected_case_version: number;
+            /** Expected Device Revision */
+            expected_device_revision: number;
+            /** Expected Fact Revision */
+            expected_fact_revision: number;
+        };
         /** AssistanceRequest */
         AssistanceRequest: {
             /** Case Id */
@@ -855,10 +898,14 @@ export interface components {
         };
         /** CandidateFact */
         CandidateFact: {
+            /** Client Fact Id */
+            client_fact_id?: string | null;
             /** Expected Device Revision */
             expected_device_revision: number;
             /** Fact Key */
             fact_key: string;
+            /** Source Case Id */
+            source_case_id?: string | null;
             /** Value */
             value: unknown;
         };
@@ -1131,6 +1178,12 @@ export interface components {
         };
         /** FactRead */
         FactRead: {
+            /** Archived At */
+            archived_at: string | null;
+            /** Archived By */
+            archived_by: string | null;
+            /** Client Fact Id */
+            client_fact_id: string | null;
             /**
              * Device Id
              * Format: uuid
@@ -1151,6 +1204,8 @@ export interface components {
             revision: number;
             /** Source */
             source: string;
+            /** Source Case Id */
+            source_case_id: string | null;
             /** Source Kind */
             source_kind: string;
             /** Validity */
@@ -1788,6 +1843,8 @@ export interface components {
         };
         /** VerifiedDeviceFact */
         VerifiedDeviceFact: {
+            /** Archived At */
+            archived_at: string | null;
             /** Fact Key */
             fact_key: string;
             /**
@@ -1795,8 +1852,12 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Revision */
+            revision: number;
             /** Source */
             source: string;
+            /** Source Case Id */
+            source_case_id: string | null;
             /** Value */
             value: unknown;
             /**
@@ -1996,6 +2057,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CaseRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_case_device_fact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: string;
+                device_id: string;
+                fact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArchiveCaseFact"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactRead"];
                 };
             };
             /** @description Validation Error */
@@ -3600,6 +3698,37 @@ export interface operations {
         };
     };
     list_candidate_facts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_case_fact_review: {
         parameters: {
             query?: never;
             header?: never;

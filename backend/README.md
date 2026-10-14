@@ -56,6 +56,8 @@ uv run --project backend --locked python -m serviceos_api.worker.followups
 
 `--once` 仅检查并处理一条到期记录，供受控联调。这个进程需与 API 连接同一业务数据库；未启动时预约仍保留为 `SCHEDULED`，不会虚报已提醒。
 
+设备事实仍使用现有候选、客服核验和撤销应用服务。新增 Case 来源编号必须指向同客户且已关联的设备；客服仅能把已核验、来源 Case 已解决的事实归档到长期 Device Passport。归档前的 Case 来源事实不会进入客户或 Agent 的可信事实视图，撤销后也会退出该视图。历史无 Case 来源的已核验事实沿用原有显示规则。
+
 ## 代码边界
 
 | 位置 | 职责 |

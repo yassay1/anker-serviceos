@@ -4,7 +4,7 @@ info:
   title: Anker ServiceOS API
   version: 0.1.0
 x-serviceos-proposal-status: draft
-x-serviceos-implemented-sha256: b1e5452e47091a89cabdcba37f4039c996b8fe9f968450569fa983d01f35a190
+x-serviceos-implemented-sha256: 810a917aad499f21b680d7eca0f6df656ba4fb9bc2af5972b0cc744b1bf6f1bd
 x-serviceos-planned-source: contracts/proposed/v1/planned.yaml
 paths:
   /api/v1/actions/{id}:
@@ -170,6 +170,56 @@ paths:
       summary: Create Case
       tags:
       - cases
+      x-serviceos-status: implemented
+  /api/v1/cases/{case_id}/devices/{device_id}/facts/{fact_id}/archive:
+    post:
+      operationId: archive_case_device_fact
+      parameters:
+      - in: path
+        name: case_id
+        required: true
+        schema:
+          format: uuid
+          title: Case Id
+          type: string
+      - in: path
+        name: device_id
+        required: true
+        schema:
+          format: uuid
+          title: Device Id
+          type: string
+      - in: path
+        name: fact_id
+        required: true
+        schema:
+          format: uuid
+          title: Fact Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArchiveCaseFact'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FactRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Archive Case Device Fact
+      tags:
+      - devices
       x-serviceos-status: implemented
   /api/v1/cases/{id}:
     delete:
@@ -1765,6 +1815,39 @@ paths:
       tags:
       - devices
       x-serviceos-status: implemented
+  /api/v1/devices/{id}/fact-review:
+    get:
+      operationId: list_case_fact_review
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/FactRead'
+                title: Response List Case Fact Review
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Case Fact Review
+      tags:
+      - devices
+      x-serviceos-status: implemented
   /api/v1/devices/{id}/facts:
     post:
       operationId: create_candidate_fact
@@ -2160,6 +2243,27 @@ components:
       - display_name
       title: ActorRead
       type: object
+    ArchiveCaseFact:
+      additionalProperties: false
+      properties:
+        expected_case_version:
+          minimum: 1.0
+          title: Expected Case Version
+          type: integer
+        expected_device_revision:
+          minimum: 1.0
+          title: Expected Device Revision
+          type: integer
+        expected_fact_revision:
+          minimum: 1.0
+          title: Expected Fact Revision
+          type: integer
+      required:
+      - expected_case_version
+      - expected_device_revision
+      - expected_fact_revision
+      title: ArchiveCaseFact
+      type: object
     AssistanceRequest:
       additionalProperties: false
       properties:
@@ -2250,6 +2354,12 @@ components:
     CandidateFact:
       additionalProperties: false
       properties:
+        client_fact_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Client Fact Id
         expected_device_revision:
           minimum: 1.0
           title: Expected Device Revision
@@ -2260,6 +2370,12 @@ components:
           pattern: ^[a-z][a-z0-9_]*$
           title: Fact Key
           type: string
+        source_case_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Source Case Id
         value:
           title: Value
       required:
@@ -2733,6 +2849,24 @@ components:
     FactRead:
       additionalProperties: false
       properties:
+        archived_at:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          title: Archived At
+        archived_by:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Archived By
+        client_fact_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Client Fact Id
         device_id:
           format: uuid
           title: Device Id
@@ -2761,6 +2895,12 @@ components:
         source:
           title: Source
           type: string
+        source_case_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Source Case Id
         source_kind:
           title: Source Kind
           type: string
@@ -2783,6 +2923,8 @@ components:
       required:
       - id
       - device_id
+      - client_fact_id
+      - source_case_id
       - fact_key
       - value
       - source_kind
@@ -2793,6 +2935,8 @@ components:
       - verified_at
       - retracted_at
       - retraction_reason
+      - archived_at
+      - archived_by
       title: FactRead
       type: object
     FollowUpConsentRead:
@@ -3824,6 +3968,12 @@ components:
     VerifiedDeviceFact:
       additionalProperties: false
       properties:
+        archived_at:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          title: Archived At
         fact_key:
           title: Fact Key
           type: string
@@ -3831,9 +3981,18 @@ components:
           format: uuid
           title: Id
           type: string
+        revision:
+          title: Revision
+          type: integer
         source:
           title: Source
           type: string
+        source_case_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Source Case Id
         value:
           title: Value
         verified_at:
@@ -3848,8 +4007,11 @@ components:
       - fact_key
       - value
       - source
+      - source_case_id
+      - revision
       - verified_by
       - verified_at
+      - archived_at
       title: VerifiedDeviceFact
       type: object
     ProposedError:

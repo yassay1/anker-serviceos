@@ -124,6 +124,16 @@
 .history-list time, .history-list small { color: var(--muted); font-size: 12px; }
 .history-list h4 { margin: 0 0 8px; font-size: 15px; }
 .history-list p { margin: 8px 0; font-size: 13px; }
+.device-fact-workflow { border-top: 1px solid var(--border); padding: 28px 32px 32px; }
+.device-fact-workflow h3 { margin: 0 0 8px; font-size: 17px; }
+.device-fact-workflow h4 { margin: 28px 0 10px; font-size: 14px; }
+.device-fact-workflow > p { max-width: 68ch; }
+.device-fact-workflow label { display: block; margin: 14px 0; font-size: 13px; font-weight: 600; }
+.device-fact-workflow label input, .device-fact-workflow label select { display: block; width: 100%; max-width: 580px; margin-top: 6px; }
+.device-fact-workflow ul { list-style: none; margin: 12px 0 0; padding: 0; }
+.device-fact-workflow li { border: 1px solid var(--border); border-radius: 9px; padding: 14px 16px; margin-top: 8px; overflow-wrap: anywhere; }
+.device-fact-workflow li small { display: block; color: var(--muted); margin: 5px 0 12px; }
+.device-fact-workflow li button { display: inline-block; margin: 4px 8px 0 0; }
 .empty-note { background: #f8fafc; color: var(--muted); padding: 16px; border-radius: 8px; font-size: 13px; }
 .detail-placeholder { text-align: center; padding: 70px 24px; color: var(--muted); }
 .detail-placeholder h2 { color: var(--ink); font-size: 22px; }
@@ -135,6 +145,7 @@
   .context-panel > section + section { border-top: 0; border-left: 1px solid var(--border); }
 }
 @media (max-width: 760px) {
+  .device-fact-workflow { padding: 22px; }
   .page-heading, .support-view .page-heading { padding: 12px 0 0; margin: 10px 0 18px; display: block; }
   .page-heading h1, .support-view .page-heading h1 { font-size: 23px; }
   .page-heading p { font-size: 12px; }
@@ -167,6 +178,7 @@
   .device-illustration svg { width: 38px; }
   .device-hero h2 { font-size: 22px; }
   .device-sections { padding: 22px; }
+  .device-fact-workflow { padding: 22px; }
   .fact-list > div { grid-template-columns: 1fr; gap: 7px; }
   .history-list li { flex-direction: column; gap: 6px; }
 }

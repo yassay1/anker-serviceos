@@ -159,8 +159,11 @@ class VerifiedDeviceFact(Schema):
     fact_key: str
     value: Any
     source: str
+    source_case_id: UUID | None
+    revision: int
     verified_by: str
     verified_at: datetime
+    archived_at: datetime | None
 
 
 class FollowUpConsentRequest(Schema):
@@ -201,8 +204,10 @@ class FollowUpRead(Schema):
 
 class CandidateFact(Schema):
     expected_device_revision: int = Field(ge=1)
+    client_fact_id: UUID | None = None
     fact_key: str = Field(min_length=2, max_length=120, pattern=r"^[a-z][a-z0-9_]*$")
     value: Any
+    source_case_id: UUID | None = None
 
 
 class FactDecision(Schema):
@@ -211,9 +216,17 @@ class FactDecision(Schema):
     reason: str = Field(min_length=3, max_length=1000)
 
 
+class ArchiveCaseFact(Schema):
+    expected_case_version: int = Field(ge=1)
+    expected_device_revision: int = Field(ge=1)
+    expected_fact_revision: int = Field(ge=1)
+
+
 class FactRead(Schema):
     id: UUID
     device_id: UUID
+    client_fact_id: UUID | None
+    source_case_id: UUID | None
     fact_key: str
     value: Any
     source_kind: str
@@ -224,6 +237,8 @@ class FactRead(Schema):
     verified_at: datetime | None
     retracted_at: datetime | None
     retraction_reason: str | None
+    archived_at: datetime | None
+    archived_by: UUID | None
 
 
 class AttachDevice(Schema):

@@ -13,7 +13,7 @@ from serviceos_api.application.contracts import (
     CreateCase, CreateConversation, CreateDevice, DeviceRead, FactDecision, FactRead, LocalLogin, MessagePage,
     MessageReceipt, SendMessage, TransitionCase, UpdateCase, UpdateDevice, ModeTransition, AssistanceRequest,
     ClaimTask, TaskRead, ProposalRead, ProposalDecision, EventPage, UIDocumentRead,
-    UIActionRequest, UIActionResult,
+    UIActionRequest, UIActionResult, ArchiveCaseFact,
 )
 from serviceos_api.persistence.models import Conversation, DevicePassport, ServiceCase
 
@@ -248,6 +248,12 @@ def list_candidate_facts(id: UUID, service: Business):
     return [FactRead.model_validate(row) for row in service.candidate_facts(id)]
 
 
+@router.get("/devices/{id}/fact-review", response_model=list[FactRead], tags=["devices"],
+            operation_id="list_case_fact_review")
+def list_case_fact_review(id: UUID, service: Business):
+    return [FactRead.model_validate(row) for row in service.case_fact_review(id)]
+
+
 @router.post("/devices/{id}/facts/{fact_id}/verify", response_model=FactRead, tags=["devices"], operation_id="verify_fact")
 def verify_fact(id: UUID, fact_id: UUID, body: FactDecision, service: Business):
     return FactRead.model_validate(service.decide_fact(id, fact_id, body))
@@ -256,3 +262,10 @@ def verify_fact(id: UUID, fact_id: UUID, body: FactDecision, service: Business):
 @router.post("/devices/{id}/facts/{fact_id}/retract", response_model=FactRead, tags=["devices"], operation_id="retract_fact")
 def retract_fact(id: UUID, fact_id: UUID, body: FactDecision, service: Business):
     return FactRead.model_validate(service.decide_fact(id, fact_id, body, retract=True))
+
+
+@router.post("/cases/{case_id}/devices/{device_id}/facts/{fact_id}/archive", response_model=FactRead,
+             tags=["devices"], operation_id="archive_case_device_fact")
+def archive_case_device_fact(case_id: UUID, device_id: UUID, fact_id: UUID,
+                             body: ArchiveCaseFact, service: Business):
+    return FactRead.model_validate(service.archive_case_fact(case_id, device_id, fact_id, body))

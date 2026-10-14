@@ -13,6 +13,7 @@ export type Proposal = components['schemas']['ProposalRead']
 export type UIDocument = components['schemas']['UIDocumentRead']
 export type UIActionBody = components['schemas']['UIActionRequest']
 export type Device = components['schemas']['DeviceRead']
+export type DeviceFact = components['schemas']['FactRead']
 export type ServiceCase = components['schemas']['CaseRead']
 export type CaseAction = components['schemas']['CaseActionRead']
 export type ActionApproval = components['schemas']['ActionApprovalRead']
@@ -169,6 +170,45 @@ export async function readDevice(id: string): Promise<Device> {
 export async function listDeviceCases(id: string): Promise<ServiceCase[]> {
   const { data, error, response } = await api.GET('/api/v1/devices/{id}/cases', { params: { path: { id } } })
   return requireData(data, error, response, '服务历史加载失败，请重试。')
+}
+
+export async function listCaseFactReview(deviceId: string): Promise<DeviceFact[]> {
+  const { data, error, response } = await api.GET('/api/v1/devices/{id}/fact-review', {
+    params: { path: { id: deviceId } },
+  })
+  return requireData(data, error, response, '待归档设备事实加载失败。')
+}
+
+export async function createCandidateFact(deviceId: string,
+  body: components['schemas']['CandidateFact']): Promise<DeviceFact> {
+  const { data, error, response } = await api.POST('/api/v1/devices/{id}/facts', {
+    params: { path: { id: deviceId } }, body,
+  })
+  return requireData(data, error, response, '候选事实提交结果尚未确认。')
+}
+
+export async function verifyFact(deviceId: string, factId: string,
+  body: components['schemas']['FactDecision']): Promise<DeviceFact> {
+  const { data, error, response } = await api.POST('/api/v1/devices/{id}/facts/{fact_id}/verify', {
+    params: { path: { id: deviceId, fact_id: factId } }, body,
+  })
+  return requireData(data, error, response, '事实核验结果尚未确认。')
+}
+
+export async function archiveCaseFact(caseId: string, deviceId: string, factId: string,
+  body: components['schemas']['ArchiveCaseFact']): Promise<DeviceFact> {
+  const { data, error, response } = await api.POST('/api/v1/cases/{case_id}/devices/{device_id}/facts/{fact_id}/archive', {
+    params: { path: { case_id: caseId, device_id: deviceId, fact_id: factId } }, body,
+  })
+  return requireData(data, error, response, '归档结果尚未确认。')
+}
+
+export async function retractFact(deviceId: string, factId: string,
+  body: components['schemas']['FactDecision']): Promise<DeviceFact> {
+  const { data, error, response } = await api.POST('/api/v1/devices/{id}/facts/{fact_id}/retract', {
+    params: { path: { id: deviceId, fact_id: factId } }, body,
+  })
+  return requireData(data, error, response, '事实撤销结果尚未确认。')
 }
 
 export async function listCases(): Promise<ServiceCase[]> {

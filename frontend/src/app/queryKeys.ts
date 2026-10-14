@@ -4,6 +4,7 @@ export const queryKeys = {
   devices: (tenantId: string, actorId: string) => ['devices', tenantId, actorId] as const,
   device: (tenantId: string, actorId: string, id: string) => ['device', tenantId, actorId, id] as const,
   deviceCases: (tenantId: string, actorId: string, id: string) => ['device-cases', tenantId, actorId, id] as const,
+  caseFactReview: (tenantId: string, actorId: string, id: string) => ['case-fact-review', tenantId, actorId, id] as const,
   cases: (tenantId: string, actorId: string) => ['cases', tenantId, actorId] as const,
   case: (tenantId: string, actorId: string, id: string) => ['case', tenantId, actorId, id] as const,
   caseActions: (tenantId: string, actorId: string, id: string) => ['case-actions', tenantId, actorId, id] as const,
