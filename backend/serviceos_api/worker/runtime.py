@@ -403,12 +403,16 @@ class OutboxDispatcher:
 def run_worker_forever(settings: Settings):
     if not settings.llm_configured:
         raise RuntimeError("LLM provider is not configured; no message jobs were claimed.")
+    from serviceos_api.worker.inspection import EvidenceInspectionWorker
+
     engine = build_engine()
     messages = MessageWorker(engine, settings)
+    evidence = EvidenceInspectionWorker(engine, settings) if settings.environment in ("development", "test") else None
     outbox = OutboxDispatcher(engine, settings.worker_lease_seconds)
     try:
         while True:
             did_work = messages.run_once()
+            did_work = (evidence.run_once() if evidence is not None else False) or did_work
             did_work = bool(outbox.dispatch_batch()) or did_work
             if not did_work:
                 time.sleep(1)

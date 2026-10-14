@@ -203,6 +203,71 @@ class CaseEvidence(TenantRecord, Base):
     verified_by: Mapped[str | None] = mapped_column(String(160))
 
 
+class CaseImageEvidence(TenantRecord, Base):
+    """Image metadata and private object reference for a case."""
+
+    __tablename__ = "case_image_evidence"
+    __table_args__ = tenant_args(
+        tenant_reference("case_id", "service_cases"),
+        tenant_reference("author_customer_id", "customers"),
+        tenant_reference("author_staff_id", "tenant_memberships", "staff_user_id"),
+        UniqueConstraint("tenant_id", "case_id", "client_evidence_id"),
+        CheckConstraint("visibility IN ('PUBLIC','INTERNAL')", name="visibility_values"),
+        CheckConstraint("media_type IN ('image/jpeg','image/png','image/webp')", name="media_values"),
+        CheckConstraint("byte_size >= 1 AND byte_size <= 10485760", name="byte_size_bounds"),
+        CheckConstraint("inspection_status IN ('PENDING','CLEAN','REJECTED')", name="inspection_values"),
+        CheckConstraint("verification IN ('UNVERIFIED','VERIFIED','RETRACTED')", name="verification_values"),
+        CheckConstraint("source_kind IN ('CUSTOMER','STAFF')", name="source_values"),
+        CheckConstraint(
+            "(source_kind = 'CUSTOMER' AND author_customer_id IS NOT NULL AND author_staff_id IS NULL) OR "
+            "(source_kind = 'STAFF' AND author_staff_id IS NOT NULL AND author_customer_id IS NULL)",
+            name="author_identity",
+        ),
+        CheckConstraint(
+            "(inspection_status = 'REJECTED' AND rejection_code IS NOT NULL) OR "
+            "(inspection_status IN ('PENDING','CLEAN') AND rejection_code IS NULL AND storage_key IS NOT NULL)",
+            name="inspection_payload",
+        ),
+        Index("ix_case_image_evidence_case", "tenant_id", "case_id", "created_at", "id"),
+    )
+    case_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    client_evidence_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    file_digest: Mapped[str] = mapped_column(String(64))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    visibility: Mapped[str] = mapped_column(String(16), default="PUBLIC", server_default="PUBLIC")
+    media_type: Mapped[str] = mapped_column(String(32))
+    byte_size: Mapped[int] = mapped_column(Integer)
+    inspection_status: Mapped[str] = mapped_column(String(16), default="PENDING", server_default="PENDING")
+    verification: Mapped[str] = mapped_column(String(16), default="UNVERIFIED", server_default="UNVERIFIED")
+    source_kind: Mapped[str] = mapped_column(String(16))
+    author_customer_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    author_staff_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    storage_key: Mapped[str | None] = mapped_column(String(160))
+    rejection_code: Mapped[str | None] = mapped_column(String(80))
+
+
+class EvidenceInspectionJob(TenantRecord, Base):
+    __tablename__ = "evidence_inspection_jobs"
+    __table_args__ = tenant_args(
+        tenant_reference("evidence_id", "case_image_evidence"),
+        UniqueConstraint("tenant_id", "evidence_id"),
+        CheckConstraint("status IN ('QUEUED','RUNNING','COMPLETED','FAILED')", name="status_values"),
+        CheckConstraint("attempt_count >= 0 AND max_attempts >= 1 AND attempt_count <= max_attempts", name="attempt_bounds"),
+        Index("ix_evidence_inspection_jobs_ready", "status", "available_at", "created_at"),
+    )
+    evidence_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    status: Mapped[str] = mapped_column(String(24), default="QUEUED", server_default="QUEUED")
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    max_attempts: Mapped[int] = mapped_column(Integer, default=5, server_default="5")
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    lease_owner: Mapped[str | None] = mapped_column(String(120))
+    lease_token: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_code: Mapped[str | None] = mapped_column(String(80))
+
+
 class DeviceFact(TenantRecord, Base):
     __tablename__ = "device_facts"
     __table_args__ = tenant_args(

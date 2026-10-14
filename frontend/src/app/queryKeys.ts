@@ -1,6 +1,9 @@
 export const queryKeys = {
   actor: ['actor'] as const,
   health: ['health'] as const,
+  devices: (tenantId: string, actorId: string) => ['devices', tenantId, actorId] as const,
+  device: (tenantId: string, actorId: string, id: string) => ['device', tenantId, actorId, id] as const,
+  deviceCases: (tenantId: string, actorId: string, id: string) => ['device-cases', tenantId, actorId, id] as const,
   conversations: (tenantId: string, actorId: string) => ['conversations', tenantId, actorId] as const,
   messages: (tenantId: string, actorId: string, conversationId: string) =>
     ['messages', tenantId, actorId, conversationId] as const,

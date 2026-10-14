@@ -17,6 +17,7 @@ class Settings:
     worker_lease_seconds: int = 90
     worker_heartbeat_seconds: int = 20
     worker_max_attempts: int = 5
+    evidence_storage_dir: str = ""
     allowed_origins: tuple[str, ...] = (
         "http://127.0.0.1:5173", "http://127.0.0.1:4173", "http://127.0.0.1:8000",
     )
@@ -44,4 +45,5 @@ class Settings:
             worker_lease_seconds=max(30, min(int(os.getenv("SERVICEOS_WORKER_LEASE_SECONDS", "90")), 600)),
             worker_heartbeat_seconds=max(5, min(int(os.getenv("SERVICEOS_WORKER_HEARTBEAT_SECONDS", "20")), 120)),
             worker_max_attempts=max(1, min(int(os.getenv("SERVICEOS_WORKER_MAX_ATTEMPTS", "5")), 10)),
+            evidence_storage_dir=os.getenv("SERVICEOS_EVIDENCE_STORAGE_DIR", ""),
         )

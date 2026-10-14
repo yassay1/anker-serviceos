@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from serviceos_api.api.health import router as health_router
 from serviceos_api.api.business import router as business_router
+from serviceos_api.api.evidence import router as evidence_router
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.settings import Settings
 
@@ -39,7 +40,12 @@ def create_app(*, database_engine=None, settings: Settings | None = None) -> Fas
 
     @application.exception_handler(ServiceError)
     async def service_error(request: Request, error: ServiceError):
-        return JSONResponse(status_code=error.status, content={"detail": error.detail})
+        body = {"detail": error.detail}
+        if error.code:
+            body["code"] = error.code
+        if error.current_version is not None:
+            body["current_version"] = error.current_version
+        return JSONResponse(status_code=error.status, content=body)
 
     @application.exception_handler(IntegrityError)
     async def integrity_error(request: Request, error: IntegrityError):
@@ -51,6 +57,7 @@ def create_app(*, database_engine=None, settings: Settings | None = None) -> Fas
 
     application.include_router(health_router)
     application.include_router(business_router)
+    application.include_router(evidence_router)
     return application
 
 

@@ -16,3 +16,6 @@ backend/.venv/
 backend/*.egg-info/
 *.tsbuildinfo
 work/
+frontend/test-results/
+frontend/playwright-report/
+.impeccable/review/
