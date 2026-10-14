@@ -95,7 +95,7 @@ def test_context_excludes_internal_messages_and_candidate_facts(database_engine)
             DeviceFact(tenant_id=tenant.id, device_id=device.id, source_case_id=case.id,
                        fact_key="port", value="USB-A", source_kind="HUMAN", source="staff",
                        validity="VERIFIED", verifier_kind="HUMAN", verified_by="staff:test",
-                       verified_at=datetime.now(timezone.utc)),
+                       verified_at=datetime.now(timezone.utc), archived_at=datetime.now(timezone.utc)),
             DeviceFact(tenant_id=tenant.id, device_id=device.id, source_case_id=case.id,
                        fact_key="guess", value="unsupported", source_kind="MODEL", source="agent",
                        validity="CANDIDATE"),

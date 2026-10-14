@@ -31,7 +31,8 @@ export async function fixture(page: Page, staff = true) {
   const device: S['DeviceRead'] = { id: ids.device, customer_id: ids.customer, model: 'Anker 737',
     serial_number: 'PRIVATE-SERIAL-0921', identity_status: 'UNVERIFIED', revision: 2, created_at: createdAt,
     verified_facts: [{ id: ids.second, fact_key: 'charging_watts', value: 65,
-      source: '人工测量记录', verified_by: '测试审核员', verified_at: createdAt }] }
+      source: '人工测量记录', source_case_id: null, revision: 1,
+      verified_by: '测试审核员', verified_at: createdAt, archived_at: null }] }
   const history: S['CaseRead'][] = [{ id: ids.second, customer_id: ids.customer,
     problem_text: '充电接口不稳定', user_goal: '恢复稳定充电', status: 'WAITING_CUSTOMER', version: 2, created_at: createdAt }]
   const proposal: S['ProposalRead'] = { id: ids.second, conversation_id: ids.conversation,

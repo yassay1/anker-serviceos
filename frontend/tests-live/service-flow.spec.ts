@@ -224,6 +224,71 @@ test('real API: customer consent precedes staff follow-up schedule', async ({ br
   }
 })
 
+test('real API: case fact appears in device passport only after verification and resolution archive', async ({ browser }) => {
+  const customerContext = await browser.newContext(contextOptions)
+  const staffContext = await browser.newContext(contextOptions)
+  try {
+    const customer = await customerContext.newPage()
+    const staff = await staffContext.newPage()
+    await login(customer, 'customer-a')
+    const deviceResponse = await customerContext.request.post('/api/v1/devices', { data: {
+      model: `事实归档设备 ${Date.now()}`,
+    } })
+    expect(deviceResponse.status()).toBe(201)
+    const device = await deviceResponse.json() as S['DeviceRead']
+    const caseResponse = await customerContext.request.post('/api/v1/cases', { data: {
+      problem_text: `事实归档案例 ${Date.now()}`,
+    } })
+    expect(caseResponse.status()).toBe(201)
+    const serviceCase = await caseResponse.json() as S['CaseRead']
+    const link = await customerContext.request.post(`/api/v1/cases/${serviceCase.id}/devices`, { data: {
+      device_id: device.id, expected_version: serviceCase.version,
+    } })
+    expect(link.status()).toBe(200)
+    const linkedCase = await link.json() as S['CaseRead']
+    await login(staff, 'staff', true)
+    await staff.goto(`/devices/${device.id}`)
+    const panel = staff.getByRole('region', { name: '案例事实归档' })
+    await panel.getByLabel('来源案例').selectOption(serviceCase.id)
+    await panel.getByLabel('事实字段').fill('port_type')
+    await panel.getByLabel('核对到的内容').fill('USB-C')
+    await panel.getByRole('button', { name: '保存候选事实' }).click()
+    await expect(panel.getByText('候选事实已保存，需客服核验后再考虑归档。')).toBeVisible()
+    await panel.getByLabel('核验或撤销原因').fill('已核对实物端口')
+    await panel.getByRole('button', { name: '核验事实' }).click()
+    await expect(panel.getByText('事实已由客服核验，待来源案例解决后方可归档。')).toBeVisible()
+    await expect(panel.getByRole('button', { name: '归档到设备' })).toBeDisabled()
+    await customer.goto(`/devices/${device.id}`)
+    await expect(customer.getByText('暂无已核验事实')).toBeVisible()
+    const started = await staffContext.request.post(`/api/v1/cases/${serviceCase.id}/transitions`, { data: {
+      expected_version: linkedCase.version, target_status: 'IN_PROGRESS', reason: '人工复核处理中',
+    } })
+    expect(started.status()).toBe(200)
+    const resolved = await staffContext.request.post(`/api/v1/cases/${serviceCase.id}/transitions`, { data: {
+      expected_version: (await started.json() as S['CaseRead']).version,
+      target_status: 'RESOLVED', reason: '客户确认原问题解决',
+    } })
+    expect(resolved.status()).toBe(200)
+    await staff.reload()
+    await panel.getByRole('button', { name: '归档到设备' }).click()
+    await expect(panel.getByText('已核验事实归档到长期设备档案。')).toBeVisible()
+    await customer.reload()
+    await expect(customer.getByRole('region', { name: '已核验事实' }).getByText('USB-C')).toBeVisible()
+    await staff.screenshot({ path: 'test-results/live-case-fact-staff.png', fullPage: true })
+    await staff.setViewportSize({ width: 390, height: 844 })
+    expect(await staff.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await staff.screenshot({ path: 'test-results/live-case-fact-staff-mobile.png', fullPage: true })
+    await panel.getByLabel('核验或撤销原因').fill('复核后发现端口记录错误')
+    await panel.getByRole('button', { name: '撤销事实' }).click()
+    await expect(panel.getByText('事实已撤销，不再作为可信设备事实展示。')).toBeVisible()
+    await customer.reload()
+    await expect(customer.getByText('暂无已核验事实')).toBeVisible()
+  } finally {
+    await customerContext.close()
+    await staffContext.close()
+  }
+})
+
 test('real API: customer image upload, inspection and authorized preview', async ({ browser }) => {
   const ownerContext = await browser.newContext(contextOptions)
   const otherContext = await browser.newContext(contextOptions)

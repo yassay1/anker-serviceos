@@ -387,6 +387,8 @@ class DeviceFact(TenantRecord, Base):
     __table_args__ = tenant_args(
         tenant_reference("device_id", "device_passports"),
         tenant_reference("source_case_id", "service_cases"),
+        tenant_reference("archived_by", "tenant_memberships", "staff_user_id"),
+        UniqueConstraint("tenant_id", "device_id", "client_fact_id"),
         CheckConstraint("validity IN ('CANDIDATE','VERIFIED','RETRACTED')", name="validity_values"),
         CheckConstraint("source_kind IN ('USER','MODEL','TOOL','HUMAN')", name="source_values"),
         CheckConstraint(
@@ -402,6 +404,7 @@ class DeviceFact(TenantRecord, Base):
         Index("ix_device_facts_device", "tenant_id", "device_id"),
     )
     device_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    client_fact_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     source_case_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     fact_key: Mapped[str] = mapped_column(String(120))
     value: Mapped[Any] = mapped_column(JSONB, nullable=False)
@@ -413,6 +416,8 @@ class DeviceFact(TenantRecord, Base):
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     retracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     retraction_reason: Mapped[str | None] = mapped_column(Text)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    archived_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
 
 

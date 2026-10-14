@@ -205,20 +205,48 @@ class BusinessService:
             DeviceFact.tenant_id == self.actor.tenant_id,
             DeviceFact.device_id == dev.id,
             DeviceFact.validity == "VERIFIED",
+            or_(DeviceFact.source_case_id.is_(None), DeviceFact.archived_at.is_not(None)),
         ).order_by(DeviceFact.verified_at.desc(), DeviceFact.id)).all()
         snapshot = DeviceRead.model_validate(dev)
-        snapshot.verified_facts = [VerifiedDeviceFact.model_validate(row) for row in verified]
+        snapshot.verified_facts = [VerifiedDeviceFact.model_validate(row).model_copy(update={
+            "source": "客户陈述" if row.source_kind == "USER" else "客服记录",
+            "verified_by": "客服核验" if row.verifier_kind == "HUMAN" else "受信工具核验",
+        }) if self.actor.kind == "CUSTOMER" else VerifiedDeviceFact.model_validate(row) for row in verified]
         return snapshot
 
     def create_candidate_fact(self, device_id, request):
         dev = self.resource(DevicePassport, device_id, lock=True)
+        source = f"{self.actor.kind.lower()}:{self.actor.actor_id}"
+        if request.client_fact_id is not None:
+            previous = self.session.scalar(select(DeviceFact).where(
+                DeviceFact.tenant_id == dev.tenant_id,
+                DeviceFact.device_id == dev.id,
+                DeviceFact.client_fact_id == request.client_fact_id,
+            ).with_for_update())
+            if previous is not None:
+                if previous.fact_key != request.fact_key or previous.value != request.value \
+                        or previous.source_case_id != request.source_case_id or previous.source != source:
+                    raise ServiceError(409, "同一事实编号已用于其他内容。", code="IDEMPOTENCY_CONFLICT")
+                return previous
         if dev.revision != request.expected_device_revision:
             raise ServiceError(409, "设备资料版本已更新，请刷新后重试。")
+        if request.source_case_id is not None:
+            case = self.resource(ServiceCase, request.source_case_id)
+            if case.customer_id != dev.customer_id:
+                raise ServiceError(403, "事实来源案例与设备不属于同一客户。")
+            linked = self.session.scalar(select(CaseDevice).where(
+                CaseDevice.tenant_id == dev.tenant_id, CaseDevice.case_id == case.id,
+                CaseDevice.device_id == dev.id,
+            ))
+            if linked is None:
+                raise ServiceError(409, "来源案例必须已关联此设备。")
         fact = DeviceFact(
             tenant_id=self.actor.tenant_id, device_id=dev.id,
+            client_fact_id=request.client_fact_id,
             fact_key=request.fact_key, value=request.value,
+            source_case_id=request.source_case_id,
             source_kind="USER" if self.actor.kind == "CUSTOMER" else "HUMAN",
-            source=f"{self.actor.kind.lower()}:{self.actor.actor_id}", validity="CANDIDATE",
+            source=source, validity="CANDIDATE",
         )
         self.session.add(fact)
         self.session.flush()
@@ -237,6 +265,57 @@ class BusinessService:
             DeviceFact.device_id == dev.id,
             DeviceFact.validity == "CANDIDATE",
         ).order_by(DeviceFact.created_at, DeviceFact.id)).all()
+
+    def case_fact_review(self, device_id):
+        dev = self.resource(DevicePassport, device_id)
+        if self.actor.kind != "STAFF":
+            raise ServiceError(403, "只有已授权客服可查看案例来源的待归档事实。")
+        return self.session.scalars(select(DeviceFact).where(
+            DeviceFact.tenant_id == self.actor.tenant_id,
+            DeviceFact.device_id == dev.id,
+            DeviceFact.source_case_id.is_not(None),
+            or_(DeviceFact.validity == "CANDIDATE",
+                and_(DeviceFact.validity == "VERIFIED", DeviceFact.archived_at.is_(None))),
+        ).order_by(DeviceFact.created_at, DeviceFact.id)).all()
+
+    def archive_case_fact(self, case_id, device_id, fact_id, request):
+        if self.actor.kind != "STAFF":
+            raise ServiceError(403, "只有已授权客服可归档设备事实。")
+        case = self.resource(ServiceCase, case_id, lock=True)
+        dev = self.resource(DevicePassport, device_id, lock=True)
+        if case.customer_id != dev.customer_id:
+            raise ServiceError(403, "案例与设备不属于同一客户。")
+        linked = self.session.scalar(select(CaseDevice).where(
+            CaseDevice.tenant_id == case.tenant_id, CaseDevice.case_id == case.id,
+            CaseDevice.device_id == dev.id,
+        ))
+        if linked is None:
+            raise ServiceError(404, "案例未关联此设备。")
+        fact = self.session.scalar(select(DeviceFact).where(
+            DeviceFact.tenant_id == case.tenant_id, DeviceFact.id == fact_id,
+            DeviceFact.device_id == dev.id, DeviceFact.source_case_id == case.id,
+        ).with_for_update())
+        if fact is None:
+            raise ServiceError(404, "事实不存在或来源不属于此案例。")
+        if fact.archived_at is not None and fact.validity == "VERIFIED":
+            return fact
+        if case.version != request.expected_case_version or dev.revision != request.expected_device_revision \
+                or fact.revision != request.expected_fact_revision:
+            raise ServiceError(409, "案例、设备或事实版本已更新，请刷新后重试。")
+        if case.status != "RESOLVED":
+            raise ServiceError(409, "案例尚未经核验解决，不能归档长期设备事实。")
+        if fact.validity != "VERIFIED" or fact.verified_by is None or fact.verified_at is None:
+            raise ServiceError(409, "只有已由客服核验的事实可以归档。")
+        fact.archived_at = datetime.now(timezone.utc)
+        fact.archived_by = self.actor.actor_id
+        fact.revision += 1
+        dev.revision += 1
+        self.record_event("device.fact_archived", {
+            "case_id": str(case.id), "device_id": str(dev.id), "fact_id": str(fact.id),
+            "actor_id": str(self.actor.actor_id),
+        }, visibility="INTERNAL")
+        self.session.commit()
+        return fact
 
     def decide_fact(self, device_id, fact_id, request, retract=False):
         if self.actor.kind != "STAFF":
