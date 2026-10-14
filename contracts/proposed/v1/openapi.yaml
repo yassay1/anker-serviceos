@@ -4,9 +4,99 @@ info:
   title: Anker ServiceOS API
   version: 0.1.0
 x-serviceos-proposal-status: draft
-x-serviceos-implemented-sha256: 1a048d57ebcec5b3dfb11ae410c466831acb781f4b82d5ca7a93e25a8b2e7ec9
+x-serviceos-implemented-sha256: 88259ef8f9c4b3273da8c08175365bb07f5bb6d3031b28dd6cc7c89255649e6a
 x-serviceos-planned-source: contracts/proposed/v1/planned.yaml
 paths:
+  /api/v1/actions/{id}:
+    get:
+      operationId: read_case_action
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseActionRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Read Case Action
+      tags:
+      - actions
+      x-serviceos-status: implemented
+  /api/v1/approvals/{id}/decisions:
+    post:
+      operationId: decide_action_approval
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionApprovalDecision'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionApprovalRead'
+          description: Successful Response
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Unauthorized
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Forbidden
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Not Found
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Decide Action Approval
+      tags:
+      - approvals
+      x-serviceos-status: implemented
   /api/v1/auth/logout:
     post:
       operationId: logout
@@ -170,6 +260,132 @@ paths:
       summary: Update Case
       tags:
       - cases
+      x-serviceos-status: implemented
+  /api/v1/cases/{id}/action-requests:
+    post:
+      operationId: request_mock_case_action
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MockActionRequest'
+        required: true
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseActionRead'
+          description: Successful Response
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Unauthorized
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Forbidden
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Not Found
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Request Mock Case Action
+      tags:
+      - actions
+      x-serviceos-status: implemented
+  /api/v1/cases/{id}/actions:
+    get:
+      operationId: list_case_actions
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/CaseActionRead'
+                title: Response List Case Actions
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Case Actions
+      tags:
+      - actions
+      x-serviceos-status: implemented
+  /api/v1/cases/{id}/approvals:
+    get:
+      operationId: list_case_action_approvals
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ActionApprovalRead'
+                title: Response List Case Action Approvals
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Case Action Approvals
+      tags:
+      - approvals
       x-serviceos-status: implemented
   /api/v1/cases/{id}/conversations:
     post:
@@ -1540,194 +1756,6 @@ paths:
           description: Staff role required
         '404':
           description: Run not found or hidden
-  /api/v1/cases/{id}/action-requests:
-    post:
-      operationId: request_mock_case_action
-      summary: Propose one explicitly simulated service action
-      tags:
-      - actions
-      x-serviceos-status: planned
-      x-serviceos-stage: 4
-      x-serviceos-authorization: Authorized staff only; Rule and latest case state rechecked by application service.
-      x-serviceos-idempotency: Same client_action_id and payload returns original ActionRecord; changed payload
-        returns 409.
-      security:
-      - SessionCookie: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ProposedActionRequest'
-      responses:
-        '202':
-          description: Proposal recorded; no external operation executed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProposedActionRead'
-        '401':
-          description: Not authenticated
-        '403':
-          description: Staff role or operation permission missing
-        '404':
-          description: Case or referenced proposal hidden
-        '409':
-          description: Stale case version
-          invalid state or idempotency conflict: null
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProposedError'
-        '422':
-          description: Invalid request
-  /api/v1/cases/{id}/actions:
-    get:
-      operationId: list_case_actions
-      summary: List authorized action state and receipt references
-      tags:
-      - actions
-      x-serviceos-status: planned
-      x-serviceos-stage: 4
-      x-serviceos-authorization: Customer sees only public projection; staff sees authorized internal details.
-      security:
-      - SessionCookie: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      responses:
-        '200':
-          description: Authorized actions
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ProposedActionRead'
-        '401':
-          description: Not authenticated
-        '404':
-          description: Case not found or hidden
-  /api/v1/actions/{id}:
-    get:
-      operationId: read_case_action
-      summary: Read current action state and verified mock receipt
-      tags:
-      - actions
-      x-serviceos-status: planned
-      x-serviceos-stage: 4
-      x-serviceos-authorization: Recheck actor and case linkage; hide internal fields from customer.
-      security:
-      - SessionCookie: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      responses:
-        '200':
-          description: Authorized action
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProposedActionRead'
-        '401':
-          description: Not authenticated
-        '404':
-          description: Action not found or hidden
-  /api/v1/cases/{id}/approvals:
-    get:
-      operationId: list_case_action_approvals
-      summary: List action approvals for the staff workbench
-      tags:
-      - approvals
-      x-serviceos-status: planned
-      x-serviceos-stage: 4
-      x-serviceos-authorization: Authorized staff only; customers cannot read internal approval details.
-      security:
-      - SessionCookie: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      responses:
-        '200':
-          description: Authorized approvals
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ProposedApprovalRead'
-        '401':
-          description: Not authenticated
-        '403':
-          description: Staff role required
-        '404':
-          description: Case not found or hidden
-  /api/v1/approvals/{id}/decisions:
-    post:
-      operationId: decide_action_approval
-      summary: Approve or reject an action without claiming execution succeeded
-      tags:
-      - approvals
-      x-serviceos-status: planned
-      x-serviceos-stage: 4
-      x-serviceos-authorization: Staff with approval role; requester cannot self-approve when policy forbids it.
-      x-serviceos-idempotency: Same decision_id and payload replays original result; changed payload returns 409.
-      security:
-      - SessionCookie: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ProposedApprovalDecision'
-      responses:
-        '200':
-          description: Decision recorded; execution remains separate
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProposedApprovalRead'
-        '401':
-          description: Not authenticated
-        '403':
-          description: Approval permission missing
-        '404':
-          description: Approval not found or hidden
-        '409':
-          description: Stale version
-          already decided or idempotency conflict: null
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProposedError'
-        '422':
-          description: Invalid decision
   /api/v1/cases/{id}/verifications:
     get:
       operationId: list_case_verifications
@@ -1986,6 +2014,70 @@ paths:
           description: Invalid schedule
 components:
   schemas:
+    ActionApprovalDecision:
+      additionalProperties: false
+      properties:
+        decision:
+          enum:
+          - APPROVED
+          - REJECTED
+          title: Decision
+          type: string
+        decision_id:
+          format: uuid
+          title: Decision Id
+          type: string
+        expected_version:
+          minimum: 1.0
+          title: Expected Version
+          type: integer
+        reason:
+          maxLength: 1000
+          minLength: 3
+          title: Reason
+          type: string
+      required:
+      - decision_id
+      - expected_version
+      - decision
+      - reason
+      title: ActionApprovalDecision
+      type: object
+    ActionApprovalRead:
+      additionalProperties: false
+      properties:
+        action_id:
+          format: uuid
+          title: Action Id
+          type: string
+        decided_at:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          title: Decided At
+        id:
+          format: uuid
+          title: Id
+          type: string
+        status:
+          enum:
+          - PENDING
+          - APPROVED
+          - REJECTED
+          title: Status
+          type: string
+        version:
+          title: Version
+          type: integer
+      required:
+      - id
+      - action_id
+      - status
+      - version
+      - decided_at
+      title: ActionApprovalRead
+      type: object
     ActorRead:
       additionalProperties: false
       properties:
@@ -2125,6 +2217,74 @@ components:
       - fact_key
       - value
       title: CandidateFact
+      type: object
+    CaseActionRead:
+      additionalProperties: false
+      properties:
+        action_kind:
+          const: MOCK_SERVICE_REQUEST
+          title: Action Kind
+          type: string
+        adapter:
+          const: MOCK
+          title: Adapter
+          type: string
+        approval_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Approval Id
+        case_id:
+          format: uuid
+          title: Case Id
+          type: string
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        receipt:
+          anyOf:
+          - $ref: '#/components/schemas/MockReceiptRead'
+          - type: 'null'
+        requested_by:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Requested By
+        status:
+          enum:
+          - WAITING_APPROVAL
+          - APPROVED
+          - EXECUTING
+          - UNKNOWN
+          - SUCCEEDED
+          - FAILED
+          - REJECTED
+          title: Status
+          type: string
+        version:
+          title: Version
+          type: integer
+      required:
+      - id
+      - case_id
+      - action_kind
+      - adapter
+      - status
+      - version
+      - created_at
+      title: CaseActionRead
       type: object
     CaseRead:
       additionalProperties: false
@@ -2713,6 +2873,66 @@ components:
       - replayed
       - processing_state
       title: MessageReceipt
+      type: object
+    MockActionRequest:
+      additionalProperties: false
+      properties:
+        action_kind:
+          const: MOCK_SERVICE_REQUEST
+          title: Action Kind
+          type: string
+        client_action_id:
+          format: uuid
+          title: Client Action Id
+          type: string
+        expected_case_version:
+          minimum: 1.0
+          title: Expected Case Version
+          type: integer
+        reason:
+          maxLength: 1000
+          minLength: 3
+          title: Reason
+          type: string
+        source_proposal_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Source Proposal Id
+      required:
+      - client_action_id
+      - expected_case_version
+      - action_kind
+      - reason
+      title: MockActionRequest
+      type: object
+    MockReceiptRead:
+      additionalProperties: false
+      properties:
+        adapter:
+          const: MOCK
+          default: MOCK
+          title: Adapter
+          type: string
+        external_reference:
+          title: External Reference
+          type: string
+        received_at:
+          format: date-time
+          title: Received At
+          type: string
+        result:
+          enum:
+          - SUCCEEDED
+          - FAILED
+          title: Result
+          type: string
+      required:
+      - external_reference
+      - result
+      - received_at
+      title: MockReceiptRead
       type: object
     ModeTransition:
       additionalProperties: false

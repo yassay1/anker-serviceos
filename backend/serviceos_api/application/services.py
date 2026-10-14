@@ -15,7 +15,7 @@ from serviceos_api.application.auth import Principal
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.ui_catalog import CATALOG_VERSION, SCHEMA_VERSION, safe_text, validate_components
 from serviceos_api.persistence.models import (
-    AgentProposal, AgentRun, CaseConversation, CaseDevice, CaseEvidence, Conversation, ConversationEvent, Customer, DeviceFact,
+    AgentProposal, AgentRun, CaseAction, CaseConversation, CaseDevice, CaseEvidence, Conversation, ConversationEvent, Customer, DeviceFact,
     DevicePassport, Message, MessageJob, OutboxEvent, ServiceCase, ServiceTask, TaskAssignment,
     UIActionInvocation, UIDocument,
 )
@@ -107,6 +107,13 @@ class BusinessService:
         }
         if request.target_status not in next_states[case.status]:
             raise ServiceError(409, "不允许从当前案例状态直接转到目标状态。")
+        if request.target_status in ("RESOLVED", "CLOSED"):
+            active_action = self.session.scalar(select(CaseAction.id).where(
+                CaseAction.tenant_id == case.tenant_id, CaseAction.case_id == case.id,
+                CaseAction.status.in_(("WAITING_APPROVAL", "APPROVED", "EXECUTING", "UNKNOWN")),
+            ).limit(1))
+            if active_action is not None:
+                raise ServiceError(409, "案例仍有待审批、执行或对账的售后动作。", code="ACTION_UNSETTLED")
         previous = case.status
         case.status = request.target_status
         case.version += 1
@@ -274,7 +281,7 @@ class ConversationService(BusinessService):
         if event.visibility == "PUBLIC" and event.type not in (
             "message.created", "conversations.created", "collaboration.mode_changed",
             "ui.document.published", "ui.action.accepted",
-            "evidence.received", "evidence.inspected",
+            "evidence.received", "evidence.inspected", "action.state_changed",
         ):
             raise ServiceError(422, "公开事件类型未获授权。")
         current = session.scalar(select(ConversationEvent.sequence).where(

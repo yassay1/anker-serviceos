@@ -36,6 +36,14 @@ uv run --project backend --locked python -m serviceos_api.worker.inspection
 未检查通过的图片不能下载。已配置 Provider 的消息 Worker 在领取对话任务之余也会领取图片检查任务；未配置时它仍然在领取任何对话任务前退出。
 开发环境的图片原文保存在私有 `backend/.data/evidence/`，数据库只保存元数据和对象引用。API 与图片检查 Worker 必须使用同一个本地目录；需要放在别处时，在两个进程的环境中设置相同的绝对路径 `SERVICEOS_EVIDENCE_STORAGE_DIR`。生产对象存储适配器尚未配置，图片证据接口在生产配置下返回不可用，不会静默写入进程本地磁盘。
 
+模拟售后动作使用独立 Worker，不需要模型 Provider。客服申请后由另一名主管或管理员审批；在开发环境可用 `supervisor` 样例账号体验。审批不会执行动作，Worker 才会向持久的 Mock Adapter 提交并保存带 `MOCK` 标识的回执。`UNKNOWN` 只按原动作编号查询对账，不重复提交：
+
+```powershell
+uv run --project backend --locked python -m serviceos_api.worker.actions
+```
+
+`--once` 只处理一条待执行记录，供受控联调使用。`SERVICEOS_MOCK_ACTION_RESULT=FAILED` 可在开发环境演示模拟失败；默认 `SUCCEEDED`。生产配置不启用该 Adapter，模拟动作 API 返回不可用；这些回执不是 Anker 真实操作结果。动作切片的业务语义和审批角色仍按[拟定契约](../specs/007-mock-service-action/contracts/feature-contract.md)等待产品确认。
+
 ## 代码边界
 
 | 位置 | 职责 |

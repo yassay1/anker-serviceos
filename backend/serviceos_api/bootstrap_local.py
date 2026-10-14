@@ -26,14 +26,15 @@ def seed_local_accounts(session: Session):
         else:
             actor = session.scalar(select(StaffUser).where(StaffUser.external_subject == subject))
             if actor is None:
-                actor = StaffUser(external_subject=subject, display_name="本地客服")
+                actor = StaffUser(external_subject=subject, display_name="本地主管" if username == "supervisor" else "本地客服")
                 session.add(actor)
                 session.flush()
             membership = session.scalar(select(TenantMembership).where(
                 TenantMembership.tenant_id == tenant.id, TenantMembership.staff_user_id == actor.id,
             ))
             if membership is None:
-                session.add(TenantMembership(tenant_id=tenant.id, staff_user_id=actor.id, role="SUPPORT"))
+                session.add(TenantMembership(tenant_id=tenant.id, staff_user_id=actor.id,
+                                             role="SUPERVISOR" if username == "supervisor" else "SUPPORT"))
                 session.flush()
     session.commit()
 

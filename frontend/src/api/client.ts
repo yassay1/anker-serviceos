@@ -14,6 +14,8 @@ export type UIDocument = components['schemas']['UIDocumentRead']
 export type UIActionBody = components['schemas']['UIActionRequest']
 export type Device = components['schemas']['DeviceRead']
 export type ServiceCase = components['schemas']['CaseRead']
+export type CaseAction = components['schemas']['CaseActionRead']
+export type ActionApproval = components['schemas']['ActionApprovalRead']
 
 export const api = createClient<paths>({ baseUrl: '/', credentials: 'same-origin' })
 
@@ -161,4 +163,38 @@ export async function readDevice(id: string): Promise<Device> {
 export async function listDeviceCases(id: string): Promise<ServiceCase[]> {
   const { data, error, response } = await api.GET('/api/v1/devices/{id}/cases', { params: { path: { id } } })
   return requireData(data, error, response, '服务历史加载失败，请重试。')
+}
+
+export async function listCases(): Promise<ServiceCase[]> {
+  const { data, error, response } = await api.GET('/api/v1/cases')
+  return requireData(data, error, response, '案例列表加载失败。')
+}
+
+export async function readCase(id: string): Promise<ServiceCase> {
+  const { data, error, response } = await api.GET('/api/v1/cases/{id}', { params: { path: { id } } })
+  return requireData(data, error, response, '案例不存在或当前账号无权访问。')
+}
+
+export async function listCaseActions(caseId: string): Promise<CaseAction[]> {
+  const { data, error, response } = await api.GET('/api/v1/cases/{id}/actions', { params: { path: { id: caseId } } })
+  return requireData(data, error, response, '售后动作加载失败。')
+}
+
+export async function requestMockAction(caseId: string, body: components['schemas']['MockActionRequest']): Promise<CaseAction> {
+  const { data, error, response } = await api.POST('/api/v1/cases/{id}/action-requests', {
+    params: { path: { id: caseId } }, body,
+  })
+  return requireData(data, error, response, '模拟动作请求结果未确认，请用原编号重试。')
+}
+
+export async function listActionApprovals(caseId: string): Promise<ActionApproval[]> {
+  const { data, error, response } = await api.GET('/api/v1/cases/{id}/approvals', { params: { path: { id: caseId } } })
+  return requireData(data, error, response, '审批记录加载失败。')
+}
+
+export async function decideActionApproval(id: string, body: components['schemas']['ActionApprovalDecision']): Promise<ActionApproval> {
+  const { data, error, response } = await api.POST('/api/v1/approvals/{id}/decisions', {
+    params: { path: { id } }, body,
+  })
+  return requireData(data, error, response, '审批结果未确认，请用原编号重试。')
 }
