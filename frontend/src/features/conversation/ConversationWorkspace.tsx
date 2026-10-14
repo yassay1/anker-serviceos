@@ -207,7 +207,7 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
         {desk ? <CollaborationPanel key={selected.id} conversation={selected} actor={actor} desk /> :
           <section className="collaboration-panel" aria-label="人机协作">
             <h3><Headphones size={18} aria-hidden="true" />服务有人接续</h3>
-            <p>当前：{statusLabel(selected.collaboration_mode)} · {statusLabel(selected.reply_policy)}</p>
+            <p className="policy-summary">当前：{statusLabel(selected.collaboration_mode)} · 发言策略：{statusLabel(selected.reply_policy)} · 版本 {selected.version}</p>
             <p>补充信息与人工协助在会话中的交互卡处理，服务记录会继续保留。</p>
             <button type="button" onClick={() => {
               setMobilePanel('chat')
