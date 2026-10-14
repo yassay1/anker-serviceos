@@ -28,12 +28,56 @@
 - `npm run build`：通过，产物 390.12 kB（gzip 118.57 kB）+ 24.30 kB CSS。
 - `npm run check:api`：API types match OpenAPI。
 - `npm run generate:api`：`contracts/openapi.json` → `src/api/schema.d.ts` 重新生成，新增 Skill 目录与执行记录接口类型。
+- `npm run test:browser`：**60 passed**（42.9s），含 /support 与 /desk 的桌面/手机 axe 无障碍检查，以及交付就绪专题的未知组件、越权动作、过期 revision、过期时间与降级用例。
+
+本机 Playwright 浏览器原本下载不通（40 分钟只留下 `__dirlock`）。改用国内镜像后完成安装，未改动任何测试代码：
+
+```powershell
+$env:PLAYWRIGHT_DOWNLOAD_HOST='https://cdn.npmmirror.com/binaries/playwright'
+npm exec playwright install chromium
+```
+
+### 真实浏览器端到端（live）
+
+在独立数据库 `serviceos_dev`（本地全新迁移 + `bootstrap_local` 播种）上执行，不触碰体验库 `serviceos_demo_20261014_delivery`：
+
+- `npm run test:live`：**6 passed**（52.1s）。覆盖持久会话与人工接管、PUBLIC/INTERNAL 隔离、跨客户/跨租户拒绝、模拟动作申请→主管审批→Worker 回执→客户投影、客户同意后的回访排期、事实核验后归档、图片上传→检查→授权预览。
+- Worker 子进程通过 `env: process.env` 继承环境，因此 `SERVICEOS_DATABASE_URL` 等变量必须一并导出，否则 Worker 会连到默认库而测试库里看不到回执。
+- 本次以 `SERVICEOS_LIVE_EXTERNAL=1` 自行托管 API/Vite，原因见下方环境说明。
 
 ### 运行时联调（真实进程，非测试替身）
 
 - `POST /api/v1/local-auth/login`（customer-a）：200；`GET /api/v1/conversations`：200，返回既有会话。
 - `POST /api/v1/local-auth/login`（staff）：200；`GET /api/v1/skills`：200，返回 `diagnose-no-charge` 1.0.0（AVAILABLE）与 `emotion-assessment` 1.0.0（PREPARED）及各自 input/output Schema。
 - 客户身份（customer-a）访问 `GET /api/v1/skills`：403，未登录：401，均不泄露内部 Skill 目录。
+
+### 全量回归（T028）
+
+| 套件 | 命令 | 结果 |
+| --- | --- | --- |
+| 后端 | `pytest backend/tests --require-postgres -q`（`SERVICEOS_ENV=test`、`SERVICEOS_AUTH_MODE=disabled`，与 CI 一致） | **168 passed**，24.88s |
+| 迁移 | 对全新空库 `serviceos_dev` 执行 `alembic -c backend/alembic.ini upgrade head` 后 `bootstrap_local` | 0001→0013 全部应用，样例身份 2 客服 / 3 客户 |
+| 前端契约 | `export_openapi --check`、`sync_implemented.py --check`、`check:api`、`typecheck`、`build` | 全部通过，无漂移 |
+| 浏览器 | `npm run test:browser` | **60 passed**，42.9s |
+| 真实端到端 | `npm run test:live`（`SERVICEOS_LIVE_EXTERNAL=1`，独立库） | **6 passed**，52.1s |
+| 部署配置 | `docker compose ... config -q` × 3、`unittest discover -s deploy -p test_preflight.py` | 通过，10 tests OK |
+
+**未测项（不得视为通过）**：模型首 token 时延、工具耗时、进程强制中断后的多轮恢复、Provider 异常退避；托管模式 live（见下）；容器构建与运行演练结果见下节。
+
+#### 响应耗时（T028 要求的分位数）
+
+数据来自上面那次真实端到端运行时 API 进程的结构化日志，用仓库自带的采集工具统计，**不是生产负载也不是压测**：
+
+```powershell
+python -m serviceos_api.operations metrics --log <http.completed 日志>
+```
+
+| 指标 | 样本 | P50 | P95 |
+| --- | --- | --- | --- |
+| `http_request_ms` | 992 | 12.29 ms | 33.89 ms |
+| `http_accept_ms`（消息受理 202 路径） | 6 | 17.21 ms | 22.05 ms |
+
+`error_rate` 为 0.0。工具同时明确列出**无法从日志测量**的指标：`queue_delay_ms`、`agent_first_progress_ms`、`model_ttft_ms`、`tool_latency_ms`、`ui_action_completion_ms`——这些要么需要真实模型调用，要么需要在 Worker 侧埋点，当前没有数据。
 
 ### 容器与部署配置
 
@@ -62,6 +106,7 @@
 3. **Skill 来源围栏测试不可构造**：原用例靠改写客户消息 `visibility` 伪造来源，而数据库约束不允许客户消息非 PUBLIC，测试实际抛 IntegrityError。改为用内部客服备注作为不可授权来源。
 4. **测试隔离**：共享会话级数据库里，前序用例遗留的未派发 Outbox 事件会被后序 `claim_batch()` 领取，使既有断言偶发失败。测前统一隔离重置。
 5. **Skill 路由未挂载**：`api/skills.py` 写好后没有在 `main.py` 注册，接口在生产与本地都不可达。`test_skills.py` 自行 `include_router` 组装测试应用，所以在单测里看不出问题；`contracts/openapi.json` 也因此一直没有这两个接口。已注册，并补上"每个 `serviceos_api.api.*` 路由模块都必须出现在真实应用 OpenAPI 里"的回归。
+6. **客户可见的发言策略文案缺失**：客户面改用独立的协助区块后，策略行丢了「发言策略：」标签，而 live 验收断言钉着这段措辞。该标签本身是客户需要的信息——它说明是 AI 自动回复还是仅人工回复。由真实浏览器端到端发现（补齐 Playwright 之后才跑得起来），已恢复。
 
 ### 真实模型 Provider 联调（2026-10-14 晚）
 
@@ -89,8 +134,11 @@ uv run --project backend --locked python -m serviceos_api.worker.main   # Agent 
 
 - **真实模型 Provider 未做完整验收**：本地已跑通两轮真实多轮对话（见上节），但首 token 时延/工具耗时统计与进程中断恢复仍属阶段 2 未验收范围。
 
-- **浏览器端自动化**：本机 Playwright 浏览器未能下载完成，`npm run test:browser` 与 `npm run test:live` **本轮未取得本地结果**，当前状态不能算通过。CI 在 GitHub runner 上执行这两项。
-- **容器构建与运行演练**：本网络到 Docker Hub / PyPI 不稳定。镜像构建使用本机已有 DaoCloud 来源与本地点镜像源（仅本地），交付默认镜像来源不变；`docker compose build` + 启动 + 重启 + 卷持久化演练结果见下节。
+- **Playwright 托管 webServer 在本机不稳定**：`npm run test:live` 不设 `SERVICEOS_LIVE_EXTERNAL` 时，它自己拉起的 `npm run dev`（npm→node→vite 三层进程树）会中途不可达，本轮三次托管运行里有两次出现 `ERR_CONNECTION_REFUSED:5173`；同一时间 uvicorn 全程存活、无关停日志，说明只有 vite 掉了。改为 `SERVICEOS_LIVE_EXTERNAL=1` 自托管 API/Vite 后 6/6 稳定通过。CI 运行的是托管模式（Linux runner），本机未复现 CI 的条件，因此**不能**用本地结论替代 CI 结果。
+- **容器构建与运行演练（T012 未完成）**：前端镜像 `serviceos-web:local` 已建成；API 镜像卡在 `uv sync --locked` 从 PyPI 拉包，单个 15.3 MiB 的 botocore 超过 25 分钟仍未下完，整轮已运行 70 分钟以上。构建并未报错、仍在推进，但这条网络通道不具备可重复性——照文档重建的人会撞同一堵墙，因此**不主张本地演练通过**。
+  - `uv sync --locked` **不能**改用镜像源：实测传入 `--index-url` 指向国内镜像后，uv 会判定锁文件过期并直接失败，所以镜像构建只能走 uv.lock 记录的官方源。
+  - 镜像来源与引导安装源已做成可覆写构建参数（`PYTHON_IMAGE` / `NODE_IMAGE` / `NGINX_IMAGE` / `PYPI_INDEX_URL` / `NPM_REGISTRY`），默认值仍是官方源，仅供受限网络做本地构建。
+  - 完整演练（构建 → 启动 → `nginx -t` → 就绪探测 → 重启 → 卷持久化 → HTTPS 模板校验）由 CI 的 `container-smoke` 作业执行；本机未取得结果，不以本地结论替代 CI。
 - **生产身份源**：未接入。生产配置拒绝本地开发登录，`production_ready` 恒为 false。
 - **受控对象存储**：S3 适配器与部署策略已就位但未对接真实存储桶；生产配置下不静默回退本地磁盘，接口返回不可用。
 - **云上能力**：EC2/RDS/Nginx/HTTPS 仅到可复现配置与模板校验，未创建任何云资源，未做真实 HTTPS 握手。
