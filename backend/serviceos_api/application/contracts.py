@@ -163,6 +163,42 @@ class VerifiedDeviceFact(Schema):
     verified_at: datetime
 
 
+class FollowUpConsentRequest(Schema):
+    client_consent_id: UUID
+    expected_case_version: int = Field(ge=1)
+    purpose: str = Field(min_length=3, max_length=1000)
+
+
+class FollowUpConsentRead(Schema):
+    id: UUID
+    case_id: UUID
+    customer_id: UUID
+    client_consent_id: UUID
+    purpose: str
+    created_at: datetime
+
+
+class FollowUpRequest(Schema):
+    client_follow_up_id: UUID
+    expected_case_version: int = Field(ge=1)
+    consent_record_id: UUID
+    due_at: datetime
+    purpose: str = Field(min_length=3, max_length=1000)
+
+
+class FollowUpRead(Schema):
+    id: UUID
+    case_id: UUID
+    consent_record_id: UUID
+    client_follow_up_id: UUID
+    status: str
+    due_at: datetime
+    purpose: str
+    task_id: UUID | None
+    reminded_at: datetime | None
+    created_at: datetime
+
+
 class CandidateFact(Schema):
     expected_device_revision: int = Field(ge=1)
     fact_key: str = Field(min_length=2, max_length=120, pattern=r"^[a-z][a-z0-9_]*$")

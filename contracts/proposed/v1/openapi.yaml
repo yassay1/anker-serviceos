@@ -4,7 +4,7 @@ info:
   title: Anker ServiceOS API
   version: 0.1.0
 x-serviceos-proposal-status: draft
-x-serviceos-implemented-sha256: ee0361b0c35577568fbb07688dcb752d0bc845dbc820deb41a59326fa2496ae0
+x-serviceos-implemented-sha256: b1e5452e47091a89cabdcba37f4039c996b8fe9f968450569fa983d01f35a190
 x-serviceos-planned-source: contracts/proposed/v1/planned.yaml
 paths:
   /api/v1/actions/{id}:
@@ -685,6 +685,190 @@ paths:
       summary: Read Case Evidence Content
       tags:
       - evidence
+      x-serviceos-status: implemented
+  /api/v1/cases/{id}/follow-up-consents:
+    get:
+      operationId: list_case_follow_up_consents
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/FollowUpConsentRead'
+                title: Response List Case Follow Up Consents
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Consents
+      tags:
+      - follow-ups
+      x-serviceos-status: implemented
+    post:
+      operationId: record_case_follow_up_consent
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FollowUpConsentRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FollowUpConsentRead'
+          description: Successful Response
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Unauthorized
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Forbidden
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Not Found
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Unprocessable Entity
+      security:
+      - SessionCookie: []
+      summary: Consent
+      tags:
+      - follow-ups
+      x-serviceos-status: implemented
+  /api/v1/cases/{id}/follow-ups:
+    get:
+      operationId: list_case_follow_ups
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/FollowUpRead'
+                title: Response List Case Follow Ups
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Jobs
+      tags:
+      - follow-ups
+      x-serviceos-status: implemented
+    post:
+      operationId: schedule_case_follow_up
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FollowUpRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FollowUpRead'
+          description: Successful Response
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Unauthorized
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Forbidden
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Not Found
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Unprocessable Entity
+      security:
+      - SessionCookie: []
+      summary: Schedule
+      tags:
+      - follow-ups
       x-serviceos-status: implemented
   /api/v1/cases/{id}/resolution-contract:
     get:
@@ -1878,159 +2062,6 @@ paths:
           description: Staff role required
         '404':
           description: Run not found or hidden
-  /api/v1/cases/{id}/follow-up-consents:
-    get:
-      operationId: list_case_follow_up_consents
-      summary: List explicit follow-up consent records
-      tags:
-      - follow-ups
-      x-serviceos-status: planned
-      x-serviceos-stage: 4
-      x-serviceos-authorization: Customer sees own consent; authorized staff sees case consent.
-      security:
-      - SessionCookie: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      responses:
-        '200':
-          description: Authorized consents
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ProposedFollowUpConsentRead'
-        '401':
-          description: Not authenticated
-        '404':
-          description: Case not found or hidden
-    post:
-      operationId: record_case_follow_up_consent
-      summary: Record explicit customer consent before scheduling follow-up
-      tags:
-      - follow-ups
-      x-serviceos-status: planned
-      x-serviceos-stage: 4
-      x-serviceos-authorization: Case customer only; staff cannot manufacture customer consent.
-      x-serviceos-idempotency: Same client_consent_id and payload replays consent; changed payload returns 409.
-      security:
-      - SessionCookie: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ProposedFollowUpConsentRequest'
-      responses:
-        '201':
-          description: Consent persisted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProposedFollowUpConsentRead'
-        '401':
-          description: Not authenticated
-        '403':
-          description: Customer role or ownership missing
-        '404':
-          description: Case not found or hidden
-        '409':
-          description: Stale case version or idempotency conflict
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProposedError'
-        '422':
-          description: Invalid consent
-  /api/v1/cases/{id}/follow-ups:
-    get:
-      operationId: list_case_follow_ups
-      summary: Read consented follow-up jobs
-      tags:
-      - follow-ups
-      x-serviceos-status: planned
-      x-serviceos-stage: 4
-      x-serviceos-authorization: Case customer or authorized staff; internal instructions remain staff only.
-      security:
-      - SessionCookie: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      responses:
-        '200':
-          description: Authorized follow-ups
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ProposedFollowUpRead'
-        '401':
-          description: Not authenticated
-        '404':
-          description: Case not found or hidden
-    post:
-      operationId: schedule_case_follow_up
-      summary: Schedule a follow-up only with recorded customer consent
-      tags:
-      - follow-ups
-      x-serviceos-status: planned
-      x-serviceos-stage: 4
-      x-serviceos-authorization: Authorized staff; consent reference must belong to this case and customer.
-      x-serviceos-idempotency: Same client_follow_up_id and payload returns original job; changed payload returns
-        409.
-      security:
-      - SessionCookie: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ProposedFollowUpRequest'
-      responses:
-        '201':
-          description: Follow-up persisted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProposedFollowUpRead'
-        '401':
-          description: Not authenticated
-        '403':
-          description: Staff role or valid consent missing
-        '404':
-          description: Case or consent hidden
-        '409':
-          description: Stale case version or idempotency conflict
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProposedError'
-        '422':
-          description: Invalid schedule
 components:
   schemas:
     ActionApprovalDecision:
@@ -2763,6 +2794,153 @@ components:
       - retracted_at
       - retraction_reason
       title: FactRead
+      type: object
+    FollowUpConsentRead:
+      additionalProperties: false
+      properties:
+        case_id:
+          format: uuid
+          title: Case Id
+          type: string
+        client_consent_id:
+          format: uuid
+          title: Client Consent Id
+          type: string
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        customer_id:
+          format: uuid
+          title: Customer Id
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        purpose:
+          title: Purpose
+          type: string
+      required:
+      - id
+      - case_id
+      - customer_id
+      - client_consent_id
+      - purpose
+      - created_at
+      title: FollowUpConsentRead
+      type: object
+    FollowUpConsentRequest:
+      additionalProperties: false
+      properties:
+        client_consent_id:
+          format: uuid
+          title: Client Consent Id
+          type: string
+        expected_case_version:
+          minimum: 1.0
+          title: Expected Case Version
+          type: integer
+        purpose:
+          maxLength: 1000
+          minLength: 3
+          title: Purpose
+          type: string
+      required:
+      - client_consent_id
+      - expected_case_version
+      - purpose
+      title: FollowUpConsentRequest
+      type: object
+    FollowUpRead:
+      additionalProperties: false
+      properties:
+        case_id:
+          format: uuid
+          title: Case Id
+          type: string
+        client_follow_up_id:
+          format: uuid
+          title: Client Follow Up Id
+          type: string
+        consent_record_id:
+          format: uuid
+          title: Consent Record Id
+          type: string
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        due_at:
+          format: date-time
+          title: Due At
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        purpose:
+          title: Purpose
+          type: string
+        reminded_at:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          title: Reminded At
+        status:
+          title: Status
+          type: string
+        task_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Task Id
+      required:
+      - id
+      - case_id
+      - consent_record_id
+      - client_follow_up_id
+      - status
+      - due_at
+      - purpose
+      - task_id
+      - reminded_at
+      - created_at
+      title: FollowUpRead
+      type: object
+    FollowUpRequest:
+      additionalProperties: false
+      properties:
+        client_follow_up_id:
+          format: uuid
+          title: Client Follow Up Id
+          type: string
+        consent_record_id:
+          format: uuid
+          title: Consent Record Id
+          type: string
+        due_at:
+          format: date-time
+          title: Due At
+          type: string
+        expected_case_version:
+          minimum: 1.0
+          title: Expected Case Version
+          type: integer
+        purpose:
+          maxLength: 1000
+          minLength: 3
+          title: Purpose
+          type: string
+      required:
+      - client_follow_up_id
+      - expected_case_version
+      - consent_record_id
+      - due_at
+      - purpose
+      title: FollowUpRequest
       type: object
     HTTPValidationError:
       properties:
@@ -3916,107 +4094,6 @@ components:
           type:
           - string
           - 'null'
-          format: date-time
-    ProposedFollowUpConsentRequest:
-      type: object
-      additionalProperties: false
-      required:
-      - client_consent_id
-      - expected_case_version
-      - purpose
-      properties:
-        client_consent_id:
-          type: string
-          format: uuid
-        expected_case_version:
-          type: integer
-          minimum: 1
-        purpose:
-          type: string
-          minLength: 3
-          maxLength: 1000
-    ProposedFollowUpConsentRead:
-      type: object
-      additionalProperties: false
-      required:
-      - id
-      - case_id
-      - customer_id
-      - purpose
-      - created_at
-      properties:
-        id:
-          type: string
-          format: uuid
-        case_id:
-          type: string
-          format: uuid
-        customer_id:
-          type: string
-          format: uuid
-        purpose:
-          type: string
-        created_at:
-          type: string
-          format: date-time
-    ProposedFollowUpRequest:
-      type: object
-      additionalProperties: false
-      required:
-      - client_follow_up_id
-      - expected_case_version
-      - consent_record_id
-      - due_at
-      - purpose
-      properties:
-        client_follow_up_id:
-          type: string
-          format: uuid
-        expected_case_version:
-          type: integer
-          minimum: 1
-        consent_record_id:
-          type: string
-          format: uuid
-        due_at:
-          type: string
-          format: date-time
-        purpose:
-          type: string
-          minLength: 3
-          maxLength: 1000
-    ProposedFollowUpRead:
-      type: object
-      additionalProperties: false
-      required:
-      - id
-      - case_id
-      - status
-      - due_at
-      - purpose
-      - created_at
-      properties:
-        id:
-          type: string
-          format: uuid
-        case_id:
-          type: string
-          format: uuid
-        status:
-          type: string
-          enum:
-          - SCHEDULED
-          - RUNNING
-          - COMPLETED
-          - CANCELLED
-          - FAILED
-        due_at:
-          type: string
-          format: date-time
-        purpose:
-          type: string
-        created_at:
-          type: string
           format: date-time
   securitySchemes:
     SessionCookie:
