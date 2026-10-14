@@ -9,6 +9,7 @@ import { queryKeys } from '../../app/queryKeys'
 import { readableError } from '../../shared/errors'
 import { StatusBadge } from '../../shared/StatusBadge'
 import { CaseEvidencePanel } from './CaseEvidencePanel'
+import { VerificationPanel } from './VerificationPanel'
 import {
   type PendingDecision, readPendingMockAction, readPendingMockDecision,
   savePendingMockAction, savePendingMockDecision,
@@ -148,7 +149,8 @@ export function CasesWorkspace({ actor }: { actor: Actor }) {
       {id && selected.isError && <p className="form-error" role="alert">{readableError(selected.error)}</p>}
       {selected.data && <><h2>{selected.data.problem_text}</h2><p><StatusBadge value={selected.data.status} /> · 版本 {selected.data.version}</p>
         <CaseEvidencePanel key={`evidence:${actor.actor_id}:${selected.data.id}`} actor={actor} serviceCase={selected.data} />
-        <ActionPanel key={`${actor.actor_id}:${selected.data.id}`} actor={actor} serviceCase={selected.data} /></>}
+        <ActionPanel key={`${actor.actor_id}:${selected.data.id}`} actor={actor} serviceCase={selected.data} />
+        <VerificationPanel key={`verification:${actor.actor_id}:${selected.data.id}`} actor={actor} serviceCase={selected.data} /></>}
     </div></div>
   </section>
 }

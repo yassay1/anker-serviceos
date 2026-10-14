@@ -15,7 +15,8 @@ from serviceos_api.application.contracts import (
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.evidence import enqueue_case_events
 from serviceos_api.application.services import BusinessService
-from serviceos_api.persistence.models import AgentProposal, CaseAction, CaseActionApproval, CaseConversation, ServiceCase
+from serviceos_api.application.verification import CONFIRMED_CONDITIONS
+from serviceos_api.persistence.models import AgentProposal, CaseAction, CaseActionApproval, CaseConversation, ResolutionContract, ServiceCase
 
 
 def _hash(fields: dict) -> str:
@@ -98,6 +99,10 @@ class ServiceActionService(BusinessService):
         )
         self.session.add(action)
         self.session.flush()
+        self.session.add(ResolutionContract(
+            tenant_id=case.tenant_id, case_id=case.id, action_id=action.id,
+            version=1, conditions=CONFIRMED_CONDITIONS,
+        ))
         approval = CaseActionApproval(tenant_id=case.tenant_id, action_id=action.id)
         self.session.add(approval)
         case.version += 1

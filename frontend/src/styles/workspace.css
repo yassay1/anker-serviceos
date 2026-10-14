@@ -198,4 +198,11 @@
 .case-evidence-list small { display: block; color: var(--muted); margin: 6px 0; }
 .case-evidence-preview { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 12px; }
 .case-evidence-preview img { display: block; max-width: 100%; max-height: 60vh; object-fit: contain; margin: 8px auto 0; }
+.case-verification { border-top: 1px solid var(--border); margin-top: 24px; padding-top: 18px; }
+.case-verification > p { color: var(--muted); }
+.case-verification ol, .case-verification ul { padding-left: 22px; line-height: 1.6; }
+.case-verification li small { display: block; color: var(--muted); }
+.case-verification label { display: block; margin: 12px 0; }
+.case-verification select, .case-verification textarea { display: block; width: 100%; max-width: 580px; margin-top: 6px; }
+.case-verification textarea { min-height: 88px; resize: vertical; }
 @media (max-width: 760px) { .cases-page { padding: 18px 14px 48px; } .cases-layout { grid-template-columns: 1fr; } }

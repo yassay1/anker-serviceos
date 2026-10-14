@@ -32,56 +32,6 @@ paths:
         '401': {description: Not authenticated}
         '403': {description: Staff role required}
         '404': {description: Run not found or hidden}
-  /api/v1/cases/{id}/verifications:
-    get:
-      operationId: list_case_verifications
-      summary: Read recorded outcome checks
-      tags: [verifications]
-      x-serviceos-status: planned
-      x-serviceos-stage: 4
-      x-serviceos-authorization: Customer sees own public checks; staff sees authorized case checks.
-      security: [{SessionCookie: []}]
-      parameters:
-        - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
-      responses:
-        '200': {description: Authorized checks, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProposedVerificationRead'}}}}}
-        '401': {description: Not authenticated}
-        '404': {description: Case not found or hidden}
-    post:
-      operationId: record_case_verification
-      summary: Record observed outcome; server decides whether case can be resolved
-      tags: [verifications]
-      x-serviceos-status: planned
-      x-serviceos-stage: 4
-      x-serviceos-authorization: Case customer or authorized staff; evidence refs must belong to case and be visible.
-      x-serviceos-idempotency: Same client_verification_id and payload replays result; changed payload returns 409.
-      security: [{SessionCookie: []}]
-      parameters:
-        - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
-      requestBody:
-        required: true
-        content: {application/json: {schema: {$ref: '#/components/schemas/ProposedVerificationRequest'}}}
-      responses:
-        '201': {description: Observation stored; case status comes from current Rule, content: {application/json: {schema: {$ref: '#/components/schemas/ProposedVerificationRead'}}}}
-        '401': {description: Not authenticated}
-        '404': {description: Case or evidence hidden}
-        '409': {description: Stale case version or idempotency conflict, content: {application/json: {schema: {$ref: '#/components/schemas/ProposedError'}}}}
-        '422': {description: Invalid observation}
-  /api/v1/cases/{id}/resolution-contract:
-    get:
-      operationId: read_case_resolution_contract
-      summary: Read the frozen conditions used to judge a resolution
-      tags: [verifications]
-      x-serviceos-status: planned
-      x-serviceos-stage: 4
-      x-serviceos-authorization: Case customer sees public conditions; staff sees authorized case conditions.
-      security: [{SessionCookie: []}]
-      parameters:
-        - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
-      responses:
-        '200': {description: Authorized resolution conditions, content: {application/json: {schema: {$ref: '#/components/schemas/ProposedResolutionContractRead'}}}}
-        '401': {description: Not authenticated}
-        '404': {description: Case or contract not found or hidden}
   /api/v1/cases/{id}/follow-up-consents:
     get:
       operationId: list_case_follow_up_consents
@@ -240,38 +190,6 @@ components:
         status: {type: string, enum: [PENDING, APPROVED, REJECTED]}
         version: {type: integer, minimum: 1}
         decided_at: {type: [string, 'null'], format: date-time}
-    ProposedVerificationRequest:
-      type: object
-      additionalProperties: false
-      required: [client_verification_id, expected_case_version, expected_resolution_contract_version, observed_result, note]
-      properties:
-        client_verification_id: {type: string, format: uuid}
-        expected_case_version: {type: integer, minimum: 1}
-        expected_resolution_contract_version: {type: integer, minimum: 1}
-        observed_result: {type: string, enum: [WORKING, NOT_WORKING, UNCERTAIN]}
-        evidence_ids: {type: array, maxItems: 10, items: {type: string, format: uuid}}
-        note: {type: string, maxLength: 2000}
-    ProposedVerificationRead:
-      type: object
-      additionalProperties: false
-      required: [id, case_id, observed_result, decision, created_at]
-      properties:
-        id: {type: string, format: uuid}
-        case_id: {type: string, format: uuid}
-        observed_result: {type: string, enum: [WORKING, NOT_WORKING, UNCERTAIN]}
-        decision: {type: string, enum: [PENDING, VERIFIED_RESOLVED, NOT_RESOLVED]}
-        case_status: {type: string, enum: [OPEN, IN_PROGRESS, WAITING_CUSTOMER, WAITING_EXTERNAL, RESOLVED, CLOSED]}
-        created_at: {type: string, format: date-time}
-    ProposedResolutionContractRead:
-      type: object
-      additionalProperties: false
-      required: [id, case_id, version, conditions, created_at]
-      properties:
-        id: {type: string, format: uuid}
-        case_id: {type: string, format: uuid}
-        version: {type: integer, minimum: 1}
-        conditions: {type: array, minItems: 1, items: {type: string}}
-        created_at: {type: string, format: date-time}
     ProposedFollowUpConsentRequest:
       type: object
       additionalProperties: false

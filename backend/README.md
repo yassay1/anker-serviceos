@@ -44,7 +44,9 @@ uv run --project backend --locked python -m serviceos_api.worker.inspection
 uv run --project backend --locked python -m serviceos_api.worker.actions
 ```
 
-`--once` 只处理一条待执行记录，供受控联调使用。`SERVICEOS_MOCK_ACTION_RESULT=FAILED` 可在开发环境演示模拟失败；默认 `SUCCEEDED`。生产配置不启用该 Adapter，模拟动作 API 返回不可用；这些回执不是 Anker 真实操作结果。动作切片的业务语义和审批角色仍按[拟定契约](../specs/007-mock-service-action/contracts/feature-contract.md)等待产品确认。
+`--once` 只处理一条待执行记录，供受控联调使用。`SERVICEOS_MOCK_ACTION_RESULT=FAILED` 可在开发环境演示模拟失败；默认 `SUCCEEDED`。生产配置不启用该 Adapter，模拟动作 API 返回不可用；这些回执不是 Anker 真实操作结果。动作语义和审批角色已由用户确认，范围见[功能契约](../specs/007-mock-service-action/contracts/feature-contract.md)。
+
+结果核验按已确认的[功能契约](../specs/008-resolution-verification/contracts/feature-contract.md)执行：每个模拟动作有冻结条件，只有成功 Mock 回执加客户本人明确确认，Case 才进入 `RESOLVED`。客服可读核验记录，但不能代客户确认；旧 Case 状态接口仍拒绝绕过。核验路由与模拟动作一样只在开发/测试环境提供。
 
 ## 代码边界
 

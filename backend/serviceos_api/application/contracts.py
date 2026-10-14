@@ -383,3 +383,33 @@ class ActionApprovalRead(Schema):
     status: Literal["PENDING", "APPROVED", "REJECTED"]
     version: int
     decided_at: datetime | None
+
+
+class ResolutionContractRead(Schema):
+    id: UUID
+    case_id: UUID
+    action_id: UUID
+    version: int
+    conditions: list[str]
+    created_at: datetime
+
+
+class VerificationRequest(Schema):
+    client_verification_id: UUID
+    expected_case_version: int = Field(ge=1)
+    expected_resolution_contract_version: int = Field(ge=1)
+    observed_result: Literal["WORKING", "NOT_WORKING", "UNCERTAIN"]
+    evidence_ids: list[UUID] = Field(default_factory=list, max_length=10)
+    note: str = Field(max_length=2000)
+
+
+class VerificationRead(Schema):
+    id: UUID
+    case_id: UUID
+    contract_id: UUID
+    client_verification_id: UUID
+    observed_result: Literal["WORKING", "NOT_WORKING", "UNCERTAIN"]
+    decision: Literal["PENDING", "VERIFIED_RESOLVED", "NOT_RESOLVED"]
+    note: str
+    case_status: str
+    created_at: datetime
