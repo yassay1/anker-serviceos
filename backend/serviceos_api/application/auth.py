@@ -16,6 +16,7 @@ LOCAL_ACCOUNTS = {
     "customer-a": ("CUSTOMER", "local-demo-a", "local:customer-a"),
     "customer-b": ("CUSTOMER", "local-demo-a", "local:customer-b"),
     "staff": ("STAFF", "local-demo-a", "local:staff"),
+    "supervisor": ("STAFF", "local-demo-a", "local:supervisor"),
     "other-tenant": ("CUSTOMER", "local-demo-b", "local:other-tenant"),
 }
 COOKIE_NAME = "serviceos_session"

@@ -7,6 +7,7 @@ import { readableError } from '../shared/errors'
 import { ConnectionStatus } from '../shared/ConnectionStatus'
 import { queryKeys } from './queryKeys'
 import { DevicesWorkspace } from '../features/devices/DevicesWorkspace'
+import { CasesWorkspace } from '../features/cases/CasesWorkspace'
 import { LogOut, ShieldCheck } from 'lucide-react'
 
 function LoginPanel() {
@@ -43,6 +44,7 @@ function LoginPanel() {
           <option value="customer-a">客户 A</option>
           <option value="customer-b">客户 B</option>
           <option value="staff">客服</option>
+          <option value="supervisor">主管</option>
           <option value="other-tenant">另一租户客户</option>
         </select>
         <label htmlFor="password">本地体验密码</label>
@@ -81,7 +83,7 @@ function AccountHeader({ actor }: { actor: Actor }) {
   )
 }
 
-export function ServicePage({ desk = false, devices = false }: { desk?: boolean, devices?: boolean }) {
+export function ServicePage({ desk = false, devices = false, cases = false }: { desk?: boolean, devices?: boolean, cases?: boolean }) {
   const actor = useQuery({ queryKey: queryKeys.actor, queryFn: readActor, retry: false, staleTime: 0 })
   if (actor.isPending) return <p className="loading-state">正在确认登录状态…</p>
   if (actor.isError) return <section className="access-note" role="alert">
@@ -94,9 +96,9 @@ export function ServicePage({ desk = false, devices = false }: { desk?: boolean,
   if (desk && actor.data.kind !== 'STAFF') return <section className="access-note">
     <h1>此页面仅供客服使用</h1><p>当前身份是客户，请使用用户服务入口。</p><NavLink to="/support">返回用户服务</NavLink>
   </section>
-  if (!desk && !devices && actor.data.kind === 'STAFF') return <section className="access-note">
+  if (!desk && !devices && !cases && actor.data.kind === 'STAFF') return <section className="access-note">
     <h1>已以客服身份登录</h1><p>请到客服工作区查看会话。</p><NavLink to="/desk">前往客服工作区</NavLink>
   </section>
   const identity = `${actor.data.tenant_id}:${actor.data.actor_id}:${actor.data.kind}`
-  return <><AccountHeader key={`account:${identity}`} actor={actor.data} />{devices ? <DevicesWorkspace key={`devices:${identity}`} actor={actor.data} /> : <ConversationWorkspace key={`conversation:${identity}:${desk}`} actor={actor.data} desk={desk} />}</>
+  return <><AccountHeader key={`account:${identity}`} actor={actor.data} />{cases ? <CasesWorkspace key={`cases:${identity}`} actor={actor.data} /> : devices ? <DevicesWorkspace key={`devices:${identity}`} actor={actor.data} /> : <ConversationWorkspace key={`conversation:${identity}:${desk}`} actor={actor.data} desk={desk} />}</>
 }

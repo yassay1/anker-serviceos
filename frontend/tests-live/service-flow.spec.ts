@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { execFileSync } from 'node:child_process'
 import type { components } from '../src/api/schema'
 
 type S = components['schemas']
@@ -111,4 +112,59 @@ test('real API: authorized device history and rejection for another customer and
       } finally { await otherContext.close() }
     }
   } finally { await ownerContext.close() }
+})
+
+test('real API: separate mock request, supervisor approval, worker receipt and customer projection', async ({ browser }) => {
+  const customerContext = await browser.newContext(contextOptions)
+  const staffContext = await browser.newContext(contextOptions)
+  const supervisorContext = await browser.newContext(contextOptions)
+  try {
+    const customer = await customerContext.newPage()
+    const staff = await staffContext.newPage()
+    const supervisor = await supervisorContext.newPage()
+    await login(customer, 'customer-a')
+    const created = await customerContext.request.post('/api/v1/cases', { data: {
+      problem_text: `模拟动作联调案例 ${Date.now()}`,
+    } })
+    expect(created.status()).toBe(201)
+    const serviceCase = await created.json() as S['CaseRead']
+    await login(staff, 'staff', true)
+    await staff.goto(`/cases/${serviceCase.id}`)
+    const actions = staff.getByRole('region', { name: '模拟售后动作' })
+    await actions.getByLabel('申请原因').fill('需要模拟提交一次售后请求')
+    await actions.getByRole('button', { name: '提交待审批请求' }).click()
+    await expect(actions.getByText('模拟动作请求已保存，等待另一位有审批权限的客服处理。')).toBeVisible()
+    await expect(actions.getByText('尚无模拟回执；审批状态不代表执行成功。')).toBeVisible()
+    await login(supervisor, 'supervisor', true)
+    await supervisor.goto(`/cases/${serviceCase.id}`)
+    const review = supervisor.getByRole('region', { name: '模拟售后动作' })
+    await review.getByRole('button', { name: '批准', exact: true }).click()
+    await expect(review.getByText('审批已保存，模拟操作等待 Worker 执行。')).toBeVisible()
+    const listed = await staffContext.request.get(`/api/v1/cases/${serviceCase.id}/actions`)
+    expect(listed.status()).toBe(200)
+    const action = (await listed.json() as S['CaseActionRead'][])[0]
+    expect(action.status).toBe('APPROVED')
+    for (let attempt = 0; attempt < 10; attempt++) {
+      execFileSync('uv', ['run', '--project', '../backend', '--locked', 'python', '-m', 'serviceos_api.worker.actions', '--once'], {
+        cwd: process.cwd(), env: process.env, timeout: 30_000,
+      })
+      const current = await staffContext.request.get(`/api/v1/actions/${action.id}`)
+      if ((await current.json() as S['CaseActionRead']).status === 'SUCCEEDED') break
+    }
+    await customer.goto(`/cases/${serviceCase.id}`)
+    const customerActions = customer.getByRole('region', { name: '模拟售后动作' })
+    await expect(customerActions.getByText(/模拟回执：MOCK-/)).toBeVisible()
+    await expect(customerActions.getByText(/申请原因/)).toHaveCount(0)
+    const customerRead = await customerContext.request.get(`/api/v1/actions/${action.id}`)
+    expect((await customerRead.json() as S['CaseActionRead']).receipt?.adapter).toBe('MOCK')
+    await customer.screenshot({ path: 'test-results/live-mock-action-customer.png', fullPage: true })
+    await customer.setViewportSize({ width: 390, height: 844 })
+    expect(await customer.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await customer.screenshot({ path: 'test-results/live-mock-action-customer-mobile.png', fullPage: true })
+    await supervisor.screenshot({ path: 'test-results/live-mock-action-supervisor.png', fullPage: true })
+  } finally {
+    await customerContext.close()
+    await staffContext.close()
+    await supervisorContext.close()
+  }
 })

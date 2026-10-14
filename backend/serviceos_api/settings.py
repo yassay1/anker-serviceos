@@ -18,6 +18,7 @@ class Settings:
     worker_heartbeat_seconds: int = 20
     worker_max_attempts: int = 5
     evidence_storage_dir: str = ""
+    mock_action_result: str = "SUCCEEDED"
     allowed_origins: tuple[str, ...] = (
         "http://127.0.0.1:5173", "http://127.0.0.1:4173", "http://127.0.0.1:8000",
     )
@@ -46,4 +47,5 @@ class Settings:
             worker_heartbeat_seconds=max(5, min(int(os.getenv("SERVICEOS_WORKER_HEARTBEAT_SECONDS", "20")), 120)),
             worker_max_attempts=max(1, min(int(os.getenv("SERVICEOS_WORKER_MAX_ATTEMPTS", "5")), 10)),
             evidence_storage_dir=os.getenv("SERVICEOS_EVIDENCE_STORAGE_DIR", ""),
+            mock_action_result=os.getenv("SERVICEOS_MOCK_ACTION_RESULT", "SUCCEEDED"),
         )

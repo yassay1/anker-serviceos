@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from serviceos_api.api.health import router as health_router
 from serviceos_api.api.business import router as business_router
 from serviceos_api.api.evidence import router as evidence_router
+from serviceos_api.api.actions import router as actions_router
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.settings import Settings
 
@@ -58,6 +59,7 @@ def create_app(*, database_engine=None, settings: Settings | None = None) -> Fas
     application.include_router(health_router)
     application.include_router(business_router)
     application.include_router(evidence_router)
+    application.include_router(actions_router)
     return application
 
 

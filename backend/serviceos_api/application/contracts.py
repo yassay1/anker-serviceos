@@ -338,3 +338,47 @@ class EvidenceRead(Schema):
 class EvidencePage(Schema):
     items: list[EvidenceRead]
     next_cursor: UUID | None = None
+
+
+class MockActionRequest(Schema):
+    client_action_id: UUID
+    expected_case_version: int = Field(ge=1)
+    action_kind: Literal["MOCK_SERVICE_REQUEST"]
+    source_proposal_id: UUID | None = None
+    reason: str = Field(min_length=3, max_length=1000)
+
+
+class MockReceiptRead(Schema):
+    adapter: Literal["MOCK"] = "MOCK"
+    external_reference: str
+    result: Literal["SUCCEEDED", "FAILED"]
+    received_at: datetime
+
+
+class CaseActionRead(Schema):
+    id: UUID
+    case_id: UUID
+    action_kind: Literal["MOCK_SERVICE_REQUEST"]
+    adapter: Literal["MOCK"]
+    status: Literal["WAITING_APPROVAL", "APPROVED", "EXECUTING", "UNKNOWN", "SUCCEEDED", "FAILED", "REJECTED"]
+    version: int
+    approval_id: UUID | None = None
+    receipt: MockReceiptRead | None = None
+    reason: str | None = None
+    requested_by: UUID | None = None
+    created_at: datetime
+
+
+class ActionApprovalDecision(Schema):
+    decision_id: UUID
+    expected_version: int = Field(ge=1)
+    decision: Literal["APPROVED", "REJECTED"]
+    reason: str = Field(min_length=3, max_length=1000)
+
+
+class ActionApprovalRead(Schema):
+    id: UUID
+    action_id: UUID
+    status: Literal["PENDING", "APPROVED", "REJECTED"]
+    version: int
+    decided_at: datetime | None

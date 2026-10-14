@@ -268,6 +268,80 @@ class EvidenceInspectionJob(TenantRecord, Base):
     last_error_code: Mapped[str | None] = mapped_column(String(80))
 
 
+class CaseAction(TenantRecord, Base):
+    """Authorized business intent and its actual simulated operation receipt."""
+
+    __tablename__ = "case_actions"
+    __table_args__ = tenant_args(
+        tenant_reference("case_id", "service_cases"),
+        tenant_reference("requested_by", "tenant_memberships", "staff_user_id"),
+        tenant_reference("source_proposal_id", "agent_proposals"),
+        UniqueConstraint("tenant_id", "case_id", "client_action_id"),
+        CheckConstraint("action_kind = 'MOCK_SERVICE_REQUEST'", name="kind_values"),
+        CheckConstraint("adapter = 'MOCK'", name="adapter_values"),
+        CheckConstraint("status IN ('WAITING_APPROVAL','APPROVED','EXECUTING','UNKNOWN','SUCCEEDED','FAILED','REJECTED')", name="status_values"),
+        CheckConstraint("version >= 1 AND attempt_count >= 0", name="version_attempt_positive"),
+        CheckConstraint("(receipt_result IS NULL AND receipt_reference IS NULL AND receipt_at IS NULL) OR "
+                        "(receipt_result IN ('SUCCEEDED','FAILED') AND receipt_reference IS NOT NULL AND receipt_at IS NOT NULL)",
+                        name="receipt_complete"),
+        CheckConstraint("status NOT IN ('SUCCEEDED','FAILED') OR receipt_result = status", name="terminal_has_receipt"),
+        Index("ix_case_actions_ready", "status", "available_at", "created_at"),
+    )
+    case_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    client_action_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    action_kind: Mapped[str] = mapped_column(String(40))
+    adapter: Mapped[str] = mapped_column(String(16), default="MOCK", server_default="MOCK")
+    status: Mapped[str] = mapped_column(String(24), default="WAITING_APPROVAL", server_default="WAITING_APPROVAL")
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    requested_by: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    source_proposal_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    reason: Mapped[str] = mapped_column(Text)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    lease_token: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    receipt_reference: Mapped[str | None] = mapped_column(String(160))
+    receipt_result: Mapped[str | None] = mapped_column(String(16))
+    receipt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_code: Mapped[str | None] = mapped_column(String(80))
+
+
+class CaseActionApproval(TenantRecord, Base):
+    __tablename__ = "case_action_approvals"
+    __table_args__ = tenant_args(
+        tenant_reference("action_id", "case_actions"),
+        tenant_reference("decided_by", "tenant_memberships", "staff_user_id"),
+        UniqueConstraint("tenant_id", "action_id"),
+        UniqueConstraint("tenant_id", "decision_id"),
+        CheckConstraint("status IN ('PENDING','APPROVED','REJECTED')", name="status_values"),
+        CheckConstraint("version >= 1", name="version_positive"),
+    )
+    action_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    status: Mapped[str] = mapped_column(String(16), default="PENDING", server_default="PENDING")
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    decision_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    decision_hash: Mapped[str | None] = mapped_column(String(64))
+    decided_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    decision_reason: Mapped[str | None] = mapped_column(Text)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class MockServiceOperation(TenantRecord, Base):
+    """Durable local stand-in for a separate service endpoint, keyed by action ID."""
+
+    __tablename__ = "mock_service_operations"
+    __table_args__ = tenant_args(
+        tenant_reference("action_id", "case_actions"),
+        UniqueConstraint("tenant_id", "action_id"),
+        UniqueConstraint("tenant_id", "external_reference"),
+        CheckConstraint("result IN ('SUCCEEDED','FAILED')", name="result_values"),
+    )
+    action_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    external_reference: Mapped[str] = mapped_column(String(160))
+    result: Mapped[str] = mapped_column(String(16))
+
+
 class DeviceFact(TenantRecord, Base):
     __tablename__ = "device_facts"
     __table_args__ = tenant_args(

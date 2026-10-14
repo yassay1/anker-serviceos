@@ -1,6 +1,92 @@
 {
   "components": {
     "schemas": {
+      "ActionApprovalDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "APPROVED",
+              "REJECTED"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "decision_id": {
+            "format": "uuid",
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 1000,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision_id",
+          "expected_version",
+          "decision",
+          "reason"
+        ],
+        "title": "ActionApprovalDecision",
+        "type": "object"
+      },
+      "ActionApprovalRead": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "format": "uuid",
+            "title": "Action Id",
+            "type": "string"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "REJECTED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "action_id",
+          "status",
+          "version",
+          "decided_at"
+        ],
+        "title": "ActionApprovalRead",
+        "type": "object"
+      },
       "ActorRead": {
         "additionalProperties": false,
         "properties": {
@@ -189,6 +275,109 @@
           "value"
         ],
         "title": "CandidateFact",
+        "type": "object"
+      },
+      "CaseActionRead": {
+        "additionalProperties": false,
+        "properties": {
+          "action_kind": {
+            "const": "MOCK_SERVICE_REQUEST",
+            "title": "Action Kind",
+            "type": "string"
+          },
+          "adapter": {
+            "const": "MOCK",
+            "title": "Adapter",
+            "type": "string"
+          },
+          "approval_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Id"
+          },
+          "case_id": {
+            "format": "uuid",
+            "title": "Case Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "receipt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MockReceiptRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "requested_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By"
+          },
+          "status": {
+            "enum": [
+              "WAITING_APPROVAL",
+              "APPROVED",
+              "EXECUTING",
+              "UNKNOWN",
+              "SUCCEEDED",
+              "FAILED",
+              "REJECTED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "case_id",
+          "action_kind",
+          "adapter",
+          "status",
+          "version",
+          "created_at"
+        ],
+        "title": "CaseActionRead",
         "type": "object"
       },
       "CaseRead": {
@@ -1028,6 +1217,87 @@
         "title": "MessageReceipt",
         "type": "object"
       },
+      "MockActionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "action_kind": {
+            "const": "MOCK_SERVICE_REQUEST",
+            "title": "Action Kind",
+            "type": "string"
+          },
+          "client_action_id": {
+            "format": "uuid",
+            "title": "Client Action Id",
+            "type": "string"
+          },
+          "expected_case_version": {
+            "minimum": 1.0,
+            "title": "Expected Case Version",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 1000,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          },
+          "source_proposal_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Proposal Id"
+          }
+        },
+        "required": [
+          "client_action_id",
+          "expected_case_version",
+          "action_kind",
+          "reason"
+        ],
+        "title": "MockActionRequest",
+        "type": "object"
+      },
+      "MockReceiptRead": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter": {
+            "const": "MOCK",
+            "default": "MOCK",
+            "title": "Adapter",
+            "type": "string"
+          },
+          "external_reference": {
+            "title": "External Reference",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "result": {
+            "enum": [
+              "SUCCEEDED",
+              "FAILED"
+            ],
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "external_reference",
+          "result",
+          "received_at"
+        ],
+        "title": "MockReceiptRead",
+        "type": "object"
+      },
       "ModeTransition": {
         "additionalProperties": false,
         "properties": {
@@ -1850,6 +2120,152 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/actions/{id}": {
+      "get": {
+        "operationId": "read_case_action",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseActionRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Read Case Action",
+        "tags": [
+          "actions"
+        ]
+      }
+    },
+    "/api/v1/approvals/{id}/decisions": {
+      "post": {
+        "operationId": "decide_action_approval",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActionApprovalDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionApprovalRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Decide Action Approval",
+        "tags": [
+          "approvals"
+        ]
+      }
+    },
     "/api/v1/auth/logout": {
       "post": {
         "operationId": "logout",
@@ -2109,6 +2525,208 @@
         "summary": "Update Case",
         "tags": [
           "cases"
+        ]
+      }
+    },
+    "/api/v1/cases/{id}/action-requests": {
+      "post": {
+        "operationId": "request_mock_case_action",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MockActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseActionRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceErrorBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Request Mock Case Action",
+        "tags": [
+          "actions"
+        ]
+      }
+    },
+    "/api/v1/cases/{id}/actions": {
+      "get": {
+        "operationId": "list_case_actions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CaseActionRead"
+                  },
+                  "title": "Response List Case Actions",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "List Case Actions",
+        "tags": [
+          "actions"
+        ]
+      }
+    },
+    "/api/v1/cases/{id}/approvals": {
+      "get": {
+        "operationId": "list_case_action_approvals",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ActionApprovalRead"
+                  },
+                  "title": "Response List Case Action Approvals",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "List Case Action Approvals",
+        "tags": [
+          "approvals"
         ]
       }
     },

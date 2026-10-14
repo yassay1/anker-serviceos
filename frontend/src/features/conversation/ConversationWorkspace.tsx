@@ -170,7 +170,7 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
           {summaries.isError && <p className="form-error" role="alert">{readableError(summaries.error)}</p>}
           {summaries.data?.length === 0 && <p>当前会话尚未关联案例；可继续查看消息。</p>}
           {summaries.data?.map((summary) => <article key={summary.case.id}>
-            <h4>{summary.case.problem_text}</h4>
+            <h4><Link to={`/cases/${summary.case.id}`}>{summary.case.problem_text}</Link></h4>
             <p><StatusBadge value={summary.case.status} /> <span>版本 {summary.case.version}</span></p>
             {summary.device_ids.length > 0 && <div className="device-references">{summary.device_ids.map(id => <Link to={`/devices/${id}`} key={id}>设备档案 #{id.slice(0, 8)}</Link>)}</div>}
             <ul>{summary.facts.map((fact, index) => <li key={`${fact.source}-${index}`}>
