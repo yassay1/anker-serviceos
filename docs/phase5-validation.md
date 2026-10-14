@@ -86,6 +86,23 @@ python -m serviceos_api.operations metrics --log <http.completed 日志>
 - `docker compose --env-file deploy/production/.env.example -f compose.production.yaml --profile agent config -q`：通过。
 - 缺失必填密码/数据库配置时必须失败的负向断言仍由 CI 的 delivery-config 作业执行，本地只验证了正向 config。
 
+### 容器构建与运行演练（T012）
+
+按 CI `container-smoke` 的同一序列在本地容器里实跑，全部通过：
+
+| 步骤 | 结果 |
+| --- | --- |
+| 构建 `serviceos-backend:local`（445 MB）与 `serviceos-web:local`（93.3 MB） | 成功 |
+| `up -d --no-build --wait --wait-timeout 240` | postgres / migrate（退出码 0）/ api / web / inspection / actions / followups / outbox 全部 Healthy |
+| `--profile seed run --rm --no-deps seed` | 样例身份初始化完成 |
+| `exec -T web nginx -t` | 语法与配置校验通过 |
+| 经 Web 访问 `http://127.0.0.1:8080/api/v1/readiness` 与 `/support` | 均 200，就绪报告 database/schema ready |
+| `exec -T api` 非 root 校验并写入共享卷 | uid 10001，写入 `/data/evidence` 成功 |
+| `restart postgres api inspection` 后重新 `up --wait` | 全部恢复 Healthy，`/data/evidence` 内容仍在，就绪仍 200 |
+| 生产 HTTPS 模板 + 一次性自签证书 `nginx -t` | 通过（`SERVICEOS_PUBLIC_HOSTNAME` 环境变量替换生效） |
+
+演练后按 CI 的做法 `down --volumes --remove-orphans` 清理本栈，未触碰体验库 `serviceos_demo_20261014_delivery`。
+
 ### 本地可用服务（体验环境）
 
 | 服务 | 地址 | 状态 |
@@ -107,6 +124,7 @@ python -m serviceos_api.operations metrics --log <http.completed 日志>
 4. **测试隔离**：共享会话级数据库里，前序用例遗留的未派发 Outbox 事件会被后序 `claim_batch()` 领取，使既有断言偶发失败。测前统一隔离重置。
 5. **Skill 路由未挂载**：`api/skills.py` 写好后没有在 `main.py` 注册，接口在生产与本地都不可达。`test_skills.py` 自行 `include_router` 组装测试应用，所以在单测里看不出问题；`contracts/openapi.json` 也因此一直没有这两个接口。已注册，并补上"每个 `serviceos_api.api.*` 路由模块都必须出现在真实应用 OpenAPI 里"的回归。
 6. **客户可见的发言策略文案缺失**：客户面改用独立的协助区块后，策略行丢了「发言策略：」标签，而 live 验收断言钉着这段措辞。该标签本身是客户需要的信息——它说明是 AI 自动回复还是仅人工回复。由真实浏览器端到端发现（补齐 Playwright 之后才跑得起来），已恢复。
+7. **容器内就绪检查永远失败**：`api/health.py` 用 `Path(__file__).parents[2]` 推断 `alembic.ini`，但镜像里包是**非可编辑安装**进 venv 的，该路径落在 `site-packages`，那里没有配置文件；`ScriptDirectory.from_config` 抛出的 `CommandError` 又不在捕获列表内，于是就绪接口返回 **500** 而不是"未就绪"。后果是 API 容器永远不健康、`docker compose up --wait` 与 CI 的容器冒烟必然失败。改为向上查找配置文件（非可编辑布局下项目根在更靠上的层级）并支持 `SERVICEOS_ALEMBIC_CONFIG` 显式覆写，同时把 `CommandError`/`OSError` 纳入捕获，配置缺失时如实报告未就绪。**这个缺陷只有真正把容器跑起来才会暴露**——`config -q` 校验和本机源码运行都看不出来。
 
 ### 真实模型 Provider 联调（2026-10-14 晚）
 
@@ -135,10 +153,7 @@ uv run --project backend --locked python -m serviceos_api.worker.main   # Agent 
 - **真实模型 Provider 未做完整验收**：本地已跑通两轮真实多轮对话（见上节），但首 token 时延/工具耗时统计与进程中断恢复仍属阶段 2 未验收范围。
 
 - **Playwright 托管 webServer 在本机不稳定**：`npm run test:live` 不设 `SERVICEOS_LIVE_EXTERNAL` 时，它自己拉起的 `npm run dev`（npm→node→vite 三层进程树）会中途不可达，本轮三次托管运行里有两次出现 `ERR_CONNECTION_REFUSED:5173`；同一时间 uvicorn 全程存活、无关停日志，说明只有 vite 掉了。改为 `SERVICEOS_LIVE_EXTERNAL=1` 自托管 API/Vite 后 6/6 稳定通过。CI 运行的是托管模式（Linux runner），本机未复现 CI 的条件，因此**不能**用本地结论替代 CI 结果。
-- **容器构建与运行演练（T012 未完成）**：前端镜像 `serviceos-web:local` 已建成；API 镜像卡在 `uv sync --locked` 从 PyPI 拉包，单个 15.3 MiB 的 botocore 超过 25 分钟仍未下完，整轮已运行 70 分钟以上。构建并未报错、仍在推进，但这条网络通道不具备可重复性——照文档重建的人会撞同一堵墙，因此**不主张本地演练通过**。
-  - `uv sync --locked` **不能**改用镜像源：实测传入 `--index-url` 指向国内镜像后，uv 会判定锁文件过期并直接失败，所以镜像构建只能走 uv.lock 记录的官方源。
-  - 镜像来源与引导安装源已做成可覆写构建参数（`PYTHON_IMAGE` / `NODE_IMAGE` / `NGINX_IMAGE` / `PYPI_INDEX_URL` / `NPM_REGISTRY`），默认值仍是官方源，仅供受限网络做本地构建。
-  - 完整演练（构建 → 启动 → `nginx -t` → 就绪探测 → 重启 → 卷持久化 → HTTPS 模板校验）由 CI 的 `container-smoke` 作业执行；本机未取得结果，不以本地结论替代 CI。
+- **容器构建的镜像来源在本网络不可用**：`docker compose build` 默认要回源 Docker Hub 解析基础镜像，本机直连超时；`uv sync --locked` 也**不能**改用镜像源（实测传入 `--index-url` 后 uv 会判定锁文件过期并直接失败）。因此上面的演练使用了本机已有的 DaoCloud 基础镜像与引导安装镜像（仅本地构建，交付默认值不变）。在正常网络下按文档 `docker compose build` 即可，本机只是绕过了拉取环节。
 - **生产身份源**：未接入。生产配置拒绝本地开发登录，`production_ready` 恒为 false。
 - **受控对象存储**：S3 适配器与部署策略已就位但未对接真实存储桶；生产配置下不静默回退本地磁盘，接口返回不可用。
 - **云上能力**：EC2/RDS/Nginx/HTTPS 仅到可复现配置与模板校验，未创建任何云资源，未做真实 HTTPS 握手。

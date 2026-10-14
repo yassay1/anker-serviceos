@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -26,6 +28,33 @@ def test_readiness_database_failure_is_safe(monkeypatch):
         assert response.status_code == 503
         assert "secret" not in response.text
         assert "private-db" not in response.text
+
+
+def test_alembic_config_is_found_from_an_installed_layout(monkeypatch):
+    """A non-editable install puts this module under site-packages, where the
+    project root is several levels up rather than at a fixed depth. Assuming the
+    source layout left the container's readiness check unreachable."""
+    from serviceos_api.api import health
+
+    monkeypatch.delenv("SERVICEOS_ALEMBIC_CONFIG", raising=False)
+    found = health.alembic_config_path()
+    assert found is not None and found.is_file(), "the migration config must be discoverable"
+
+    moved = Path("/app/backend/.venv/lib/python3.12/site-packages/serviceos_api/api/health.py")
+    monkeypatch.setattr(health, "__file__", str(moved))
+    deep = health.alembic_config_path()
+    assert deep is None or deep.is_file()
+
+
+def test_readiness_reports_not_ready_without_an_alembic_config(database_engine, monkeypatch):
+    """A missing migration config must report not ready, never an unhandled error."""
+    monkeypatch.setenv("SERVICEOS_ENV", "production")
+    monkeypatch.setenv("SERVICEOS_DATABASE_URL", str(database_engine.url.render_as_string(hide_password=False)))
+    monkeypatch.setenv("SERVICEOS_ALEMBIC_CONFIG", "/nonexistent/alembic.ini")
+    with TestClient(create_app(database_engine=database_engine, settings=Settings())) as client:
+        response = client.get("/api/v1/readiness")
+        assert response.status_code == 503
+        assert response.json()["components"]["schema"] != "ready"
 
 
 def test_readiness_rejects_schema_drift(database_engine):

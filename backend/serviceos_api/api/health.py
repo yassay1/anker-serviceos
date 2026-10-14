@@ -1,8 +1,10 @@
+import os
 from pathlib import Path
 from typing import Literal
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+from alembic.util.exc import CommandError
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
@@ -32,9 +34,36 @@ def read_health() -> HealthResponse:
     return HealthResponse(status="ok", service="serviceos-api", version="0.1.0")
 
 
+ALEMBIC_CONFIG_NAME = "alembic.ini"
+ALEMBIC_CONFIG_SEARCH_DEPTH = 8
+
+
+def alembic_config_path() -> Path | None:
+    """Find the migration configuration without assuming a source checkout.
+
+    A non-editable install places this module under site-packages, so the project
+    root is not at a fixed depth from here. Walk up looking for the file instead,
+    and let an explicit override win.
+    """
+    configured = os.getenv("SERVICEOS_ALEMBIC_CONFIG")
+    if configured:
+        candidate = Path(configured)
+        return candidate if candidate.is_file() else None
+    for parent in Path(__file__).resolve().parents[:ALEMBIC_CONFIG_SEARCH_DEPTH]:
+        candidate = parent / ALEMBIC_CONFIG_NAME
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def database_readiness(connection) -> dict[str, str]:
     connection.execute(text("SELECT 1"))
-    config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+    path = alembic_config_path()
+    if path is None:
+        # Without the migration configuration the schema cannot be verified, and an
+        # unverifiable schema is never reported ready.
+        raise RuntimeError("alembic_config_unavailable")
+    config = Config(str(path))
     expected = set(ScriptDirectory.from_config(config).get_heads())
     present = set(connection.execute(text("SELECT version_num FROM public.serviceos_alembic_version")).scalars())
     return {"database": "ready", "schema": "ready" if expected == present else "outdated"}
@@ -50,7 +79,7 @@ def read_readiness(request: Request, response: Response) -> ReadinessResponse:
             request.app.state.owns_engine = True
         with request.app.state.database_engine.connect() as connection:
             components.update(database_readiness(connection))
-    except (RuntimeError, ValueError, SQLAlchemyError):
+    except (RuntimeError, ValueError, SQLAlchemyError, CommandError, OSError):
         pass
     components["auth"] = "local_development" if settings.local_auth_enabled else "not_configured"
     components["provider"] = "configured_unverified" if settings.llm_configured else "not_configured"

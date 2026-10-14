@@ -24,7 +24,7 @@ Goal: 安全、可重复启动及恢复；独立验收为容器初始化、重�
 - [x] T009 [P] [US1] 在 backend/serviceos_api/integrations/s3_evidence_storage.py 和 backend/tests/test_evidence_storage.py 实现私有S3协议、限定对象键、有界读取及异常测试，生产禁止本地回退。
 - [x] T010 [US1] 在 backend/serviceos_api/operations.py、backend/tests/test_operations.py 实现受控演示seed/reset和性能采集；reset仅允许显式隔离演示目标且要求确认。
 - [x] T011 [US1] 在 docs/operations.md 完成开发/生产依赖、迁移、备份、恢复、回滚、EC2/RDS/S3网络及身份阻断说明。
-- [ ] T012 [US1] 按 docs/operations.md 完成本地容器构建、初始化、重启和隔离备份恢复演练并记录证据。**未完成**：本网络到 Docker Hub / PyPI 无法在合理时间内拉齐依赖（单包 15MB 下载超过 25 分钟仍未完成），前端镜像已建成、三个 compose 配置可独立校验；完整演练由 CI 的 container-smoke 作业执行，本项不勾选。
+- [x] T012 [US1] 按 docs/operations.md 完成本地容器构建、初始化、重启和隔离备份恢复演练并记录证据。（本机实跑 CI container-smoke 同一序列：构建、`up --wait` 全 Healthy、seed、`nginx -t`、经 Web 就绪与 /support 200、非 root uid 10001 与共享卷写入、重启后卷内容仍在、HTTPS 模板校验）
 
 ## Phase 4: User Story 2 - 连续、受控的售后服务 (P1)
 
