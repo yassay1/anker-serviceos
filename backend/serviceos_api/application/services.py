@@ -288,7 +288,7 @@ class ConversationService(BusinessService):
         if event.visibility == "PUBLIC" and event.type not in (
             "message.created", "conversations.created", "collaboration.mode_changed",
             "ui.document.published", "ui.action.accepted",
-            "evidence.received", "evidence.inspected", "action.state_changed",
+            "evidence.received", "evidence.inspected", "action.state_changed", "verification.recorded",
         ):
             raise ServiceError(422, "公开事件类型未获授权。")
         current = session.scalar(select(ConversationEvent.sequence).where(

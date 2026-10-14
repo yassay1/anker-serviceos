@@ -247,3 +247,115 @@ def test_concurrent_case_version_and_mock_adapter_key(database_engine, app):
     with Session(database_engine) as session:
         assert session.scalar(select(func.count()).select_from(MockServiceOperation).where(
             MockServiceOperation.action_id == action_id)) == 1
+
+
+def verification_body(case_version, *, key=None, result="WORKING", contract_version=1, note="客户已测试并确认"):
+    return {
+        "client_verification_id": str(key or uuid4()),
+        "expected_case_version": case_version,
+        "expected_resolution_contract_version": contract_version,
+        "observed_result": result, "evidence_ids": [], "note": note,
+    }
+
+
+def test_confirmed_mock_receipt_and_customer_observation_resolve_once(app, database_engine):
+    customer = login(app)
+    staff = login(app, "staff")
+    supervisor = login(app, "supervisor")
+    other = login(app, "customer-b")
+    case = case_for(customer)
+    action = request_action(staff, case).json()
+    path = f"/api/v1/cases/{case['id']}"
+    contract = customer.get(f"{path}/resolution-contract")
+    assert contract.status_code == 200
+    assert contract.json()["action_id"] == action["id"]
+    assert contract.json()["conditions"] == ["模拟服务请求收到成功回执", "客户明确确认问题已解决"]
+    assert other.get(f"{path}/resolution-contract").status_code == 404
+    assert staff.post(f"{path}/verifications", json=verification_body(2)).status_code == 403
+    assert other.post(f"{path}/verifications", json=verification_body(2)).status_code == 404
+    assert approve(supervisor, action["approval_id"]).status_code == 200
+    action_id = UUID(action["id"])
+    defer_other_actions(database_engine, action_id)
+    assert MockActionWorker(database_engine, app.state.settings).run_once()
+    current = customer.get(path).json()
+    stale = customer.post(f"{path}/verifications", json=verification_body(case["version"]))
+    assert stale.status_code == 409 and stale.json()["code"] == "STALE_VERSION"
+    wrong_contract = customer.post(f"{path}/verifications", json=verification_body(
+        current["version"], contract_version=2))
+    assert wrong_contract.status_code == 409 and wrong_contract.json()["code"] == "STALE_CONTRACT"
+    hidden_evidence = customer.post(f"{path}/verifications", json={
+        **verification_body(current["version"]), "evidence_ids": [str(uuid4())],
+    })
+    assert hidden_evidence.status_code == 404 and hidden_evidence.json()["code"] == "EVIDENCE_NOT_AVAILABLE"
+    key = uuid4()
+    body = verification_body(current["version"], key=key)
+    result = customer.post(f"{path}/verifications", json=body)
+    assert result.status_code == 201, result.text
+    assert result.json()["decision"] == "VERIFIED_RESOLVED"
+    assert result.json()["case_status"] == "RESOLVED"
+    assert customer.get(path).json()["status"] == "RESOLVED"
+    assert customer.post(f"{path}/verifications", json=body).json() == result.json()
+    changed = {**body, "observed_result": "NOT_WORKING"}
+    conflict = customer.post(f"{path}/verifications", json=changed)
+    assert conflict.status_code == 409 and conflict.json()["code"] == "IDEMPOTENCY_CONFLICT"
+    listed = customer.get(f"{path}/verifications")
+    assert listed.status_code == 200 and len(listed.json()) == 1
+    assert other.get(f"{path}/verifications").status_code == 404
+
+
+@pytest.mark.parametrize("action_result", ["APPROVED", "FAILED", "REJECTED", "UNKNOWN"])
+def test_receipt_not_successful_never_resolves_case(app, database_engine, action_result):
+    customer = login(app)
+    staff = login(app, "staff")
+    supervisor = login(app, "supervisor")
+    case = case_for(customer)
+    action = request_action(staff, case).json()
+    path = f"/api/v1/cases/{case['id']}"
+    decision = "REJECTED" if action_result == "REJECTED" else "APPROVED"
+    assert approve(supervisor, action["approval_id"], decision).status_code == 200
+    if action_result in ("FAILED", "UNKNOWN"):
+        action_id = UUID(action["id"])
+        defer_other_actions(database_engine, action_id)
+        settings = replace(app.state.settings, mock_action_result="FAILED")
+        if action_result == "FAILED":
+            assert MockActionWorker(database_engine, settings).run_once()
+        else:
+            lease = MockActionWorker(database_engine, settings).claim_one()
+            assert lease is not None
+            with Session(database_engine) as session:
+                row = session.get(CaseAction, action_id)
+                row.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+                session.commit()
+            assert MockActionWorker(database_engine, settings).run_once()
+    version = customer.get(path).json()["version"]
+    pending = customer.post(f"{path}/verifications", json=verification_body(version))
+    assert pending.status_code == 201, pending.text
+    assert pending.json()["decision"] == "PENDING"
+    assert customer.get(path).json()["status"] != "RESOLVED"
+    version = customer.get(path).json()["version"]
+    not_working = customer.post(f"{path}/verifications", json=verification_body(
+        version, result="NOT_WORKING", note="尝试后仍未恢复"))
+    assert not_working.status_code == 201
+    assert not_working.json()["decision"] == "NOT_RESOLVED"
+    assert customer.get(path).json()["status"] == "IN_PROGRESS"
+
+
+def test_newer_rejected_action_cannot_use_older_success_receipt(app, database_engine):
+    customer = login(app)
+    staff = login(app, "staff")
+    supervisor = login(app, "supervisor")
+    case = case_for(customer)
+    first = request_action(staff, case).json()
+    assert approve(supervisor, first["approval_id"]).status_code == 200
+    defer_other_actions(database_engine, UUID(first["id"]))
+    assert MockActionWorker(database_engine, app.state.settings).run_once()
+    current = customer.get(f"/api/v1/cases/{case['id']}").json()
+    second = request_action(staff, current).json()
+    assert approve(supervisor, second["approval_id"], "REJECTED").status_code == 200
+    path = f"/api/v1/cases/{case['id']}"
+    contract = customer.get(f"{path}/resolution-contract").json()
+    assert contract["action_id"] == second["id"]
+    current = customer.get(path).json()
+    observed = customer.post(f"{path}/verifications", json=verification_body(current["version"]))
+    assert observed.status_code == 201 and observed.json()["decision"] == "PENDING"
+    assert customer.get(path).json()["status"] != "RESOLVED"

@@ -25,7 +25,7 @@ Vite 在 `http://127.0.0.1:5173` 启动，`/support` 是客户入口，`/desk` �
 | `src/features/collaboration/` | 人工任务、策略切换与草稿审批 |
 | `src/features/ui-document/` | 受控 UI 文档渲染与低风险 action intent |
 | `src/features/devices/` | 只读设备档案、已核验事实与关联案例历史 |
-| `src/features/cases/` | 案例列表、图片证据上传与检查状态、授权预览、模拟动作请求、主管审批与真实 Mock 回执；未知提交保留原编号 |
+| `src/features/cases/` | 案例列表、图片证据上传与检查状态、授权预览、模拟动作请求、主管审批、真实 Mock 回执与客户结果核验；未知提交保留原编号 |
 | `src/styles/base.css`、`src/styles/workspace.css` | 基础视觉样式和工作区响应式布局 |
 | `src/api/client.ts` | 类型化请求封装与错误处理 |
 | `src/api/schema.d.ts` | 从仓库根目录的 `contracts/openapi.json` 生成的类型 |

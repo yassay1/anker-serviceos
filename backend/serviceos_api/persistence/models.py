@@ -342,6 +342,46 @@ class MockServiceOperation(TenantRecord, Base):
     result: Mapped[str] = mapped_column(String(16))
 
 
+class ResolutionContract(TenantRecord, Base):
+    """Conditions frozen for one service action before its outcome is observed."""
+
+    __tablename__ = "resolution_contracts"
+    __table_args__ = tenant_args(
+        tenant_reference("case_id", "service_cases"),
+        tenant_reference("action_id", "case_actions"),
+        UniqueConstraint("tenant_id", "action_id"),
+        CheckConstraint("version >= 1", name="version_positive"),
+    )
+    case_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    action_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    conditions: Mapped[list[str]] = mapped_column(JSONB)
+
+
+class CaseVerification(TenantRecord, Base):
+    """Customer observation and the server's decision at the time it was recorded."""
+
+    __tablename__ = "case_verifications"
+    __table_args__ = tenant_args(
+        tenant_reference("case_id", "service_cases"),
+        tenant_reference("contract_id", "resolution_contracts"),
+        tenant_reference("customer_id", "customers"),
+        UniqueConstraint("tenant_id", "case_id", "client_verification_id"),
+        CheckConstraint("observed_result IN ('WORKING','NOT_WORKING','UNCERTAIN')", name="observation_values"),
+        CheckConstraint("decision IN ('PENDING','VERIFIED_RESOLVED','NOT_RESOLVED')", name="decision_values"),
+    )
+    case_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    contract_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    customer_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    client_verification_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    observed_result: Mapped[str] = mapped_column(String(16))
+    decision: Mapped[str] = mapped_column(String(24))
+    note: Mapped[str] = mapped_column(Text)
+    evidence_ids: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    case_status: Mapped[str] = mapped_column(String(24))
+
+
 class DeviceFact(TenantRecord, Base):
     __tablename__ = "device_facts"
     __table_args__ = tenant_args(

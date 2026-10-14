@@ -18,6 +18,8 @@ export type CaseAction = components['schemas']['CaseActionRead']
 export type ActionApproval = components['schemas']['ActionApprovalRead']
 export type CaseImageEvidence = components['schemas']['EvidenceRead']
 export type EvidencePage = components['schemas']['EvidencePage']
+export type ResolutionContract = components['schemas']['ResolutionContractRead']
+export type Verification = components['schemas']['VerificationRead']
 
 export const api = createClient<paths>({ baseUrl: '/', credentials: 'same-origin' })
 
@@ -175,6 +177,28 @@ export async function listCases(): Promise<ServiceCase[]> {
 export async function readCase(id: string): Promise<ServiceCase> {
   const { data, error, response } = await api.GET('/api/v1/cases/{id}', { params: { path: { id } } })
   return requireData(data, error, response, '案例不存在或当前账号无权访问。')
+}
+
+export async function readResolutionContract(caseId: string): Promise<ResolutionContract> {
+  const { data, error, response } = await api.GET('/api/v1/cases/{id}/resolution-contract', {
+    params: { path: { id: caseId } },
+  })
+  return requireData(data, error, response, '解决条件加载失败。')
+}
+
+export async function listCaseVerifications(caseId: string): Promise<Verification[]> {
+  const { data, error, response } = await api.GET('/api/v1/cases/{id}/verifications', {
+    params: { path: { id: caseId } },
+  })
+  return requireData(data, error, response, '核验记录加载失败。')
+}
+
+export async function recordCaseVerification(caseId: string,
+  body: components['schemas']['VerificationRequest']): Promise<Verification> {
+  const { data, error, response } = await api.POST('/api/v1/cases/{id}/verifications', {
+    params: { path: { id: caseId } }, body,
+  })
+  return requireData(data, error, response, '核验结果未确认，请用原编号重试。')
 }
 
 export async function listCaseEvidence(caseId: string, cursor?: string): Promise<EvidencePage> {

@@ -4,7 +4,7 @@ info:
   title: Anker ServiceOS API
   version: 0.1.0
 x-serviceos-proposal-status: draft
-x-serviceos-implemented-sha256: 30403e1de7f0218d87e1a4d6e7597d413656ee32216edfa44e3e9059ac1a4421
+x-serviceos-implemented-sha256: ee0361b0c35577568fbb07688dcb752d0bc845dbc820deb41a59326fa2496ae0
 x-serviceos-planned-source: contracts/proposed/v1/planned.yaml
 paths:
   /api/v1/actions/{id}:
@@ -686,6 +686,36 @@ paths:
       tags:
       - evidence
       x-serviceos-status: implemented
+  /api/v1/cases/{id}/resolution-contract:
+    get:
+      operationId: read_case_resolution_contract
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolutionContractRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Read Case Resolution Contract
+      tags:
+      - verifications
+      x-serviceos-status: implemented
   /api/v1/cases/{id}/transitions:
     post:
       operationId: transition_case
@@ -721,6 +751,98 @@ paths:
       summary: Transition Case
       tags:
       - cases
+      x-serviceos-status: implemented
+  /api/v1/cases/{id}/verifications:
+    get:
+      operationId: list_case_verifications
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/VerificationRead'
+                title: Response List Case Verifications
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Case Verifications
+      tags:
+      - verifications
+      x-serviceos-status: implemented
+    post:
+      operationId: record_case_verification
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerificationRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationRead'
+          description: Successful Response
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Unauthorized
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Forbidden
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Not Found
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Conflict
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Unprocessable Entity
+      security:
+      - SessionCookie: []
+      summary: Record Case Verification
+      tags:
+      - verifications
       x-serviceos-status: implemented
   /api/v1/conversations:
     get:
@@ -1756,109 +1878,6 @@ paths:
           description: Staff role required
         '404':
           description: Run not found or hidden
-  /api/v1/cases/{id}/verifications:
-    get:
-      operationId: list_case_verifications
-      summary: Read recorded outcome checks
-      tags:
-      - verifications
-      x-serviceos-status: planned
-      x-serviceos-stage: 4
-      x-serviceos-authorization: Customer sees own public checks; staff sees authorized case checks.
-      security:
-      - SessionCookie: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      responses:
-        '200':
-          description: Authorized checks
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ProposedVerificationRead'
-        '401':
-          description: Not authenticated
-        '404':
-          description: Case not found or hidden
-    post:
-      operationId: record_case_verification
-      summary: Record observed outcome; server decides whether case can be resolved
-      tags:
-      - verifications
-      x-serviceos-status: planned
-      x-serviceos-stage: 4
-      x-serviceos-authorization: Case customer or authorized staff; evidence refs must belong to case and be visible.
-      x-serviceos-idempotency: Same client_verification_id and payload replays result; changed payload returns 409.
-      security:
-      - SessionCookie: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ProposedVerificationRequest'
-      responses:
-        '201':
-          description: Observation stored; case status comes from current Rule
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProposedVerificationRead'
-        '401':
-          description: Not authenticated
-        '404':
-          description: Case or evidence hidden
-        '409':
-          description: Stale case version or idempotency conflict
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProposedError'
-        '422':
-          description: Invalid observation
-  /api/v1/cases/{id}/resolution-contract:
-    get:
-      operationId: read_case_resolution_contract
-      summary: Read the frozen conditions used to judge a resolution
-      tags:
-      - verifications
-      x-serviceos-status: planned
-      x-serviceos-stage: 4
-      x-serviceos-authorization: Case customer sees public conditions; staff sees authorized case conditions.
-      security:
-      - SessionCookie: []
-      parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      responses:
-        '200':
-          description: Authorized resolution conditions
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ProposedResolutionContractRead'
-        '401':
-          description: Not authenticated
-        '404':
-          description: Case or contract not found or hidden
   /api/v1/cases/{id}/follow-up-consents:
     get:
       operationId: list_case_follow_up_consents
@@ -3030,6 +3049,42 @@ components:
       - created_at
       title: ProposalRead
       type: object
+    ResolutionContractRead:
+      additionalProperties: false
+      properties:
+        action_id:
+          format: uuid
+          title: Action Id
+          type: string
+        case_id:
+          format: uuid
+          title: Case Id
+          type: string
+        conditions:
+          items:
+            type: string
+          title: Conditions
+          type: array
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        version:
+          title: Version
+          type: integer
+      required:
+      - id
+      - case_id
+      - action_id
+      - version
+      - conditions
+      - created_at
+      title: ResolutionContractRead
+      type: object
     SendMessage:
       additionalProperties: false
       properties:
@@ -3492,6 +3547,102 @@ components:
       - type
       title: ValidationError
       type: object
+    VerificationRead:
+      additionalProperties: false
+      properties:
+        case_id:
+          format: uuid
+          title: Case Id
+          type: string
+        case_status:
+          title: Case Status
+          type: string
+        client_verification_id:
+          format: uuid
+          title: Client Verification Id
+          type: string
+        contract_id:
+          format: uuid
+          title: Contract Id
+          type: string
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        decision:
+          enum:
+          - PENDING
+          - VERIFIED_RESOLVED
+          - NOT_RESOLVED
+          title: Decision
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        note:
+          title: Note
+          type: string
+        observed_result:
+          enum:
+          - WORKING
+          - NOT_WORKING
+          - UNCERTAIN
+          title: Observed Result
+          type: string
+      required:
+      - id
+      - case_id
+      - contract_id
+      - client_verification_id
+      - observed_result
+      - decision
+      - note
+      - case_status
+      - created_at
+      title: VerificationRead
+      type: object
+    VerificationRequest:
+      additionalProperties: false
+      properties:
+        client_verification_id:
+          format: uuid
+          title: Client Verification Id
+          type: string
+        evidence_ids:
+          items:
+            format: uuid
+            type: string
+          maxItems: 10
+          title: Evidence Ids
+          type: array
+        expected_case_version:
+          minimum: 1.0
+          title: Expected Case Version
+          type: integer
+        expected_resolution_contract_version:
+          minimum: 1.0
+          title: Expected Resolution Contract Version
+          type: integer
+        note:
+          maxLength: 2000
+          title: Note
+          type: string
+        observed_result:
+          enum:
+          - WORKING
+          - NOT_WORKING
+          - UNCERTAIN
+          title: Observed Result
+          type: string
+      required:
+      - client_verification_id
+      - expected_case_version
+      - expected_resolution_contract_version
+      - observed_result
+      - note
+      title: VerificationRequest
+      type: object
     VerifiedDeviceFact:
       additionalProperties: false
       properties:
@@ -3765,107 +3916,6 @@ components:
           type:
           - string
           - 'null'
-          format: date-time
-    ProposedVerificationRequest:
-      type: object
-      additionalProperties: false
-      required:
-      - client_verification_id
-      - expected_case_version
-      - expected_resolution_contract_version
-      - observed_result
-      - note
-      properties:
-        client_verification_id:
-          type: string
-          format: uuid
-        expected_case_version:
-          type: integer
-          minimum: 1
-        expected_resolution_contract_version:
-          type: integer
-          minimum: 1
-        observed_result:
-          type: string
-          enum:
-          - WORKING
-          - NOT_WORKING
-          - UNCERTAIN
-        evidence_ids:
-          type: array
-          maxItems: 10
-          items:
-            type: string
-            format: uuid
-        note:
-          type: string
-          maxLength: 2000
-    ProposedVerificationRead:
-      type: object
-      additionalProperties: false
-      required:
-      - id
-      - case_id
-      - observed_result
-      - decision
-      - created_at
-      properties:
-        id:
-          type: string
-          format: uuid
-        case_id:
-          type: string
-          format: uuid
-        observed_result:
-          type: string
-          enum:
-          - WORKING
-          - NOT_WORKING
-          - UNCERTAIN
-        decision:
-          type: string
-          enum:
-          - PENDING
-          - VERIFIED_RESOLVED
-          - NOT_RESOLVED
-        case_status:
-          type: string
-          enum:
-          - OPEN
-          - IN_PROGRESS
-          - WAITING_CUSTOMER
-          - WAITING_EXTERNAL
-          - RESOLVED
-          - CLOSED
-        created_at:
-          type: string
-          format: date-time
-    ProposedResolutionContractRead:
-      type: object
-      additionalProperties: false
-      required:
-      - id
-      - case_id
-      - version
-      - conditions
-      - created_at
-      properties:
-        id:
-          type: string
-          format: uuid
-        case_id:
-          type: string
-          format: uuid
-        version:
-          type: integer
-          minimum: 1
-        conditions:
-          type: array
-          minItems: 1
-          items:
-            type: string
-        created_at:
-          type: string
           format: date-time
     ProposedFollowUpConsentRequest:
       type: object

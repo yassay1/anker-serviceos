@@ -229,6 +229,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cases/{id}/resolution-contract": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Case Resolution Contract */
+        get: operations["read_case_resolution_contract"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cases/{id}/transitions": {
         parameters: {
             query?: never;
@@ -240,6 +257,24 @@ export interface paths {
         put?: never;
         /** Transition Case */
         post: operations["transition_case"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cases/{id}/verifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Case Verifications */
+        get: operations["list_case_verifications"];
+        put?: never;
+        /** Record Case Verification */
+        post: operations["record_case_verification"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1265,6 +1300,33 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** ResolutionContractRead */
+        ResolutionContractRead: {
+            /**
+             * Action Id
+             * Format: uuid
+             */
+            action_id: string;
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            /** Conditions */
+            conditions: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Version */
+            version: number;
+        };
         /** SendMessage */
         SendMessage: {
             /**
@@ -1519,6 +1581,69 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /** VerificationRead */
+        VerificationRead: {
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            /** Case Status */
+            case_status: string;
+            /**
+             * Client Verification Id
+             * Format: uuid
+             */
+            client_verification_id: string;
+            /**
+             * Contract Id
+             * Format: uuid
+             */
+            contract_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "PENDING" | "VERIFIED_RESOLVED" | "NOT_RESOLVED";
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Note */
+            note: string;
+            /**
+             * Observed Result
+             * @enum {string}
+             */
+            observed_result: "WORKING" | "NOT_WORKING" | "UNCERTAIN";
+        };
+        /** VerificationRequest */
+        VerificationRequest: {
+            /**
+             * Client Verification Id
+             * Format: uuid
+             */
+            client_verification_id: string;
+            /** Evidence Ids */
+            evidence_ids?: string[];
+            /** Expected Case Version */
+            expected_case_version: number;
+            /** Expected Resolution Contract Version */
+            expected_resolution_contract_version: number;
+            /** Note */
+            note: string;
+            /**
+             * Observed Result
+             * @enum {string}
+             */
+            observed_result: "WORKING" | "NOT_WORKING" | "UNCERTAIN";
         };
         /** VerifiedDeviceFact */
         VerifiedDeviceFact: {
@@ -2289,6 +2414,37 @@ export interface operations {
             };
         };
     };
+    read_case_resolution_contract: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolutionContractRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     transition_case: {
         parameters: {
             query?: never;
@@ -2320,6 +2476,108 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_case_verifications: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_case_verification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerificationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationRead"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
                 };
             };
         };
