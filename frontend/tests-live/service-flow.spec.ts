@@ -179,6 +179,51 @@ test('real API: separate mock request, supervisor approval, worker receipt and c
   }
 })
 
+test('real API: customer consent precedes staff follow-up schedule', async ({ browser }) => {
+  const customerContext = await browser.newContext(contextOptions)
+  const staffContext = await browser.newContext(contextOptions)
+  try {
+    const customer = await customerContext.newPage()
+    const staff = await staffContext.newPage()
+    await login(customer, 'customer-a')
+    const created = await customerContext.request.post('/api/v1/cases', { data: {
+      problem_text: `回访联调案例 ${Date.now()}`,
+    } })
+    expect(created.status()).toBe(201)
+    const serviceCase = await created.json() as S['CaseRead']
+    const conversation = await customerContext.request.post('/api/v1/conversations', { data: {} })
+    expect(conversation.status()).toBe(201)
+    const conversationId = (await conversation.json() as S['ConversationRead']).id
+    const linked = await customerContext.request.post(`/api/v1/cases/${serviceCase.id}/conversations`, { data: {
+      expected_version: serviceCase.version, conversation_id: conversationId,
+    } })
+    expect(linked.status()).toBe(200)
+    await login(staff, 'staff', true)
+    await staff.goto(`/cases/${serviceCase.id}`)
+    const staffPanel = staff.getByRole('region', { name: '回访安排' })
+    await expect(staffPanel.getByRole('button', { name: '保存预约' })).toBeDisabled()
+    await customer.goto(`/cases/${serviceCase.id}`)
+    const panel = customer.getByRole('region', { name: '回访安排' })
+    await panel.getByLabel('回访目的').fill('确认设备充电恢复情况')
+    await panel.getByRole('button', { name: '同意此目的的回访' }).click()
+    await expect(panel.getByText('同意已保存，客服现在可以预约此次回访。')).toBeVisible()
+    await staff.reload()
+    await staffPanel.getByLabel('客户已同意的目的').selectOption({ label: '确认设备充电恢复情况' })
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    const localValue = new Date(tomorrow.getTime() - tomorrow.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+    await staffPanel.getByLabel('回访时间').fill(localValue)
+    await staffPanel.getByRole('button', { name: '保存预约' }).click()
+    await expect(staffPanel.getByText('回访已预约；到期后系统会生成客服待办，不会自动联系客户。')).toBeVisible()
+    await customer.reload()
+    await expect(panel.getByText(/等待到期/)).toBeVisible()
+    const tasks = await staffContext.request.get(`/api/v1/conversations/${conversationId}/tasks`)
+    expect(await tasks.json()).toEqual([])
+  } finally {
+    await customerContext.close()
+    await staffContext.close()
+  }
+})
+
 test('real API: customer image upload, inspection and authorized preview', async ({ browser }) => {
   const ownerContext = await browser.newContext(contextOptions)
   const otherContext = await browser.newContext(contextOptions)

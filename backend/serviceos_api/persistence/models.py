@@ -583,6 +583,46 @@ class ServiceTask(TenantRecord, Base):
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
 
 
+class FollowUpConsent(TenantRecord, Base):
+    __tablename__ = "follow_up_consents"
+    __table_args__ = tenant_args(
+        tenant_reference("case_id", "service_cases"),
+        tenant_reference("customer_id", "customers"),
+        UniqueConstraint("tenant_id", "case_id", "client_consent_id"),
+    )
+    case_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    customer_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    client_consent_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    purpose: Mapped[str] = mapped_column(String(1000))
+
+
+class FollowUpJob(TenantRecord, Base):
+    __tablename__ = "follow_up_jobs"
+    __table_args__ = tenant_args(
+        tenant_reference("case_id", "service_cases"),
+        tenant_reference("consent_record_id", "follow_up_consents"),
+        tenant_reference("conversation_id", "conversations"),
+        tenant_reference("task_id", "service_tasks"),
+        tenant_reference("scheduled_by", "tenant_memberships", "staff_user_id"),
+        UniqueConstraint("tenant_id", "case_id", "client_follow_up_id"),
+        UniqueConstraint("tenant_id", "consent_record_id"),
+        CheckConstraint("status IN ('SCHEDULED','DUE','CANCELLED')", name="status_values"),
+        Index("ix_follow_up_jobs_due", "status", "due_at"),
+    )
+    case_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    consent_record_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    conversation_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    client_follow_up_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    scheduled_by: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    purpose: Mapped[str] = mapped_column(String(1000))
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(16), default="SCHEDULED", server_default="SCHEDULED")
+    task_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class TaskAssignment(TenantRecord, Base):
     __tablename__ = "task_assignments"
     __table_args__ = tenant_args(

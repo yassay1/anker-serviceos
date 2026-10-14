@@ -53,7 +53,7 @@ class MockServiceAdapter:
             session.execute(insert(MockServiceOperation).values(
                 tenant_id=tenant_id, action_id=action_id,
                 external_reference=f"MOCK-{action_id}", result=self.result,
-            ).on_conflict_do_nothing(index_elements=["tenant_id", "action_id"]))
+            ).on_conflict_do_nothing())
             session.commit()
             row = session.scalar(select(MockServiceOperation).where(
                 MockServiceOperation.tenant_id == tenant_id,

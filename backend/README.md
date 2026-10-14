@@ -48,6 +48,14 @@ uv run --project backend --locked python -m serviceos_api.worker.actions
 
 结果核验按已确认的[功能契约](../specs/008-resolution-verification/contracts/feature-contract.md)执行：每个模拟动作有冻结条件，只有成功 Mock 回执加客户本人明确确认，Case 才进入 `RESOLVED`。客服可读核验记录，但不能代客户确认；旧 Case 状态接口仍拒绝绕过。核验路由与模拟动作一样只在开发/测试环境提供。
 
+客户同意回访后，客服才能在关联会话的 Case 下预约同一目的的一次回访。到期提醒进程只创建分配给预约客服的内部任务，不发送客户消息，也不需要模型配置：
+
+```powershell
+uv run --project backend --locked python -m serviceos_api.worker.followups
+```
+
+`--once` 仅检查并处理一条到期记录，供受控联调。这个进程需与 API 连接同一业务数据库；未启动时预约仍保留为 `SCHEDULED`，不会虚报已提醒。
+
 ## 代码边界
 
 | 位置 | 职责 |

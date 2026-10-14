@@ -9,6 +9,7 @@ from serviceos_api.api.business import router as business_router
 from serviceos_api.api.evidence import router as evidence_router
 from serviceos_api.api.actions import router as actions_router
 from serviceos_api.api.verification import router as verification_router
+from serviceos_api.api.followups import router as followups_router
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.settings import Settings
 
@@ -62,6 +63,7 @@ def create_app(*, database_engine=None, settings: Settings | None = None) -> Fas
     application.include_router(evidence_router)
     application.include_router(actions_router)
     application.include_router(verification_router)
+    application.include_router(followups_router)
     return application
 
 

@@ -20,6 +20,8 @@ export type CaseImageEvidence = components['schemas']['EvidenceRead']
 export type EvidencePage = components['schemas']['EvidencePage']
 export type ResolutionContract = components['schemas']['ResolutionContractRead']
 export type Verification = components['schemas']['VerificationRead']
+export type FollowUpConsent = components['schemas']['FollowUpConsentRead']
+export type FollowUp = components['schemas']['FollowUpRead']
 
 export const api = createClient<paths>({ baseUrl: '/', credentials: 'same-origin' })
 
@@ -199,6 +201,36 @@ export async function recordCaseVerification(caseId: string,
     params: { path: { id: caseId } }, body,
   })
   return requireData(data, error, response, '核验结果未确认，请用原编号重试。')
+}
+
+export async function listFollowUpConsents(caseId: string): Promise<FollowUpConsent[]> {
+  const { data, error, response } = await api.GET('/api/v1/cases/{id}/follow-up-consents', {
+    params: { path: { id: caseId } },
+  })
+  return requireData(data, error, response, '回访同意记录加载失败。')
+}
+
+export async function recordFollowUpConsent(caseId: string,
+  body: components['schemas']['FollowUpConsentRequest']): Promise<FollowUpConsent> {
+  const { data, error, response } = await api.POST('/api/v1/cases/{id}/follow-up-consents', {
+    params: { path: { id: caseId } }, body,
+  })
+  return requireData(data, error, response, '回访同意尚未确认，请用原编号重试。')
+}
+
+export async function listFollowUps(caseId: string): Promise<FollowUp[]> {
+  const { data, error, response } = await api.GET('/api/v1/cases/{id}/follow-ups', {
+    params: { path: { id: caseId } },
+  })
+  return requireData(data, error, response, '回访安排加载失败。')
+}
+
+export async function scheduleFollowUp(caseId: string,
+  body: components['schemas']['FollowUpRequest']): Promise<FollowUp> {
+  const { data, error, response } = await api.POST('/api/v1/cases/{id}/follow-ups', {
+    params: { path: { id: caseId } }, body,
+  })
+  return requireData(data, error, response, '回访预约尚未确认，请用原编号重试。')
 }
 
 export async function listCaseEvidence(caseId: string, cursor?: string): Promise<EvidencePage> {
