@@ -38,6 +38,8 @@
 
 2026-10-13 阶段 2 的代码与离线 PostgreSQL 验收已完成，详见 [阶段 2 验收记录](phase2-validation.md)及[结果分离切片](../specs/001-agent-result-separation/spec.md)。当前本地没有模型 Provider 凭据；真实 LLM 多轮、Provider 兼容性与进程级中断恢复演示尚未执行，不以测试替身冒充。因此阶段 2 的真实 Provider 验收门槛尚未关闭。
 
+2026-10-15 Agent Harness V2 增量已改进授权上下文预算、可追溯的消息摘录记忆、Case 证据/动作/待办状态、按 query 与已核验型号过滤的手册检索，以及按 AgentRun 隔离的 Checkpoint。LangChain 摘要中间件只在运行期达到阈值时触发；没有新增每轮摘要模型调用、迁移或 HTTP 接口。相关实现与本机测试边界见[阶段 2 验收记录](phase2-validation.md)；真实 Provider 验收门槛保持未关闭。
+
 ## 3. 真人与 Agent 共同服务
 
 - [x] `/desk` 同租户会话列表和内部备注（阶段 1 已验收）

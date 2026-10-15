@@ -161,9 +161,11 @@ class MessageWorker:
                     self._complete_job(session, job, lease)
                     return
                 if run is None:
+                    run_id = uuid4()
                     run = AgentRun(
+                        id=run_id,
                         tenant_id=job.tenant_id, job_id=job.id, conversation_id=conversation.id,
-                        message_id=message.id, thread_id=str(conversation.id), lease_token=lease.token,
+                        message_id=message.id, thread_id=str(run_id), lease_token=lease.token,
                         provider="openai-compatible", model=self.settings.llm_model,
                     )
                     session.add(run)
@@ -178,9 +180,17 @@ class MessageWorker:
                 ConversationService.record_agent_progress(session, job.tenant_id, conversation.id,
                                                            run.id, lease.token, "worker_started")
                 run_id = run.id
+                checkpoint_thread_id = run.thread_id
                 related_case_id = message.related_case_id
                 current_text = "\n".join(part.get("text", "") for part in message.content if part.get("type") == "text")
-                context = AgentContextBuilder(session, job.tenant_id).build(conversation.id, message.id)
+                context_started = time.monotonic()
+                context = AgentContextBuilder(session, job.tenant_id).build(
+                    conversation.id, message.id, run_id=run.id,
+                )
+                context["context_budget"]["build_duration_ms"] = int((time.monotonic() - context_started) * 1000)
+                context_memory = context.pop("context_memory", None)
+                if context_memory:
+                    run.result_payload = {**(run.result_payload or {}), "context_memory": context_memory}
                 if run.result_text:
                     stored_result = run.result_text
                     stored_payload = run.result_payload
@@ -200,6 +210,7 @@ class MessageWorker:
                     tenant_id=tenant_id, conversation_id=conversation_id, run_id=run_id,
                     lease_token=lease.token,
                     message_id=message_id, context=context, current_text=current_text,
+                    thread_id=checkpoint_thread_id,
                 )
                 if lost.is_set():
                     raise RuntimeError("worker_lease_lost")
@@ -234,6 +245,11 @@ class MessageWorker:
                         "ui_proposal": result.ui_proposal,
                         "ui_fallback_code": result.ui_fallback_code,
                         "action_proposals": [str(proposal.id) for proposal in proposals],
+                        "context_metrics": {key: stats.get(key) for key in (
+                            "context_tokens_estimated", "prompt_tokens_estimated", "context_history_messages",
+                            "context_digest_items", "context_build_duration_ms",
+                        )},
+                        "tool_call_counts": stats.get("tool_call_counts", {}),
                     }
                     run.result_text = result.text
                     run.result_payload = stored_payload

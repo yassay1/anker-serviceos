@@ -137,7 +137,50 @@ def test_context_history_stops_before_the_current_customer_turn(database_engine,
         session.add_all([before, after])
         session.flush()
         context = AgentContextBuilder(session, tenant.id).build(conversation.id, message.id)
-        assert context["public_history"] == [{"author": "CUSTOMER", "text": "previous customer turn"}]
+        assert len(context["public_history"]) == 1
+        assert context["public_history"][0]["author"] == "CUSTOMER"
+        assert context["public_history"][0]["text"] == "previous customer turn"
+        assert context["public_history"][0]["message_id"] == str(before.id)
+
+
+def test_context_memory_rolls_forward_with_public_source_ids(database_engine):
+    with Session(database_engine) as session:
+        tenant, customer, conversation, source_message, source_job, _ = seed_message(session)
+        now = datetime.now(timezone.utc)
+        source_message.created_at = now - timedelta(minutes=10)
+        source_run = AgentRun(
+            tenant_id=tenant.id, job_id=source_job.id, conversation_id=conversation.id,
+            message_id=source_message.id, thread_id=str(uuid4()), lease_token=uuid4(),
+            provider="test", model="test", result_payload={
+                "context_memory": {"method": "extractive_with_sources", "items": [{
+                    "message_id": str(source_message.id), "author": "CUSTOMER",
+                    "created_at": source_message.created_at.isoformat(), "excerpt": "早先报告没有充电",
+                }]},
+            },
+        )
+        session.add(source_run)
+        for index in range(205):
+            session.add(Message(
+                tenant_id=tenant.id, conversation_id=conversation.id, author_kind="CUSTOMER",
+                author_customer_id=customer.id, visibility="PUBLIC",
+                content=[{"type": "text", "text": f"历史轮次 {index} " + "排查记录 " * 80}],
+                created_at=now - timedelta(seconds=205 - index),
+            ))
+        current = Message(
+            tenant_id=tenant.id, conversation_id=conversation.id, author_kind="CUSTOMER",
+            author_customer_id=customer.id, visibility="PUBLIC",
+            content=[{"type": "text", "text": "现在应该怎么继续排查？"}],
+            created_at=now,
+        )
+        session.add(current)
+        session.flush()
+        context = AgentContextBuilder(session, tenant.id).build(
+            conversation.id, current.id, run_id=uuid4(),
+        )
+        assert all(row["message_id"] != str(source_message.id) for row in context["public_history"])
+        assert any(row["message_id"] == str(source_message.id)
+                   for row in context["context_memory"]["items"])
+        assert context["context_budget"]["estimated_tokens"] <= context["context_budget"]["token_budget"] + 80
 
 
 def test_outbox_dispatch_is_transactional_and_idempotent(database_engine):
@@ -547,8 +590,10 @@ def test_worker_real_progress_and_skill_audit_survive_result_storage(database_en
                 service = AgentToolService(session, kwargs["tenant_id"], kwargs["conversation_id"],
                                            kwargs["run_id"], kwargs["lease_token"])
                 service.load_skill("diagnose-no-charge", "1.0.0")
-                assert "SOURCE:" in service.lookup_manual("SECRET TOOL ARGUMENT")
-                service.lookup_manual("SECRET RETRY")
+                lookup = service.lookup_manual("手机不充电")
+                assert "SOURCE:" in lookup and "手机不充电" not in lookup
+                assert "SECRET TOOL ARGUMENT" not in lookup
+                service.lookup_manual("unknown private query")
                 service.record_proposal("MISSING_EVIDENCE", "INTERNAL DRAFT")
             return AgentResult("请确认型号。"), {"step_count": 3}
 
