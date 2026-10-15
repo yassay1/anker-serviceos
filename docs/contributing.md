@@ -12,7 +12,7 @@
 | Agent 与异步执行 | `backend/serviceos_api/agents/`、`backend/serviceos_api/worker/` | Worker 租约、Checkpoint、应用服务写入和恢复时的副作用 |
 | Web | `frontend/src/` | 当前 API 类型、用户/客服可见性、失败与重试状态 |
 
-这是现有文件位置，不表示每个领域已经有独立模块。当前 `api/business.py` 与 `application/services.py` 包含多个业务对象；拆分时保持原有服务校验和路由契约，避免产生第二套规则。已归档原型不参与活动实现。
+这是现有文件位置，不表示每个领域已经有独立模块。`application/business.py` 承载 Case、Device 与归属校验等业务应用操作，`application/services.py` 承载 Conversation、公开消息与 UI 投影；HTTP 层的 Case/Device 路由位于 `api/resources.py`，会话与认证路由位于 `api/business.py`。继续拆分时保持原有服务校验和路由契约，避免产生第二套规则。已归档原型不参与活动实现。
 
 按模块上手见[前端开发指南](../frontend/README.md)和[后端与 Worker 开发指南](../backend/README.md)。五张设计图的视觉转译见[界面设计指南](ui-design-guidelines.md)，图片中的示意操作仍需依赖真实业务 API。
 

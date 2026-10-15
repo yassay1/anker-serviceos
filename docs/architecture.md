@@ -145,13 +145,13 @@ UI 文档本身不复制业务状态机。`ProgressTimeline` 等组件从 Servic
 - 公开 UI 必须和公开消息一样经过 Conversation Service 的最新 `collaboration_mode`、`reply_policy` 和可见性检查；INTERNAL UI 不进入客户订阅。
 - 建议增加 `ui_schema_validation_error_rate`、`ui_fallback_rate`、`ui_action_rejected_stale_rate`、`ui_action_completion_ms` 和无障碍失败率；不得用组件已渲染代替业务完成指标。
 
-### 8.6 与现有实现的冲突和衔接
+### 8.6 与当前实现的衔接
 
-1. 当前 `AgentRuntime.invoke()` 只返回文本，需未来增加独立结构化输出，不应从自然语言解析组件。
-2. 当前 Context Builder 尚未覆盖 Evidence、ServiceTask、Approval、ActionRecord 和 Skill 执行状态；没有这些权威数据前，不生成相应完成/审批卡。
-3. 当前 React 前端只有固定消息界面和轮询，没有 Renderer、SSE 或组件 Catalog；产品文档中的动态卡片均未实现。
+1. `AgentRuntime.invoke()` 已将文本、受限 `ui_proposal` 和动作草稿引用分开；提案须经服务端校验和 Conversation Service 发布，不能直接作为用户可见 UI 或业务结果。
+2. Context Builder 已按权限读取关联 Case 的证据、任务、模拟动作和审批状态；组件的完成状态仍须绑定权威业务记录与真实回执，不能从模型文本推断。
+3. React 前端已有固定页面框架、受控 Renderer 和 SSE 补取；低风险 UI action 已接入应用服务。完整组件纵切面及真实 Provider 的端到端验收仍以[开发计划](development-plan.md)和验收记录为准。
 4. 已归档的旧 A1229 原型采用单设备 Case、内嵌消息和 Runtime 直接写状态，不符合 V1，不能直接作为 UI 数据源。
-5. 阶段 2 的 Worker/Agent 基础代码与离线数据库验收已经存在，但真实 Provider、多轮质量和强制中断恢复演示仍未验收；Generative UI 的实施不得被计入当前完成范围。
+5. 阶段 2 的真实 Provider 多轮质量和进程强制中断恢复演示仍未验收；已实现的阶段 3 UI 能力不能替代这些验收。
 
 ### 8.7 外部模式的采用范围
 

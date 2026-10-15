@@ -8,8 +8,8 @@ from serviceos_api.main import create_app
 from serviceos_api.settings import Settings
 
 
-def test_every_api_router_module_is_mounted_on_the_real_application():
-    """A router that only tests mount themselves would be unreachable in production."""
+def test_every_api_router_operation_is_mounted_on_the_real_application():
+    """A path with the wrong method or operation ID is not the published contract."""
     modules = sorted(module.name for module in pkgutil.iter_modules(serviceos_api.api.__path__))
     assert modules, "no API router modules were discovered"
     with TestClient(create_app(settings=Settings())) as client:
@@ -19,7 +19,14 @@ def test_every_api_router_module_is_mounted_on_the_real_application():
         if router is None:
             continue
         for route in router.routes:
-            assert route.path in paths, f"serviceos_api.api.{name} is not mounted: {route.path} is missing"
+            for method in route.methods:
+                operation = paths.get(route.path, {}).get(method.lower())
+                assert operation is not None, (
+                    f"serviceos_api.api.{name} is not mounted: {method} {route.path} is missing"
+                )
+                assert operation["operationId"] == route.operation_id, (
+                    f"serviceos_api.api.{name} has a different published operation: {method} {route.path}"
+                )
 
 
 def test_health_contract_and_response_agree():

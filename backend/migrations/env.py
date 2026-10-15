@@ -7,7 +7,7 @@ from serviceos_api.persistence.models import BUSINESS_SCHEMA, Base
 
 config = context.config
 if config.config_file_name:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 
 def include_name(name, type_, parent_names):

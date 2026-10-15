@@ -148,7 +148,9 @@ API 受理写消息、记录待运行任务和 Outbox，回复 202 的持久消�
 7. 某设备历史 Case 带置信状态，不会将模型猜测升级为“设备事实”。
 8. 跨用户/租户访问拒绝，内部备注不会流向公开频道。
 
-## 10. Generative UI 领域与协议（设计，未实现）
+## 10. Generative UI 领域与协议（设计目标与部分已实现能力）
+
+当前已实现 `UIDocument`、受信组件目录、Renderer、读取和刷新 UI 文档的接口，以及低风险 UI action intent。下文的字段表、示例和建议事件描述 V1 设计范围，不逐项代表当前公开契约；实际字段与可调用操作以[已导出的 OpenAPI](../contracts/openapi.json)为准，完整纵切面的完成状态以[开发计划](development-plan.md)为准。
 
 ### 10.1 对象边界
 
@@ -264,7 +266,7 @@ Rule、Capability Resolver 和服务端 UI Policy 在 Agent 之后再次过滤�
 
 建议持久事件：`ui.document.published`、`ui.document.superseded`、`ui.document.expired`、`ui.action.accepted`、`ui.action.rejected`、`ui.action.completed`。事件沿用 conversation sequence 和 PUBLIC/INTERNAL 过滤；payload 传 UI 引用与状态，不重复泄露完整敏感数据。
 
-未来 API 至少需要“读取当前可见 UI 文档/修订”和“提交 UI action intent”两类能力，必须先由真实 Pydantic Schema 和应用服务实现，再注册 OpenAPI 与生成前端 Client；本文不定义返回 200 的占位路由。
+当前已有读取当前可见 UI 文档、刷新文档和提交低风险 UI action intent 的真实路由，由 Pydantic Schema 和应用服务支撑；其字段、权限及可用范围以[已导出的 OpenAPI](../contracts/openapi.json)为准。其余计划能力仍须先完成真实实现，再注册接口和生成前端 Client；本文不定义返回 200 的占位路由。
 
 ### 10.7 必测场景
 
