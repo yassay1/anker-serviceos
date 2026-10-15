@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { ArrowLeft, ClipboardList, ShieldCheck, MessageSquare, CheckCircle2, Clock3 } from 'lucide-react'
 import {
   ApiFailure, type Actor, type CaseAction, type ServiceCase,
   decideActionApproval, listActionApprovals, listCaseActions, listCases, readCase, requestMockAction,
@@ -137,8 +138,8 @@ export function CasesWorkspace({ actor }: { actor: Actor }) {
   const cases = useQuery({ queryKey: queryKeys.cases(actor.tenant_id, actor.actor_id), queryFn: listCases })
   const selected = useQuery({ queryKey: queryKeys.case(actor.tenant_id, actor.actor_id, id ?? ''),
     queryFn: () => readCase(id!), enabled: Boolean(id), refetchInterval: 10_000 })
-  return <section className="cases-page" aria-label="服务案例">
-    <header><h1>服务案例</h1><p>查看服务进度与模拟售后动作。案例与会话、设备档案分别保存。</p></header>
+  return <section className={`cases-page ${id ? 'case-detail-page' : ''}`} aria-label="服务案例">
+    <header>{id && <Link className="breadcrumb" to="/cases"><ArrowLeft size={15} />返回我的服务<span> / </span>服务详情</Link>}<h1>{id ? '服务详情' : '我的服务'}</h1><p>查看服务进度与模拟售后动作。案例与会话、设备档案分别保存。</p></header>
     {cases.isPending && <p>正在读取案例…</p>}
     {cases.isError && <p className="form-error" role="alert">{readableError(cases.error)}</p>}
     {cases.data?.length === 0 && <p>当前账号暂无服务案例。</p>}
@@ -148,11 +149,15 @@ export function CasesWorkspace({ actor }: { actor: Actor }) {
       {!id && <p>选择一个案例查看详情。</p>}
       {id && selected.isPending && <p>正在读取案例详情…</p>}
       {id && selected.isError && <p className="form-error" role="alert">{readableError(selected.error)}</p>}
-      {selected.data && <><h2>{selected.data.problem_text}</h2><p><StatusBadge value={selected.data.status} /> · 版本 {selected.data.version}</p>
+      {selected.data && <><section className="case-record-hero"><span className="case-record-symbol"><ClipboardList size={48} strokeWidth={1.3} /></span><div><StatusBadge value={selected.data.status} /><h1>{selected.data.problem_text}</h1><p>服务编号　<span className="record-id">{selected.data.id}</span></p><p>提交时间　{new Date(selected.data.created_at).toLocaleString('zh-CN')}</p><small>当前记录版本 {selected.data.version} · 仅展示授权可见的信息</small></div></section>
+        <div className="case-state-strip" aria-label="服务记录概况"><div><span className="state-icon"><CheckCircle2 size={23} /></span><strong>已提交问题</strong><time dateTime={selected.data.created_at}>{new Date(selected.data.created_at).toLocaleString('zh-CN')}</time></div><div><span className="state-icon current"><Clock3 size={23} /></span><strong>当前服务状态</strong><StatusBadge value={selected.data.status} /></div><div><span className="state-icon"><ShieldCheck size={23} /></span><strong>结果核验</strong><a href="#case-result">查看实际核验记录</a></div></div>
+        <div className="case-detail-columns"><div className="case-progress-column"><section className="case-progress-record"><h2>服务进展</h2><ol><li><span className="timeline-node current" /><div><strong>当前处理状态</strong><p><StatusBadge value={selected.data.status} /> · 记录版本 {selected.data.version}</p><small>以服务器保存的最新状态为准。</small></div></li><li><span className="timeline-node" /><div><strong>已提交问题</strong><p>{new Date(selected.data.created_at).toLocaleString('zh-CN')}</p><small>问题描述和服务目标已保存。</small></div></li></ol></section>
+        <ActionPanel key={`${actor.actor_id}:${selected.data.id}`} actor={actor} serviceCase={selected.data} /></div><div className="case-main-column">
+        <section className="case-problem surface"><h2>问题描述</h2><h3>故障现象</h3><p>{selected.data.problem_text}</p><h3>期望服务目标</h3><p>{selected.data.user_goal || '尚未补充，可在服务会话中继续沟通。'}</p></section>
         <CaseEvidencePanel key={`evidence:${actor.actor_id}:${selected.data.id}`} actor={actor} serviceCase={selected.data} />
-        <ActionPanel key={`${actor.actor_id}:${selected.data.id}`} actor={actor} serviceCase={selected.data} />
+        </div><div className="case-side-column"><section className="surface service-help"><h2>服务协作</h2><span className="round-icon"><MessageSquare size={25} /></span><h3>问题有人接续，记录随时可查。</h3><p>在原服务会话继续沟通，相关案例、设备档案与附件分别保存。</p><Link className="button-link" to={actor.kind === 'STAFF' ? '/desk' : '/support'}>查看服务会话</Link></section><div id="case-result">
         <VerificationPanel key={`verification:${actor.actor_id}:${selected.data.id}`} actor={actor} serviceCase={selected.data} />
-        <FollowUpPanel key={`follow-up:${actor.actor_id}:${selected.data.id}`} actor={actor} serviceCase={selected.data} /></>}
+        </div><FollowUpPanel key={`follow-up:${actor.actor_id}:${selected.data.id}`} actor={actor} serviceCase={selected.data} /></div></div></>}
     </div></div>
   </section>
 }

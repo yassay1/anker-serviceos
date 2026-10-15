@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useSearchParams } from 'react-router-dom'
 import { type Actor, loginLocal, logout, readActor } from '../api/client'
 import { ConversationWorkspace } from '../features/conversation/ConversationWorkspace'
 import { readableError } from '../shared/errors'
@@ -9,6 +9,9 @@ import { queryKeys } from './queryKeys'
 import { DevicesWorkspace } from '../features/devices/DevicesWorkspace'
 import { CasesWorkspace } from '../features/cases/CasesWorkspace'
 import { LogOut, ShieldCheck } from 'lucide-react'
+import { CustomerHome } from '../features/overview/CustomerHome'
+import { DeskOverview } from '../features/overview/DeskOverview'
+import { StaffNavigation } from './StaffNavigation'
 
 function LoginPanel() {
   const queryClient = useQueryClient()
@@ -59,7 +62,7 @@ function LoginPanel() {
   )
 }
 
-function AccountHeader({ actor }: { actor: Actor }) {
+export function AccountHeader({ actor }: { actor: Actor }) {
   const queryClient = useQueryClient()
   const [error, setError] = useState('')
 
@@ -83,7 +86,8 @@ function AccountHeader({ actor }: { actor: Actor }) {
   )
 }
 
-export function ServicePage({ desk = false, devices = false, cases = false }: { desk?: boolean, devices?: boolean, cases?: boolean }) {
+export function ServicePage({ desk = false, devices = false, cases = false, home = false }: { desk?: boolean, devices?: boolean, cases?: boolean, home?: boolean }) {
+  const [searchParams] = useSearchParams()
   const actor = useQuery({ queryKey: queryKeys.actor, queryFn: readActor, retry: false, staleTime: 0 })
   if (actor.isPending) return <p className="loading-state">正在确认登录状态…</p>
   if (actor.isError) return <section className="access-note" role="alert">
@@ -96,9 +100,12 @@ export function ServicePage({ desk = false, devices = false, cases = false }: { 
   if (desk && actor.data.kind !== 'STAFF') return <section className="access-note">
     <h1>此页面仅供客服使用</h1><p>当前身份是客户，请使用用户服务入口。</p><NavLink to="/support">返回用户服务</NavLink>
   </section>
-  if (!desk && !devices && !cases && actor.data.kind === 'STAFF') return <section className="access-note">
+  if (!home && !desk && !devices && !cases && actor.data.kind === 'STAFF') return <section className="access-note">
     <h1>已以客服身份登录</h1><p>请到客服工作区查看会话。</p><NavLink to="/desk">前往客服工作区</NavLink>
   </section>
   const identity = `${actor.data.tenant_id}:${actor.data.actor_id}:${actor.data.kind}`
-  return <><AccountHeader key={`account:${identity}`} actor={actor.data} />{cases ? <CasesWorkspace key={`cases:${identity}`} actor={actor.data} /> : devices ? <DevicesWorkspace key={`devices:${identity}`} actor={actor.data} /> : <ConversationWorkspace key={`conversation:${identity}:${desk}`} actor={actor.data} desk={desk} />}</>
+  return <div className={`service-shell ${actor.data.kind === 'STAFF' ? 'staff-shell' : 'customer-shell'}`}>
+    {actor.data.kind === 'STAFF' && <StaffNavigation />}
+    <div className="service-content">{home ? actor.data.kind === 'STAFF' ? <DeskOverview key={identity} actor={actor.data} /> : <CustomerHome key={identity} actor={actor.data} /> : desk && searchParams.get('view') === 'overview' ? <DeskOverview key={identity} actor={actor.data} /> : cases ? <CasesWorkspace key={`cases:${identity}`} actor={actor.data} /> : devices ? <DevicesWorkspace key={`devices:${identity}`} actor={actor.data} /> : <ConversationWorkspace key={`conversation:${identity}:${desk}`} actor={actor.data} desk={desk} />}</div>
+  </div>
 }

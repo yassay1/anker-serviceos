@@ -12,7 +12,7 @@ npm ci
 npm run dev
 ```
 
-Vite 在 `http://127.0.0.1:5173` 启动，`/support` 是客户入口，`/desk` 是客服入口，`/cases` 查看案例与模拟动作；`/api` 代理到 `http://127.0.0.1:8000`。预览构建使用 4173。实际端口和代理以 [`vite.config.ts`](vite.config.ts) 为准。前端独立启动只会显示连接状态；需要业务数据时仍须启动 API 和数据库。
+Vite 在 `http://127.0.0.1:5173` 启动，`/` 是客户首页（客服身份显示总览），`/support` 是客户会话入口，`/desk?view=overview` 是客服总览，`/desk` 保持原客服会话台，`/cases` 查看案例与模拟动作；`/api` 代理到 `http://127.0.0.1:8000`。预览构建使用 4173。实际端口和代理以 [`vite.config.ts`](vite.config.ts) 为准。前端独立启动只会显示连接状态；需要业务数据时仍须启动 API 和数据库。
 
 ## 代码入口与数据流
 
@@ -26,7 +26,8 @@ Vite 在 `http://127.0.0.1:5173` 启动，`/support` 是客户入口，`/desk` �
 | `src/features/ui-document/` | 受控 UI 文档渲染与低风险 action intent |
 | `src/features/devices/` | 设备档案、已核验事实、关联案例历史和客服事实归档流程 |
 | `src/features/cases/` | 案例列表、图片证据上传与检查状态、授权预览、模拟动作请求、主管审批、真实 Mock 回执与客户结果核验；未知提交保留原编号 |
-| `src/styles/base.css`、`src/styles/workspace.css` | 基础视觉样式和工作区响应式布局 |
+| `src/features/overview/` | 客户首页与客服总览，仅聚合当前 Client 的真实记录；首页新建独立会话并传递待确认草稿 |
+| `src/styles/base.css`、`src/styles/workspace.css`、`src/styles/surfaces.css` | 设计令牌、业务组件样式、五张参考图的页面组合与响应式布局 |
 | `src/api/client.ts` | 类型化请求封装与错误处理 |
 | `src/api/schema.d.ts` | 从仓库根目录的 `contracts/openapi.json` 生成的类型 |
 
@@ -69,7 +70,7 @@ npm run test:browser
 
 `/devices` 与 `/devices/:id` 接入真实设备、关联案例和 Case 来源事实接口。客服可保存候选、核验事实，并在来源 Case 解决后归档或撤销；客户只看到可信档案事实。设备身份、已核验事实及案例状态分别展示；无权访问指定 ID 时不替换成另一条记录。
 
-`npm run test:browser` 运行 31 个 HTTP 受控用例，包括六组桌面/手机 axe 检查。`npm run test:live` 使用本机真实 API 与 PostgreSQL；先按根 README 迁移并初始化回环 `serviceos_dev`，保持开发认证与数据库环境变量可被测试进程继承。Live 配置自行启动 API/Vite，拒绝复用已有服务，端口保持 8000/5173；只在隔离测试数据库中执行，不指向生产数据库。CI 在临时 PostgreSQL 中创建该开发库后运行两条真实浏览器路径。它们检查持久消息、人工接管、模式、公开/内部隔离、设备历史与跨客户/租户拒绝；不验证模型、外部 Anker 操作或 SSE 强制断线恢复。当前范围与证据见[完整适配记录](../docs/backend-based-frontend-validation.md)。
+`npm run test:browser` 运行 81 个 HTTP 受控用例，包括十二组桌面/手机 axe 检查。`npm run test:live` 使用本机真实 API 与 PostgreSQL；先按根 README 迁移并初始化回环 `serviceos_dev`，保持开发认证与数据库环境变量可被测试进程继承。Live 配置自行启动 API/Vite，拒绝复用已有服务，端口保持 8000/5173；只在隔离测试数据库中执行，不指向生产数据库。CI 在临时 PostgreSQL 中创建该开发库后运行两条真实浏览器路径。它们检查持久消息、人工接管、模式、公开/内部隔离、设备历史与跨客户/租户拒绝；不验证模型、外部 Anker 操作或 SSE 强制断线恢复。当前范围与证据见[完整适配记录](../docs/backend-based-frontend-validation.md)。
 
 五张 Web 图在[设计参考目录](../docs/design-references/README.md)；[界面设计指南](../docs/ui-design-guidelines.md)将图片拆成可实现的样式、页面和状态要求。截图是视觉参考，截图中的设备、数字、诊断和服务进度不是业务数据。
 
