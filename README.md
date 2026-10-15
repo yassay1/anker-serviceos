@@ -13,6 +13,7 @@
 - [领域与接口契约](docs/domain-and-contracts.md)：对象关系、状态、权限、Generative UI 数据结构与计划 API。
 - [开发实施计划](docs/development-plan.md)：各阶段真实完成状态。
 - [现有项目合并与归档说明](docs/baseline-integration.md)：V1 差异处理、复用边界、增量任务和验收。
+- [黑客松赛题参考资料](data/reference/hackathon/README.md)：团队共享的赛题流程与完整数据文件；不属于运行时知识库。
 - [Agent 工程规则](AGENTS.md)。
 - [协作开发指南](docs/contributing.md)：模块边界、契约变更、并行开发与集成检查。
 - [V1 接口提案](contracts/proposed/v1/README.md)：当前真实接口与阶段 4 计划接口的统一 OpenAPI 目标；计划操作尚不可调用。
@@ -50,6 +51,7 @@ backend/migrations/       独立 PostgreSQL 业务 Schema 的 Alembic 迁移
 contracts/openapi.json   从实际 API 代码生成
 contracts/proposed/v1/    前后端协作用的完整 V1 接口提案；planned 操作未实现
 backend/serviceos_api/knowledge/ Agent 只读本地手册资料
+data/reference/hackathon/  团队共享的赛题参考资料（不随应用打包）
 .agents/skills/           开发工作流 Skill，与业务 Skill 分离
 .specify/                 Spec Kit 工作流、模板与工程宪章
 specs/                    按 V1 新建的活动功能切片
