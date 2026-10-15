@@ -23,6 +23,9 @@ test('real API: persisted conversation, human handoff and PUBLIC/INTERNAL separa
     const customer = await customerContext.newPage()
     const staff = await staffContext.newPage()
     await login(customer, 'customer-a')
+    // The rebuilt customer workspace keeps its conversation list inside a closed <details>
+    // disclosure (the staff desk opens it by default), so it has to be expanded first.
+    await customer.locator('.conversation-selector summary').click()
     await customer.getByRole('button', { name: '新建会话', exact: true }).click()
     await expect(customer.getByLabel('描述你的问题')).toBeVisible()
     await expect.poll(() => new URL(customer.url()).searchParams.get('conversation')).toMatch(/^[0-9a-f-]{36}$/)
