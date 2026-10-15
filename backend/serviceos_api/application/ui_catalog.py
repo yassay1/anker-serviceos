@@ -91,6 +91,8 @@ def validate_components(components: list[dict], audience: str,
         if options and kind not in OPTION_TYPES:
             raise ServiceError(422, "此组件不能携带选项。")
         options = _safe_options(options)
+        if kind in OPTION_TYPES and not options:
+            raise ServiceError(422, "UI 选项数量不足。")
         props = item["props"]
         if not isinstance(props, dict) or set(props) != set(CATALOG[kind]):
             raise ServiceError(422, "UI 组件属性不符合目录。")

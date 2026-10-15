@@ -50,9 +50,9 @@
 | 成功 | 提案带合法 `options` → 文档含 `ChoiceGroup`（在 ActionBar 之后）→ 客户点一项 → 产生一条 CUSTOMER/PUBLIC 消息 → Agent 回话并刷新卡片 | `backend/tests/test_ui_catalog.py`、`frontend/tests/delivery-readiness.spec.ts`、真实浏览器手测 |
 | 无权限或跨租户 | 客户文档不得出现 `CASE_VIEW`/`TASK_VIEW` 来源；客服文档不出现客户 `ChoiceGroup` | 现有 `validate_components` 断言保持 |
 | 输入不合法或风险拒绝 | 选项少于 2 项、多于 5 项、label 含标签/URL、value 非 slug、label 或 value 重复 → 提案判废、退回文本，不发布卡片 | `backend/tests/test_agent_result.py` |
-| 重复请求与并发竞争 | 连点同一个选项：前端每次用新的 `client_message_id`；服务端按现有消息幂等处理，重复不产生第二条消息 | `frontend/tests/` 现有提交路径用例 |
+| 重复请求与并发竞争 | 同一修订提交后禁用再次点选；回执未知时待发送消息保留原 `client_message_id`，从消息列表用原请求重试，服务端幂等复用 | `frontend/tests/delivery-readiness.spec.ts` 同键重试用例 |
 | 过期版本 | 文档 revision 回退或已过期时选项禁用，只能回到文字路径 | `frontend/tests/delivery-readiness.spec.ts` |
-| 断线、超时与恢复 | 提交失败时给出可读错误并保留未发送草稿，文字路径始终可用 | 同上 |
+| 断线、超时与恢复 | 提交失败时显示待发送消息和可读错误，保留原请求供手动重试；文字路径始终可用 | 同上 |
 
 ## 5. 变更与落地记录
 

@@ -323,6 +323,29 @@ test('delivery UI: clicking a choice sends it as an ordinary customer message', 
   expect(await region.getByRole('button', { name: '请求人工协助' }).count()).toBe(1)
 })
 
+test('delivery UI: an uncertain choice retries with its original message id', async ({ page }) => {
+  const state = await fixture(page, false)
+  const attempts: string[] = []
+  await page.route('**/ui-document/refresh', route => route.fulfill({
+    json: withChoices(state, [{ label: '指示灯完全不亮', value: 'no-light' }, { label: '指示灯常亮', value: 'steady' }]),
+  }))
+  await page.route('**/api/v1/conversations/*/messages', async route => {
+    attempts.push((route.request().postDataJSON() as S['SendMessage']).client_message_id)
+    if (attempts.length === 1) return route.fulfill({ status: 503, json: { detail: '暂时不可用' } })
+    await route.fallback()
+  })
+  await page.goto('/support')
+  const region = page.getByRole('region', { name: '服务交互卡', exact: true })
+  await region.getByRole('button', { name: '指示灯完全不亮' }).click()
+  await expect(region.getByRole('status')).toContainText('发送结果未确认')
+  await expect(region.getByRole('button', { name: '指示灯常亮' })).toBeDisabled()
+  await page.getByRole('button', { name: '用原消息重试' }).click()
+  await expect.poll(() => state.sent.length).toBe(1)
+  expect(attempts).toHaveLength(2)
+  expect(attempts[1]).toBe(attempts[0])
+  expect(state.sent[0].client_message_id).toBe(attempts[0])
+})
+
 test('delivery UI: choices disappear at expiry and the text path stays available', async ({ page }) => {
   const state = await fixture(page, false)
   const document = withChoices(state, [{ label: '指示灯完全不亮', value: 'no-light' }, { label: '指示灯常亮', value: 'steady' }])
@@ -351,6 +374,7 @@ test('delivery UI: an archived conversation disables every card control and the 
 })
 
 for (const [name, options] of [
+  ['empty', []],
   ['single', [{ label: '只有一个', value: 'only' }]],
   ['unsafe-label', [{ label: '<img src=x onerror=alert(1)>', value: 'ok' }, { label: '乙', value: 'ok-2' }]],
   ['bad-slug', [{ label: '甲', value: 'Not A Slug' }, { label: '乙', value: 'ok' }]],

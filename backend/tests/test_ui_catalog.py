@@ -60,6 +60,7 @@ def test_choice_group_carries_inert_options_only():
 
 
 @pytest.mark.parametrize("options", [
+    [],
     [{"label": "只有一个", "value": "only"}],
     [{"label": f"选项{n}", "value": f"c-{n}"} for n in range(6)],
     [{"label": "x", "value": "Not A Slug"}],

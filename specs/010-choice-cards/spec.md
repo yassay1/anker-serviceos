@@ -48,7 +48,7 @@
 - 选项少于 2 项或多于 5 项；label 与 value 各自重复。
 - `ChoiceGroup` 试图携带 `actions`（必须被拒，与现有非 ActionBar 规则一致）。
 - 体验库中已存在的 `catalog_version = 1` 文档在新前端下仍须正常渲染。
-- 客户连点同一选项、提交失败后重试、断线后重连。
+- 客户连点同一选项、回执未知后使用原消息编号重试、断线后重连。
 
 ## Requirements
 

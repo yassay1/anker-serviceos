@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CircleHelp, FileText, Headphones, ListChecks, ShieldAlert, UsersRound } from 'lucide-react'
-import { ApiFailure, type UIActionBody, type UIDocument, invokeUIAction, sendMessage } from '../../api/client'
+import { ApiFailure, type UIActionBody, type UIDocument, invokeUIAction } from '../../api/client'
 import { StatusBadge } from '../../shared/StatusBadge'
 import { clearPendingAction, readPendingAction, savePendingAction } from './actionRecovery'
 
@@ -20,10 +20,10 @@ const optionSlug = /^[a-z0-9-]{1,32}$/
 
 /** Choices are inert: a label to send and a stable slug. Only the collecting types may carry them. */
 function validOptions(value: unknown, type: string): boolean {
-  if (value === undefined) return true
+  if (value === undefined) return type !== 'ChoiceGroup'
   if (!Array.isArray(value) || value.length > 5) return false
+  if (type === 'ChoiceGroup' && value.length < 2) return false
   if (value.length && !optionTypes.has(type)) return false
-  if (value.length === 1) return false
   const labels = new Set<string>()
   const slugs = new Set<string>()
   return value.every(option => {
@@ -81,7 +81,7 @@ function errorText(error: unknown) {
   return error instanceof Error ? error.message : '交互卡暂不可用，请使用文字消息。'
 }
 
-export function UIDocumentRenderer({ document, conversationId, conversationVersion, active, desk, recoveryKey, loading = false, onReply, onCompleted, onRefresh }: {
+export function UIDocumentRenderer({ document, conversationId, conversationVersion, active, desk, recoveryKey, loading = false, onReply, onChoose, onCompleted, onRefresh }: {
   document: UIDocument | null
   conversationId: string
   conversationVersion: number
@@ -90,6 +90,7 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
   recoveryKey: string
   loading?: boolean
   onReply?: () => void
+  onChoose?: (label: string) => Promise<boolean>
   onCompleted: () => void
   onRefresh: () => void
 }) {
@@ -100,7 +101,7 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
   const [result, setResult] = useState('')
   // Choice feedback is kept apart from the assistance result: sending a choice must not
   // hide the assistance action, which stays available for the rest of the conversation.
-  const [choiceSent, setChoiceSent] = useState('')
+  const [choiceSubmission, setChoiceSubmission] = useState<{ uiId: string, revision: number, status: string } | null>(null)
   const [, tick] = useState(0)
   const latest = useRef<{ uiId: string, revision: number } | null>(null)
   const audienceMatches = isRecord(document) && document.audience === (desk ? 'STAFF' : 'CUSTOMER') &&
@@ -120,6 +121,7 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
     document.schema_version === 1 && [1, 2].includes(document.catalog_version) && document.status === 'ACTIVE' &&
     (desk ? document.surface === 'DESK_PANEL' : ['SUPPORT_INLINE', 'SUPPORT_PANEL'].includes(document.surface)) &&
     (expires === null || expires > Date.now()) && validComponents(document.components, conversationId, conversationVersion, desk)
+  const choiceSubmitted = Boolean(document && choiceSubmission?.uiId === document.ui_id && choiceSubmission.revision === document.revision)
 
   function updatePending(body: UIActionBody) {
     savePendingAction(recoveryKey, body)
@@ -149,24 +151,21 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
     }
   }
   async function choose(label: string) {
-    // A choice is an ordinary customer message: the existing message endpoint revalidates
-    // identity, case link and idempotency, so no new write surface is introduced here.
-    if (busy || !active || !supported || !document || (expires !== null && expires <= Date.now())) return
+    // The workspace queues this as an ordinary customer message and retains its idempotency key
+    // for a retry when the transport result is unknown.
+    if (busy || choiceSubmitted || !onChoose || !active || !supported || !document || (expires !== null && expires <= Date.now())) return
     setBusy(true)
     setError('')
-    setChoiceSent('')
+    setChoiceSubmission({ uiId: document.ui_id, revision: document.revision, status: '正在发送选项…' })
     try {
-      await sendMessage(conversationId, {
-        client_message_id: crypto.randomUUID(),
-        content: [{ type: 'text', text: label }],
-        related_case_id: null,
-        visibility: 'PUBLIC',
-      })
-      setChoiceSent(`已发送：${label}`)
-      onCompleted()
+      const saved = await onChoose(label)
+      setChoiceSubmission({ uiId: document.ui_id, revision: document.revision,
+        status: saved ? `已发送：${label}` : '发送结果未确认，请在消息列表中用原消息重试。' })
+      if (saved) onCompleted()
     } catch (failure) {
       setError(errorText(failure))
-      onRefresh()
+      setChoiceSubmission({ uiId: document.ui_id, revision: document.revision,
+        status: '发送结果未确认，请在消息列表中用原消息重试。' })
     } finally {
       setBusy(false)
     }
@@ -187,7 +186,7 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
     <input id="pending-assistance-reason" value={String(pending.input.reason)} disabled />
     <button type="button" disabled={busy} onClick={() => void submit(pending)}>{busy ? '正在查询…' : '用原请求重试'}</button>
   </div>
-  const feedback = <>{recovery}{result && <p role="status">{result}</p>}{choiceSent && <p role="status">{choiceSent}</p>}{error && <p className="form-error" role="alert">{error}</p>}</>
+  const feedback = <>{recovery}{result && <p role="status">{result}</p>}{choiceSubmitted && <p role="status">{choiceSubmission?.status}</p>}{error && <p className="form-error" role="alert">{error}</p>}</>
 
   if (!supported || !document) return <section className="ui-document" aria-label={desk ? '客服交互卡' : '服务交互卡'}>
     <p className="ui-fallback">{loading ? '正在加载交互卡…' : audienceMatches && isText(document?.fallback_text) ? document.fallback_text : '暂无可用交互卡；可继续使用文字消息。'}</p>
@@ -215,7 +214,7 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
         {component.type === 'ChoiceGroup' && !desk && <div className="ui-choices">
           <small>选一个最接近的情况，也可以直接用文字回答。</small>
           <div role="group" aria-label={component.props.title}>
-            {(component.options ?? []).map(option => <button type="button" key={option.value} disabled={busy || !active}
+            {(component.options ?? []).map(option => <button type="button" key={option.value} disabled={busy || choiceSubmitted || !active || !onChoose}
               onClick={() => void choose(option.label)}>{option.label}</button>)}
           </div>
         </div>}
