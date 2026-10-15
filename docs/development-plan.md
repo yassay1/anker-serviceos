@@ -40,6 +40,8 @@
 
 2026-10-15 Agent Harness V2 增量已改进授权上下文预算、可追溯的消息摘录记忆、Case 证据/动作/待办状态、按 query 与已核验型号过滤的手册检索，以及按 AgentRun 隔离的 Checkpoint。LangChain 摘要中间件只在运行期达到阈值时触发；没有新增每轮摘要模型调用、迁移或 HTTP 接口。相关实现与本机测试边界见[阶段 2 验收记录](phase2-validation.md)；真实 Provider 验收门槛保持未关闭。
 
+2026-10-15 经验沉淀增量：正式 `VERIFIED_RESOLVED` 核验会在同一事务创建空白、来源可追溯的经验候选；客服可整理，主管/管理员审核，批准后只向同租户且型号已核验、关键词命中的 Agent context 提供最多 2 条参考案例。来源 Case 重开或存在更新核验时不再复用；不自动总结客户消息、不写入设备事实、不发布 Skill/SOP。验收范围与环境限制见[经验沉淀验收记录](experience-learning-validation.md)。
+
 ## 3. 真人与 Agent 共同服务
 
 - [x] `/desk` 同租户会话列表和内部备注（阶段 1 已验收）

@@ -382,6 +382,45 @@ class CaseVerification(TenantRecord, Base):
     case_status: Mapped[str] = mapped_column(String(24))
 
 
+class ExperienceCandidate(TenantRecord, Base):
+    """A human-curated, non-authoritative lesson from one verified resolution."""
+    __tablename__ = "experience_candidates"
+    __table_args__ = tenant_args(
+        tenant_reference("source_case_id", "service_cases"),
+        tenant_reference("source_verification_id", "case_verifications"),
+        UniqueConstraint("tenant_id", "source_verification_id"),
+        CheckConstraint("status IN ('DRAFT','PENDING_REVIEW','APPROVED','REJECTED','REVOKED')", name="status_values"),
+        CheckConstraint("version >= 1", name="version_positive"),
+        Index("ix_experience_candidates_status", "tenant_id", "status", "updated_at"),
+    )
+    source_case_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    source_verification_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    content: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(24), default="DRAFT", server_default="DRAFT")
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    authored_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ExperienceReview(TenantRecord, Base):
+    """Append-only supervisor decisions for candidate review and revocation."""
+    __tablename__ = "experience_reviews"
+    __table_args__ = tenant_args(
+        tenant_reference("candidate_id", "experience_candidates"),
+        tenant_reference("reviewer_id", "tenant_memberships", "staff_user_id"),
+        UniqueConstraint("tenant_id", "candidate_id", "decision_id"),
+        CheckConstraint("decision IN ('APPROVED','REJECTED','REVOKED')", name="decision_values"),
+        CheckConstraint("candidate_version >= 1", name="candidate_version_positive"),
+    )
+    candidate_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    reviewer_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    decision_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    candidate_version: Mapped[int] = mapped_column(Integer)
+    decision: Mapped[str] = mapped_column(String(16))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    reason: Mapped[str] = mapped_column(Text)
+
+
 class DeviceFact(TenantRecord, Base):
     __tablename__ = "device_facts"
     __table_args__ = tenant_args(
