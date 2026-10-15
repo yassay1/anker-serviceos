@@ -105,6 +105,10 @@
 
 CI 使用同源契约和关键业务回归。旧原型目录已完成项目外归档，不再是待迁移的活动工程；重新设计旧 spec 或从归档选择性复用模块时，须另建明确任务并通过 V1 边界审查。
 
+## 用户表达理解与回应 Skill 增量（基础实现完成，效果待评测）
+
+`agents/runtime.py` 已加入短的常驻规则，并按 `application/skills.py` 中少量明确中文短语，在 system prompt 临时附加详细回应指导。该短语门控是启发式，不是分类器或经售后数据验证的模型；结构化 `emotion-assessment` 仍为 `PREPARED`，没有进入可调用 Skill 列表。指导只改变当前回复的措辞与解释顺序，不持久化情绪标签，也不经模型工具调用写入 Checkpoint。它不改变业务事实、工具权限、审批条件、协作模式、Case/Device 状态、公开发布校验或持久化契约。实现范围、限制和评测门槛见[设计计划](emotion-understanding-response-skill.md)。真实模型和中文售后人工评测仍待完成。
+
 ## Generative UI 增量清单
 
 | ID | 依赖 | 工作 | 验收 |

@@ -10,10 +10,15 @@ from sqlalchemy import select
 
 from serviceos_api.api.dependencies import get_actor, get_session
 from serviceos_api.api.skills import router
+from serviceos_api.agents.runtime import build_system_prompt
 from serviceos_api.application.agent_services import AgentContextBuilder, AgentToolService
 from serviceos_api.application.auth import Principal
 from serviceos_api.application.errors import ServiceError
-from serviceos_api.application.skills import EmotionAssessment, SkillService
+from serviceos_api.application.skills import (
+    ServiceExpressionSignal,
+    SkillService,
+    needs_service_expression_guidance,
+)
 from serviceos_api.persistence.models import AgentRun, Message, StaffUser, Tenant
 from test_worker_runtime import seed_message
 
@@ -103,28 +108,44 @@ def test_skill_loading_and_manual_lookup_are_fenced(db_session, invalid):
 
 
 def emotion_data():
-    return dict(category="frustrated", intensity=0.7, confidence=0.6,
-                uncertainty="仅为未核验的辅助信号", source_message_ids=[uuid4()],
-                recommended_strategy="empathetic")
+    return dict(valence="negative", cue="frustration", evidence="explicit",
+                source_message_ids=[uuid4()])
 
 
-def test_emotion_contract_is_prepared_not_an_inference():
-    result = EmotionAssessment(**emotion_data())
-    assert result.verification_status == "UNVERIFIED"
-    assert result.recommended_strategy == "empathetic"
+def test_prepared_emotion_signal_contract_is_coarse():
+    result = ServiceExpressionSignal(**emotion_data())
+    assert result.valence == "negative"
+    assert result.cue == "frustration"
+    assert result.evidence == "explicit"
 
 
 @pytest.mark.parametrize("patch", [
-    {"intensity": -0.1}, {"intensity": 1.1}, {"confidence": float("nan")},
-    {"confidence": 1.1}, {"confidence": "0.5"}, {"intensity": True},
-    {"source_message_ids": []}, {"uncertainty": ""}, {"category": "diagnosed"},
-    {"recommended_strategy": "refund"}, {"recommended_strategy": "close_case"},
-    {"recommended_strategy": "change_mode"}, {"raw_reasoning": "private"},
-    {"verification_status": "VERIFIED"},
+    {"source_message_ids": []}, {"source_message_ids": [uuid4(), uuid4()]},
+    {"valence": "angry"}, {"cue": "rage"}, {"evidence": "0.99"},
+    {"raw_reasoning": "private"}, {"recommended_strategy": "refund"},
 ])
 def test_emotion_contract_rejects_unbounded_or_authorizing_fields(patch):
     with pytest.raises(ValidationError):
-        EmotionAssessment(**(emotion_data() | patch))
+        ServiceExpressionSignal(**(emotion_data() | patch))
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("你们一直没解决，我很失望", True),
+    ("我看不懂这一步", True),
+    ("担心继续充电会不会有问题", True),
+    ("谢谢，已经解决了", False),
+    ("设备序列号是 ABC123", False),
+])
+def test_service_expression_guidance_gate_is_lightweight(text, expected):
+    assert needs_service_expression_guidance(text) is expected
+
+
+def test_service_expression_guidance_is_only_injected_for_triggered_turns():
+    neutral = build_system_prompt("设备序列号是 ABC123")
+    triggered = build_system_prompt("你们一直没解决，我很失望")
+    assert "当前轮回复指导" not in neutral
+    assert "当前轮回复指导" in triggered
+    assert "不虚构时限" in triggered
 
 
 def test_staff_skill_api_enforces_pagination_tenant_and_safe_projection(db_session):

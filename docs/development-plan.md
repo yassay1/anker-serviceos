@@ -79,6 +79,17 @@
 2026-10-16：团队已取得官方提供、已脱敏的黑客松赛题参考数据，见 [`data/reference/hackathon/`](../data/reference/hackathon/README.md)。它可补充场景和评测样例来源，但尚未形成标注基准集、可重复评测流程、动作审计覆盖或指标，因此本项保持未完成。
 - **验收**：从报障到诊断、协作、动作、核验；失败/拒绝分支同样可运行
 
+## 后续增量：用户表达理解与回应指导（基础实现完成，效果待评测）
+
+此项不改变以上已记录阶段的验收状态。详细实现边界见[用户表达理解与回应 Skill 设计计划](emotion-understanding-response-skill.md)。常驻基线和短语门控的 system prompt 指导已实现；真实模型效果和中文售后人工评测尚未完成。结构化 `emotion-assessment` 仍为不可调用的 `PREPARED` 契约。
+
+- [x] 定义粗粒度、可不确定的临时服务感受信号，不引入客户心理画像或业务风险评分。
+- [x] 在 Agent 提示词中加入简短中性基线及轻量条件注入的售后回应指导，不增加专用模型或工具调用。
+- [x] 限制信号只影响措辞和解释顺序；人工接续与敏感操作继续使用既有授权流程。
+- [x] 不跨轮持久化情绪判断；不改 Checkpoint、消息、Case、Device Passport 或权限契约。
+
+中文售后人工标注评测门槛仍待另行确定；当前勾选仅表示以上基础实现完成，不代表真实模型验收或上线准入通过。
+
 ## 5. 交付/部署
 
 - [x] Dockerfiles + Compose 本地集成环境（生产/开发配置分离）：`compose.yaml`、`compose.production.yaml`、`deploy/compose.test.yaml` 三种配置可独立校验；独立 API/Worker 进程、一次性迁移、持久卷、Nginx SSE 与 HTTPS 模板已就位。本机镜像构建受网络限制，实际构建/重启演练见[阶段 5 验收记录](phase5-validation.md)。

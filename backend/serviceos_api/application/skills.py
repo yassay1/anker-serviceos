@@ -5,7 +5,7 @@ from types import MappingProxyType
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import and_, case, cast, func, literal, or_, select, true
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
@@ -16,24 +16,14 @@ from serviceos_api.application.services import ConversationService
 from serviceos_api.persistence.models import AgentRun, Conversation
 
 
-class EmotionAssessment(BaseModel):
-    """Prepared only. No producer, classifier, or authorized state transition exists."""
+class ServiceExpressionSignal(BaseModel):
+    """Transient prompt-side cue schema; not emitted or persisted as an Agent result."""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
-    category: Literal["unknown", "neutral", "frustrated", "angry", "anxious", "confused", "satisfied"]
-    intensity: float = Field(ge=0, le=1, allow_inf_nan=False)
-    confidence: float = Field(ge=0, le=1, allow_inf_nan=False)
-    uncertainty: str = Field(min_length=1, max_length=500)
-    source_message_ids: list[UUID] = Field(min_length=1, max_length=8)
-    recommended_strategy: Literal["neutral", "empathetic", "concise", "offer_human"]
-    verification_status: Literal["UNVERIFIED"] = "UNVERIFIED"
-
-    @field_validator("uncertainty")
-    @classmethod
-    def nonblank_uncertainty(cls, value):
-        if not value.strip():
-            raise ValueError("uncertainty_required")
-        return value
+    valence: Literal["negative", "neutral", "positive", "unclear"]
+    cue: Literal["frustration", "confusion", "concern", "gratitude", "none", "unclear"]
+    evidence: Literal["explicit", "suggested", "insufficient"]
+    source_message_ids: list[UUID] = Field(min_length=1, max_length=1)
 
 
 class SkillInput(BaseModel):
@@ -80,13 +70,13 @@ SKILL_REGISTRY = MappingProxyType({
         failure_exit="型号或安全条件不明时停止具体排查，说明证据缺口并建议人工协助。",
     ),
     ("emotion-assessment", "1.0.0"): SkillDefinition(
-        skill_id="emotion-assessment", version="1.0.0", title="情绪辅助评估（契约预备）",
-        description="尚未启用识别，不产生情绪判断；未来结果也仅为未核验的服务辅助信号。",
+        skill_id="emotion-assessment", version="1.0.0", title="服务感受信号契约（预备）",
+        description="结构化信号契约尚未启用；当前 Agent 仅使用轻量提示指导调整回复语言。",
         availability="PREPARED", input_schema=SkillInput.model_json_schema(),
-        output_schema=EmotionAssessment.model_json_schema(),
+        output_schema=ServiceExpressionSignal.model_json_schema(),
         applicability=("PREPARED_NOT_CALLABLE", "AUTHORIZED_PUBLIC_CUSTOMER_MESSAGE"),
         allowed_tools=(), allowed_ui_components=(), risk_level="LOW",
-        failure_exit="保持中性服务表达；不得自动退款、换货、关单或改变协作模式。",
+        failure_exit="保持中性服务表达；不得自动转人工、执行售后动作或改变协作模式。",
     ),
 })
 
@@ -101,6 +91,26 @@ SKILL_INSTRUCTIONS = MappingProxyType({
         "不得执行售后动作、自动退款、换货、关单、修改设备事实或改变协作模式；公开答复仍须后端授权。"
     ),
 })
+
+
+SERVICE_EXPRESSION_RESPONSE_GUIDANCE = (
+    "仅针对用户当前明确表达的服务感受调整回复：明确不满时先回应具体问题，再说明有依据的下一步；"
+    "困惑时一次解释一个关键点并分步骤；担忧时区分已确认与待核验；着急时先给当前状态和下一步，不虚构时限；"
+    "感谢时简短回应后回到服务目标。不要断言用户情绪；证据不足时用中性措辞。"
+    "这只影响语气、信息密度和解释顺序，不影响事实、紧急度、Case 状态、工具权限、审批、协作模式或发布资格。"
+    "不输出情绪标签、分类 JSON 或内部推理；不声称已转人工，除非现有授权流程确有回执。"
+)
+
+SERVICE_EXPRESSION_TRIGGERS = (
+    "不满意", "不满", "太差", "失望", "投诉", "一直没解决", "没人回复", "等了很久", "太生气",
+    "不明白", "没明白", "看不懂", "什么意思", "不理解", "担心", "害怕", "怕会", "很着急", "着急",
+)
+
+
+def needs_service_expression_guidance(text: str) -> bool:
+    """Cheap explicit-phrase gate; a trigger adds writing guidance, never an emotion label."""
+    normalized = text.casefold()
+    return any(trigger in normalized for trigger in SERVICE_EXPRESSION_TRIGGERS)
 
 
 def eligible_skills(conversation: Conversation) -> list[SkillDefinition]:

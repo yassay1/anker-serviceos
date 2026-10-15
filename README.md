@@ -13,6 +13,7 @@
 - [领域与接口契约](docs/domain-and-contracts.md)：对象关系、状态、权限、Generative UI 数据结构与计划 API。
 - [开发实施计划](docs/development-plan.md)：各阶段真实完成状态。
 - [现有项目合并与归档说明](docs/baseline-integration.md)：V1 差异处理、复用边界、增量任务和验收。
+- [用户表达理解与回应 Skill 设计计划](docs/emotion-understanding-response-skill.md)：基础提示指导已实现，中文售后效果评测仍待完成。
 - [黑客松赛题参考资料](data/reference/hackathon/README.md)：团队共享的赛题流程与完整数据文件；不属于运行时知识库。
 - [Agent 工程规则](AGENTS.md)。
 - [协作开发指南](docs/contributing.md)：模块边界、契约变更、并行开发与集成检查。
