@@ -12,7 +12,7 @@ from sqlalchemy import select
 from serviceos_api.application.contracts import ResolutionContractRead, VerificationRead, VerificationRequest
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.evidence import enqueue_case_events
-from serviceos_api.application.services import BusinessService
+from serviceos_api.application.business import BusinessService
 from serviceos_api.persistence.models import (
     CaseAction, CaseImageEvidence, CaseVerification, ExperienceCandidate, ResolutionContract, ServiceCase,
 )

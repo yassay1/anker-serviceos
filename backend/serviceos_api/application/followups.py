@@ -14,12 +14,29 @@ from serviceos_api.application.contracts import (
 )
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.evidence import enqueue_case_events
-from serviceos_api.application.services import BusinessService
-from serviceos_api.persistence.models import CaseConversation, FollowUpConsent, FollowUpJob, ServiceCase
+from serviceos_api.application.business import BusinessService
+from serviceos_api.persistence.models import CaseConversation, FollowUpConsent, FollowUpJob, ServiceCase, ServiceTask, TaskAssignment
 
 
 def fingerprint(data: dict) -> str:
     return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def complete_due_follow_up(session, job: FollowUpJob, now: datetime) -> None:
+    """Apply a claimed reminder as one internal task in the caller's transaction."""
+    task = ServiceTask(tenant_id=job.tenant_id, conversation_id=job.conversation_id,
+                       case_id=job.case_id, reason=f"已到预约时间的客户回访：{job.purpose}",
+                       status="ASSIGNED")
+    session.add(task)
+    session.flush()
+    session.add(TaskAssignment(tenant_id=job.tenant_id, task_id=task.id,
+                               staff_user_id=job.scheduled_by))
+    job.status = "DUE"
+    job.task_id = task.id
+    job.reminded_at = now
+    enqueue_case_events(session, job.tenant_id, job.case_id, "follow_up.due", {
+        "case_id": str(job.case_id), "follow_up_id": str(job.id), "task_id": str(task.id),
+    }, "INTERNAL")
 
 
 class FollowUpService(BusinessService):

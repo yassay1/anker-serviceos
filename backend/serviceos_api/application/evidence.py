@@ -14,7 +14,7 @@ from serviceos_api.application.contracts import EvidencePage, EvidenceRead, Uplo
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.evidence_storage import EvidenceStorage, EvidenceStorageFailure
 from serviceos_api.application.image_safety import PROPOSAL_MAX_IMAGE_BYTES, PROPOSAL_MEDIA_TYPES, inspect_image, sniff_media_type
-from serviceos_api.application.services import BusinessService
+from serviceos_api.application.business import BusinessService
 from serviceos_api.persistence.models import CaseConversation, CaseImageEvidence, EvidenceInspectionJob, OutboxEvent, ServiceCase
 
 logger = logging.getLogger("serviceos.evidence")

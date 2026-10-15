@@ -5,13 +5,13 @@ from __future__ import annotations
 import logging
 import argparse
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
-from serviceos_api.application.evidence import enqueue_case_events
+from serviceos_api.application.actions import claim_mock_action, finish_mock_action
 from serviceos_api.integrations.mock_service_adapter import MockReceipt, MockServiceAdapter
 from serviceos_api.persistence.database import build_engine
 from serviceos_api.persistence.models import CaseAction, ServiceCase
@@ -50,14 +50,8 @@ class MockActionWorker:
                 .with_for_update(skip_locked=True).limit(1)).first()
             if action is None:
                 return None
-            reconcile_only = action.status != "APPROVED"
             token = uuid4()
-            action.status = "UNKNOWN" if reconcile_only else "EXECUTING"
-            action.attempt_count += 1
-            action.version += 1
-            action.lease_token = token
-            action.lease_expires_at = now + timedelta(seconds=self.settings.worker_lease_seconds)
-            action.last_error_code = None
+            reconcile_only = claim_mock_action(action, token, now, self.settings.worker_lease_seconds)
             lease = ActionLease(action.tenant_id, action.id, token, reconcile_only)
             session.commit()
             return lease
@@ -72,23 +66,7 @@ class MockActionWorker:
             ).with_for_update())
             if action is None:
                 return
-            if receipt is None:
-                action.status = "UNKNOWN"
-                action.last_error_code = error_code or "mock_receipt_missing"
-                action.available_at = now + timedelta(seconds=min(300, 2 ** min(action.attempt_count, 8)))
-            else:
-                action.status = receipt.result
-                action.receipt_result = receipt.result
-                action.receipt_reference = receipt.external_reference
-                action.receipt_at = receipt.received_at
-                action.last_error_code = None
-                enqueue_case_events(session, action.tenant_id, action.case_id, "action.state_changed", {
-                    "action_id": str(action.id), "case_id": str(action.case_id),
-                    "status": action.status, "adapter": "MOCK",
-                }, "PUBLIC")
-            action.version += 1
-            action.lease_token = None
-            action.lease_expires_at = None
+            finish_mock_action(session, action, receipt, error_code, now)
             session.commit()
 
     def _case_actionable(self, lease: ActionLease) -> bool:

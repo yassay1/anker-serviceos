@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from serviceos_api.application.auth import COOKIE_NAME, authenticated_principal
 from serviceos_api.application.errors import ServiceError
-from serviceos_api.application.services import BusinessService, ConversationService
+from serviceos_api.application.business import BusinessService
+from serviceos_api.application.services import ConversationService
 from serviceos_api.persistence.database import build_engine
 
 cookie = APIKeyCookie(name=COOKIE_NAME, scheme_name="SessionCookie", auto_error=False)

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 from serviceos_api.api.dependencies import Business, ConversationBusiness, get_actor, get_session, local_login_allowed
 from serviceos_api.application import auth
 from serviceos_api.application.services import ConversationService
+from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.contracts import (
     ActorRead, AttachConversation, AttachDevice, CandidateFact, CaseRead, ConversationList, ConversationRead, DeskCaseSummary,
     CreateCase, CreateConversation, CreateDevice, DeviceRead, FactDecision, FactRead, LocalLogin, MessagePage,
@@ -18,6 +20,7 @@ from serviceos_api.application.contracts import (
 from serviceos_api.persistence.models import Conversation, DevicePassport, ServiceCase
 
 router = APIRouter(prefix="/api/v1")
+logger = logging.getLogger("serviceos.events")
 
 
 @router.post("/local-auth/login", response_model=ActorRead, tags=["local-auth"],
@@ -153,7 +156,13 @@ async def stream_events(id: UUID, request: Request, actor=Depends(get_actor),
                 try:
                     current_actor = auth.authenticated_principal(session, token)
                     page = ConversationService(session, current_actor).events(id, cursor, 100)
-                except Exception:
+                except ServiceError:
+                    return
+                except Exception as error:
+                    logger.error("", extra={
+                        "event_code": "events.stream_failed", "error_code": "event_stream_failed",
+                        "exception_type": type(error).__name__,
+                    })
                     return
                 for event in page.items:
                     yield f"id: {event.sequence}\ndata: {event.model_dump_json()}\n\n"

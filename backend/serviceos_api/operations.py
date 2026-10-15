@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 
 from serviceos_api.application.auth import Principal
 from serviceos_api.application.contracts import AttachConversation, AttachDevice, CreateCase, CreateConversation, CreateDevice, SendMessage
-from serviceos_api.application.services import BusinessService, ConversationService
+from serviceos_api.application.business import BusinessService
+from serviceos_api.application.services import ConversationService
 from serviceos_api.bootstrap_local import seed_local_accounts
 from serviceos_api.integrations.local_evidence_storage import evidence_storage_from_settings
 from serviceos_api.persistence.database import build_engine

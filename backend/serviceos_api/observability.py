@@ -16,7 +16,7 @@ class SafeJsonFormatter(logging.Formatter):
             "logger": record.name,
             "event": getattr(record, "event_code", "application.log"),
         }
-        for key in ("request_id", "method", "route", "status_code", "duration_ms", "error_code"):
+        for key in ("request_id", "method", "route", "status_code", "duration_ms", "error_code", "exception_type"):
             value = getattr(record, key, None)
             if value is not None:
                 entry[key] = value
@@ -42,8 +42,13 @@ async def observe_request(request: Request, call_next):
     error_code = None
     try:
         response = await call_next(request)
-    except Exception:
+    except Exception as error:
         error_code = "unhandled_error"
+        logging.getLogger("serviceos.http").error("", extra={
+            "event_code": "http.unhandled_error", "request_id": request_id,
+            "method": request.method, "route": getattr(request.scope.get("route"), "path", "unmatched"),
+            "error_code": error_code, "exception_type": type(error).__name__,
+        })
         response = JSONResponse(status_code=500, content={"detail": "服务暂时不可用，请稍后重试。", "request_id": request_id})
     duration_ms = round((time.perf_counter() - started) * 1000, 2)
     response.headers["X-Request-ID"] = request_id

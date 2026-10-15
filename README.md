@@ -142,7 +142,7 @@ npm run build
 API 发生实际变化后，在根目录导出，再在 `frontend/` 生成 Client 类型：
 
 ```powershell
-uv run --project backend python -m serviceos_api.export_openapi
+uv run --project backend --locked python -m serviceos_api.export_openapi
 cd frontend
 npm run generate:api
 ```

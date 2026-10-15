@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from typing import Protocol
 from uuid import UUID
 
 from sqlalchemy import select
@@ -14,13 +15,53 @@ from serviceos_api.application.contracts import (
 )
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.evidence import enqueue_case_events
-from serviceos_api.application.services import BusinessService
+from serviceos_api.application.business import BusinessService
 from serviceos_api.application.verification import CONFIRMED_CONDITIONS
 from serviceos_api.persistence.models import AgentProposal, CaseAction, CaseActionApproval, CaseConversation, ResolutionContract, ServiceCase
 
 
 def _hash(fields: dict) -> str:
     return hashlib.sha256(json.dumps(fields, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+class ActionReceipt(Protocol):
+    result: str
+    external_reference: str
+    received_at: datetime
+
+
+def claim_mock_action(action: CaseAction, token: UUID, now: datetime, lease_seconds: int) -> bool:
+    """Apply the execution lease state; return whether this claim may only reconcile."""
+    reconcile_only = action.status != "APPROVED"
+    action.status = "UNKNOWN" if reconcile_only else "EXECUTING"
+    action.attempt_count += 1
+    action.version += 1
+    action.lease_token = token
+    action.lease_expires_at = now + timedelta(seconds=lease_seconds)
+    action.last_error_code = None
+    return reconcile_only
+
+
+def finish_mock_action(session, action: CaseAction, receipt: ActionReceipt | None,
+                       error_code: str | None, now: datetime) -> None:
+    """Record the authoritative Mock receipt or preserve an uncertain outcome."""
+    if receipt is None:
+        action.status = "UNKNOWN"
+        action.last_error_code = error_code or "mock_receipt_missing"
+        action.available_at = now + timedelta(seconds=min(300, 2 ** min(action.attempt_count, 8)))
+    else:
+        action.status = receipt.result
+        action.receipt_result = receipt.result
+        action.receipt_reference = receipt.external_reference
+        action.receipt_at = receipt.received_at
+        action.last_error_code = None
+        enqueue_case_events(session, action.tenant_id, action.case_id, "action.state_changed", {
+            "action_id": str(action.id), "case_id": str(action.case_id),
+            "status": action.status, "adapter": "MOCK",
+        }, "PUBLIC")
+    action.version += 1
+    action.lease_token = None
+    action.lease_expires_at = None
 
 
 class ServiceActionService(BusinessService):
