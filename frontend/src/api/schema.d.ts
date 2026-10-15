@@ -713,6 +713,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/experience-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Candidates */
+        get: operations["list_experience_candidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/experience-candidates/{candidate_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Candidate */
+        get: operations["read_experience_candidate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Candidate */
+        patch: operations["update_experience_candidate"];
+        trace?: never;
+    };
+    "/api/v1/experience-candidates/{candidate_id}/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide Candidate */
+        post: operations["decide_experience_candidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/experience-candidates/{candidate_id}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Reviews */
+        get: operations["list_experience_candidate_reviews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -1214,6 +1283,133 @@ export interface components {
              * @enum {string}
              */
             visibility: "PUBLIC" | "INTERNAL";
+        };
+        /** ExperienceCandidatePage */
+        ExperienceCandidatePage: {
+            /** Items */
+            items: components["schemas"]["ExperienceCandidateRead"][];
+        };
+        /** ExperienceCandidateRead */
+        ExperienceCandidateRead: {
+            /** Authored By */
+            authored_by: string | null;
+            content: components["schemas"]["ExperienceContent"] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Source Case Id
+             * Format: uuid
+             */
+            source_case_id: string;
+            /**
+             * Source Verification Id
+             * Format: uuid
+             */
+            source_verification_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "REVOKED";
+            /** Submitted At */
+            submitted_at: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version */
+            version: number;
+        };
+        /** ExperienceCandidateUpdate */
+        ExperienceCandidateUpdate: {
+            content: components["schemas"]["ExperienceContent"];
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Submit For Review
+             * @default false
+             */
+            submit_for_review: boolean;
+        };
+        /**
+         * ExperienceContent
+         * @description Reviewed case pattern, not an authoritative fact or executable instruction.
+         */
+        ExperienceContent: {
+            /** Applicable Models */
+            applicable_models: string[];
+            /** Failure Exit */
+            failure_exit: string;
+            /** Issue Type */
+            issue_type: string;
+            /** Required Evidence */
+            required_evidence?: string[];
+            /** Steps */
+            steps: string[];
+            /** Success Criteria */
+            success_criteria: string;
+            /** Symptoms */
+            symptoms: string[];
+            /** Title */
+            title: string;
+        };
+        /** ExperienceDecision */
+        ExperienceDecision: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "APPROVED" | "REJECTED" | "REVOKED";
+            /**
+             * Decision Id
+             * Format: uuid
+             */
+            decision_id: string;
+            /** Expected Version */
+            expected_version: number;
+            /** Reason */
+            reason: string;
+        };
+        /** ExperienceReviewPage */
+        ExperienceReviewPage: {
+            /** Items */
+            items: components["schemas"]["ExperienceReviewRead"][];
+        };
+        /** ExperienceReviewRead */
+        ExperienceReviewRead: {
+            /** Candidate Version */
+            candidate_version: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "APPROVED" | "REJECTED" | "REVOKED";
+            /**
+             * Decision Id
+             * Format: uuid
+             */
+            decision_id: string;
+            /** Reason */
+            reason: string;
+            /**
+             * Reviewer Id
+             * Format: uuid
+             */
+            reviewer_id: string;
         };
         /** FactDecision */
         FactDecision: {
@@ -4047,6 +4243,170 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FactRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_experience_candidates: {
+        parameters: {
+            query?: {
+                status?: ("DRAFT" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "REVOKED") | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperienceCandidatePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_experience_candidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperienceCandidateRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_experience_candidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExperienceCandidateUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperienceCandidateRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_experience_candidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExperienceDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperienceCandidateRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_experience_candidate_reviews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperienceReviewPage"];
                 };
             };
             /** @description Validation Error */

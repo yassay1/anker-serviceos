@@ -77,6 +77,8 @@
 
 阶段 2 增量已在独立 [Agent 结果分离切片](../specs/001-agent-result-separation/spec.md)中补齐内部结构化结果、受限 UI 提案降级和动作草稿引用；未发布 UIDocument 或 UI action。尚未完成的阶段 2 验收：真实模型多轮售后服务、所选 Provider 的结构化工具兼容性、进程被强制终止后的端到端恢复演示。阶段 3 已实现持久事件与 SSE 补取；真实 Provider 与进程级强制终止恢复仍待阶段 2 的真实环境验收。
 
+2026-10-15 经验沉淀增量见 [经验沉淀验收记录](experience-learning-validation.md) 与 [功能契约](../specs/009-experience-learning/contracts/feature-contract.md)：只沉淀已核验解决 Case 的空白候选，经人工审核后作为受限参考检索；不自动改变可信事实、Skill 或 SOP。
+
 ## 阶段 3：人机共同服务
 
 依赖阶段 2。已建立客服任务、分配、模式切换、草稿审批、公开/内部事件隔离。当前 handoff 字段用于初始任务上下文，保留来源与脱敏信息。只读 UI 文档/Renderer 和低风险 action intent 已接入对应应用服务与授权规则。

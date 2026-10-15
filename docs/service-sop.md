@@ -30,6 +30,8 @@ Skill是可发现、版本化的方法契约：适用条件、输入/输出、�
 
 ## 测试矩阵
 
+经验沉淀是独立于可信设备事实的链路：只有客户明确确认并由服务端判定 `VERIFIED_RESOLVED` 的 Case 才会创建空白候选；客服补充结构化适用条件，主管/管理员独立审核。审核通过的内容只作为同租户、同已核验型号且问题相关的参考案例，最多两条；来源 Case 重开或出现更新核验后不再检索。它不会成为 DeviceFact、厂家政策、可执行 Skill 或操作授权。候选不复制客户原文，也不在用户请求路径调用模型生成摘要。详细接口与状态见[经验沉淀契约](../specs/009-experience-learning/contracts/feature-contract.md)。
+
 | 场景 | 预期 | 自动化入口 | 浏览器验收 |
 |---|---|---|---|
 | 正常模拟动作闭环 | 审批/Worker/回执/核验逐步真实保存 | backend/tests/test_mock_service_actions.py | frontend/tests-live/service-flow.spec.ts |
@@ -40,6 +42,7 @@ Skill是可发现、版本化的方法契约：适用条件、输入/输出、�
 | 刷新/断线/重复/旧卡 | 单调游标、持久快照、幂等恢复 | frontend/tests/、test_worker_runtime.py | 断网/重连及页面刷新 |
 | 多用户/租户/多Case | 资源所有权明确，越权404/403 | test_database.py、test_business_api.py | 切换会话及身份回归 |
 | 跟进与事实归档 | 同意与授权有效、来源核验和撤销生效 | test_followups.py、test_case_fact_archive.py | live跟进/归档；到期任务另测 |
+| 经验沉淀与复用 | 核验触发、独立审核、租户/型号/来源有效性过滤 | test_experience_learning.py | 客服审核页面尚未实现 |
 | 交付与故障恢复 | 配置缺失fail closed，持久卷重启保留 | test_readiness.py、test_operations.py | Compose启动/重启/恢复演练 |
 
 性能记录请求数、错误率、P50/P95及样本来源；真实模型未配置时模型首token、质量与恢复必须标为未测。部署准备、业务闭环、UI体验和真实Provider分别验收；实际命令及结果见phase5-validation.md。

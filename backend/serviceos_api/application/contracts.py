@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 
 class Schema(BaseModel):
@@ -239,6 +239,85 @@ class FactRead(Schema):
     retraction_reason: str | None
     archived_at: datetime | None
     archived_by: UUID | None
+
+
+class ExperienceContent(Schema):
+    """Reviewed case pattern, not an authoritative fact or executable instruction."""
+    title: str = Field(min_length=3, max_length=160)
+    issue_type: str = Field(min_length=2, max_length=80, pattern=r"^[a-z0-9][a-z0-9._-]*$")
+    applicable_models: list[str] = Field(min_length=1, max_length=10)
+    symptoms: list[str] = Field(min_length=1, max_length=10)
+    required_evidence: list[str] = Field(default_factory=list, max_length=10)
+    steps: list[str] = Field(min_length=1, max_length=8)
+    success_criteria: str = Field(min_length=3, max_length=500)
+    failure_exit: str = Field(min_length=3, max_length=500)
+
+    @field_validator("applicable_models")
+    @classmethod
+    def normalize_models(cls, values):
+        normalized = [item.strip().upper() for item in values]
+        if any(not item or len(item) > 80 for item in normalized) or len(set(normalized)) != len(normalized):
+            raise ValueError("型号不能为空、不得重复且长度不能超过80。")
+        return normalized
+
+    @field_validator("title", "success_criteria", "failure_exit")
+    @classmethod
+    def normalize_required_text(cls, value):
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("该字段不能为空。")
+        return cleaned
+
+    @field_validator("symptoms", "required_evidence", "steps")
+    @classmethod
+    def validate_bounded_strings(cls, values):
+        cleaned = [item.strip() for item in values]
+        if any(not item or len(item) > 500 for item in cleaned) or len(set(cleaned)) != len(cleaned):
+            raise ValueError("条目不能为空、不得重复且长度不能超过500。")
+        return cleaned
+
+
+class ExperienceCandidateUpdate(Schema):
+    expected_version: int = Field(ge=1)
+    content: ExperienceContent
+    submit_for_review: bool = False
+
+
+class ExperienceCandidateRead(Schema):
+    id: UUID
+    source_case_id: UUID
+    source_verification_id: UUID
+    content: ExperienceContent | None
+    status: Literal["DRAFT", "PENDING_REVIEW", "APPROVED", "REJECTED", "REVOKED"]
+    version: int
+    authored_by: UUID | None
+    submitted_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ExperienceCandidatePage(Schema):
+    items: list[ExperienceCandidateRead]
+
+
+class ExperienceDecision(Schema):
+    decision_id: UUID
+    expected_version: int = Field(ge=1)
+    decision: Literal["APPROVED", "REJECTED", "REVOKED"]
+    reason: str = Field(min_length=3, max_length=1000)
+
+
+class ExperienceReviewRead(Schema):
+    decision_id: UUID
+    reviewer_id: UUID
+    candidate_version: int
+    decision: Literal["APPROVED", "REJECTED", "REVOKED"]
+    reason: str
+    created_at: datetime
+
+
+class ExperienceReviewPage(Schema):
+    items: list[ExperienceReviewRead]
 
 
 class AttachDevice(Schema):

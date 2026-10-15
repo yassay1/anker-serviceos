@@ -957,6 +957,319 @@
         "title": "EvidenceRead",
         "type": "object"
       },
+      "ExperienceCandidatePage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ExperienceCandidateRead"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ExperienceCandidatePage",
+        "type": "object"
+      },
+      "ExperienceCandidateRead": {
+        "additionalProperties": false,
+        "properties": {
+          "authored_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authored By"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExperienceContent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "source_case_id": {
+            "format": "uuid",
+            "title": "Source Case Id",
+            "type": "string"
+          },
+          "source_verification_id": {
+            "format": "uuid",
+            "title": "Source Verification Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "DRAFT",
+              "PENDING_REVIEW",
+              "APPROVED",
+              "REJECTED",
+              "REVOKED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "source_case_id",
+          "source_verification_id",
+          "content",
+          "status",
+          "version",
+          "authored_by",
+          "submitted_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ExperienceCandidateRead",
+        "type": "object"
+      },
+      "ExperienceCandidateUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "$ref": "#/components/schemas/ExperienceContent"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "submit_for_review": {
+            "default": false,
+            "title": "Submit For Review",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "expected_version",
+          "content"
+        ],
+        "title": "ExperienceCandidateUpdate",
+        "type": "object"
+      },
+      "ExperienceContent": {
+        "additionalProperties": false,
+        "description": "Reviewed case pattern, not an authoritative fact or executable instruction.",
+        "properties": {
+          "applicable_models": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Applicable Models",
+            "type": "array"
+          },
+          "failure_exit": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Failure Exit",
+            "type": "string"
+          },
+          "issue_type": {
+            "maxLength": 80,
+            "minLength": 2,
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "title": "Issue Type",
+            "type": "string"
+          },
+          "required_evidence": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Required Evidence",
+            "type": "array"
+          },
+          "steps": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Steps",
+            "type": "array"
+          },
+          "success_criteria": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Success Criteria",
+            "type": "string"
+          },
+          "symptoms": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Symptoms",
+            "type": "array"
+          },
+          "title": {
+            "maxLength": 160,
+            "minLength": 3,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "issue_type",
+          "applicable_models",
+          "symptoms",
+          "steps",
+          "success_criteria",
+          "failure_exit"
+        ],
+        "title": "ExperienceContent",
+        "type": "object"
+      },
+      "ExperienceDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "APPROVED",
+              "REJECTED",
+              "REVOKED"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "decision_id": {
+            "format": "uuid",
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 1000,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision_id",
+          "expected_version",
+          "decision",
+          "reason"
+        ],
+        "title": "ExperienceDecision",
+        "type": "object"
+      },
+      "ExperienceReviewPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ExperienceReviewRead"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ExperienceReviewPage",
+        "type": "object"
+      },
+      "ExperienceReviewRead": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_version": {
+            "title": "Candidate Version",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "APPROVED",
+              "REJECTED",
+              "REVOKED"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "decision_id": {
+            "format": "uuid",
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "reviewer_id": {
+            "format": "uuid",
+            "title": "Reviewer Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision_id",
+          "reviewer_id",
+          "candidate_version",
+          "decision",
+          "reason",
+          "created_at"
+        ],
+        "title": "ExperienceReviewRead",
+        "type": "object"
+      },
       "FactDecision": {
         "additionalProperties": false,
         "properties": {
@@ -6087,6 +6400,289 @@
         "summary": "Verify Fact",
         "tags": [
           "devices"
+        ]
+      }
+    },
+    "/api/v1/experience-candidates": {
+      "get": {
+        "operationId": "list_experience_candidates",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "DRAFT",
+                    "PENDING_REVIEW",
+                    "APPROVED",
+                    "REJECTED",
+                    "REVOKED"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExperienceCandidatePage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "List Candidates",
+        "tags": [
+          "experience"
+        ]
+      }
+    },
+    "/api/v1/experience-candidates/{candidate_id}": {
+      "get": {
+        "operationId": "read_experience_candidate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Candidate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExperienceCandidateRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Read Candidate",
+        "tags": [
+          "experience"
+        ]
+      },
+      "patch": {
+        "operationId": "update_experience_candidate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Candidate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExperienceCandidateUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExperienceCandidateRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Update Candidate",
+        "tags": [
+          "experience"
+        ]
+      }
+    },
+    "/api/v1/experience-candidates/{candidate_id}/decisions": {
+      "post": {
+        "operationId": "decide_experience_candidate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Candidate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExperienceDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExperienceCandidateRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "Decide Candidate",
+        "tags": [
+          "experience"
+        ]
+      }
+    },
+    "/api/v1/experience-candidates/{candidate_id}/reviews": {
+      "get": {
+        "operationId": "list_experience_candidate_reviews",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Candidate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExperienceReviewPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "List Reviews",
+        "tags": [
+          "experience"
         ]
       }
     },

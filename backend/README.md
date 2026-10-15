@@ -94,3 +94,5 @@ uv run --project backend --locked python -m serviceos_api.export_openapi --check
 新路由模块必须在 `serviceos_api/main.py` 注册：`tests/test_api_baseline.py` 会遍历 `serviceos_api.api` 下的每个路由模块，断言其全部路径都出现在真实应用的 OpenAPI 里。只在测试里自行组装应用的路由，等于未发布接口。
 
 `GET /api/v1/skills` 与 `GET /api/v1/conversations/{id}/skill-executions` 只对同租户客服开放（客户 403、跨租户 404），执行记录为仅内部可见的有界分页。Skill 是固定版本的服务方法，不是可执行的远程代码；`emotion-assessment` 当前为 `PREPARED`，不产生情绪判断，也不得据此自动退款、换货、关单或改变协作模式。运行手册见[部署与运维](../docs/operations.md)，逐环节服务规则见[售后 SOP](../docs/service-sop.md)。
+
+`/api/v1/experience-candidates` 是客服内部的经验候选审核 API：仅 `VERIFIED_RESOLVED` 生成空候选，客服整理，主管/管理员审核。Approved 经验只作为有来源的内部参考注入 Agent context；不修改 DeviceFact/Skill，也不包含客户原始文本。状态、复用过滤与实现限制见[经验沉淀验收记录](../docs/experience-learning-validation.md)。

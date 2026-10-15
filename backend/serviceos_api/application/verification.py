@@ -14,7 +14,7 @@ from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.evidence import enqueue_case_events
 from serviceos_api.application.services import BusinessService
 from serviceos_api.persistence.models import (
-    CaseAction, CaseImageEvidence, CaseVerification, ResolutionContract, ServiceCase,
+    CaseAction, CaseImageEvidence, CaseVerification, ExperienceCandidate, ResolutionContract, ServiceCase,
 )
 
 
@@ -131,6 +131,13 @@ class VerificationService(BusinessService):
         )
         self.session.add(row)
         self.session.flush()
+        if decision == "VERIFIED_RESOLVED":
+            # Keep the experience seed source-linked and empty. Never copy raw customer
+            # text or ask an LLM to generalize a single case on the customer hot path.
+            self.session.add(ExperienceCandidate(
+                tenant_id=case.tenant_id, source_case_id=case.id, source_verification_id=row.id,
+                content=None, status="DRAFT", version=1,
+            ))
         enqueue_case_events(self.session, case.tenant_id, case.id, "verification.recorded", {
             "case_id": str(case.id), "verification_id": str(row.id), "decision": decision,
             "case_status": case.status, "case_version": case.version,

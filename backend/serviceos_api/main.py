@@ -11,6 +11,7 @@ from serviceos_api.api.actions import router as actions_router
 from serviceos_api.api.verification import router as verification_router
 from serviceos_api.api.followups import router as followups_router
 from serviceos_api.api.skills import router as skills_router
+from serviceos_api.api.experience import router as experience_router
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.observability import configure_logging, observe_request
 from serviceos_api.settings import Settings
@@ -69,6 +70,7 @@ def create_app(*, database_engine=None, settings: Settings | None = None) -> Fas
     application.include_router(verification_router)
     application.include_router(followups_router)
     application.include_router(skills_router)
+    application.include_router(experience_router)
     return application
 
 
