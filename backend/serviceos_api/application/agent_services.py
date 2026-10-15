@@ -496,11 +496,13 @@ class AgentToolService:
                                if row.get("identity_status") == "VERIFIED" and row.get("model")}
         tokens = _search_tokens(query)
         ranked = []
-        for filename in ("diagnose-no-charge.md", "a1229-ports.md"):
+        for filename in ("diagnose-no-charge.md", "a1229-ports.md", "eufy-s1-pro-heating-metric.md"):
             path = knowledge / filename
             if not path.is_file():
                 continue
             if filename == "a1229-ports.md" and "a1229" not in verified_models:
+                continue
+            if filename == "eufy-s1-pro-heating-metric.md" and "t8d04" not in verified_models:
                 continue
             raw_bytes = path.read_bytes()
             raw = raw_bytes.decode("utf-8")
@@ -517,7 +519,8 @@ class AgentToolService:
             ranked.append((sum(score for score, _ in scored), filename,
                            hashlib.sha256(raw_bytes).hexdigest()[:16], "\n".join(selected)))
         ranked.sort(key=lambda item: (-item[0], item[1]))
-        content = [f"SOURCE: {name} | VERSION: sha256:{version} | APPLICABILITY: {'VERIFIED_MODEL_A1229' if name == 'a1229-ports.md' else 'generic_no_charge'}\n{excerpt}"
+        content = [f"SOURCE: {name} | VERSION: sha256:{version} | APPLICABILITY: "
+                   f"{'VERIFIED_MODEL_A1229' if name == 'a1229-ports.md' else 'VERIFIED_MODEL_T8D04' if name == 'eufy-s1-pro-heating-metric.md' else 'generic_no_charge'}\n{excerpt}"
                    for _, name, version, excerpt in ranked[:3]]
         self._progress("lookup_completed")
         if not content:

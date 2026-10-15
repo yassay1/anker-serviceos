@@ -115,6 +115,29 @@
 .ui-timeline { margin: 12px 0 0; padding-left: 22px; border-left: 2px solid var(--border); list-style-type: circle; }
 .ui-timeline li::marker { color: var(--accent-hover); }
 .ui-HandoffSummary { background: #fffefa; }
+.ui-chart-wrap, .ui-flow-wrap { min-width: 0; margin-top: 12px; }
+.ui-chart { display: block; width: min(100%, 440px); height: auto; margin: 0 auto; overflow: visible; }
+.ui-chart-axis { stroke: var(--border); stroke-width: 1.5; }
+.ui-chart-axis-label, .ui-chart-tick, .ui-chart-value { fill: var(--muted); font: 11px system-ui, sans-serif; }
+.ui-chart-value { fill: var(--ink); font-weight: 600; }
+.ui-chart-bar { fill: var(--accent-hover); }
+.ui-chart-source { margin: 10px 0 0; font-size: 11px; }
+.ui-chart-source > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.ui-chart-source dt { color: var(--muted); }
+.ui-chart-source dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.ui-visual-note { color: var(--muted); font-size: 11px !important; }
+.ui-flow-wrap { overflow-x: auto; }
+.ui-flow { display: block; width: max(100%, 440px); height: 150px; }
+.ui-flow-edge { stroke: #aeb9c9; stroke-width: 2; }
+.ui-flow-node { fill: var(--surface); stroke: var(--border); stroke-width: 1.5; }
+.ui-flow-node.status-COMPLETED { fill: #edf8f1; stroke: #65a981; }
+.ui-flow-node.status-WAITING { fill: #fff8eb; stroke: #d4a64d; }
+.ui-flow-node.status-FAILED { fill: #fff2ef; stroke: var(--danger); }
+.ui-flow-label, .ui-flow-status { fill: var(--ink); font: 12px system-ui, sans-serif; }
+.ui-flow-label { font-weight: 600; }
+.ui-flow-status { fill: var(--muted); font-size: 11px; }
+.ui-flow-details { display: grid; gap: 8px; margin: 8px 0 0; padding-left: 20px; font-size: 12px; }
+.ui-flow-details li span { display: block; color: var(--muted); overflow-wrap: anywhere; }
 .ui-ActionBar { background: #fffaf5; border-color: #eadfd2; }
 .ui-action { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .ui-action label { font-size: 12px; }

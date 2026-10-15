@@ -2017,13 +2017,46 @@ export interface components {
              */
             task_id: string;
         };
+        /** UIChartData */
+        UIChartData: {
+            /**
+             * Chart Type
+             * @constant
+             */
+            chart_type: "BAR";
+            /** Metric Id */
+            metric_id: string;
+            /** Note */
+            note: string;
+            /** Points */
+            points: components["schemas"]["UIChartPoint"][];
+            /** Source Label */
+            source_label: string;
+            /** Source Version */
+            source_version: string;
+            /** Unit */
+            unit: string;
+            /** X Axis Label */
+            x_axis_label: string;
+            /** Y Axis Label */
+            y_axis_label: string;
+        };
+        /** UIChartPoint */
+        UIChartPoint: {
+            /** Label */
+            label: string;
+            /** Value */
+            value: number;
+        };
         /** UIComponent */
         UIComponent: {
             /** Actions */
             actions: components["schemas"]["UIAction"][];
+            chart?: components["schemas"]["UIChartData"] | null;
             /** Children */
             children: string[];
             data_source: components["schemas"]["UIDataSource"];
+            flow?: components["schemas"]["UIFlowData"] | null;
             /** Id */
             id: string;
             /** Options */
@@ -2092,6 +2125,55 @@ export interface components {
              * @enum {string}
              */
             visibility: "PUBLIC" | "INTERNAL";
+        };
+        /** UIFlowData */
+        UIFlowData: {
+            /** Edges */
+            edges: components["schemas"]["UIFlowEdge"][];
+            /** Nodes */
+            nodes: components["schemas"]["UIFlowNode"][];
+        };
+        /** UIFlowEdge */
+        UIFlowEdge: {
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "case" | "human-task" | "service-action" | "verification";
+            /**
+             * Target
+             * @enum {string}
+             */
+            target: "case" | "human-task" | "service-action" | "verification";
+        };
+        /** UIFlowNode */
+        UIFlowNode: {
+            /** Detail */
+            detail: string;
+            /**
+             * Id
+             * @enum {string}
+             */
+            id: "case" | "human-task" | "service-action" | "verification";
+            /** Label */
+            label: string;
+            /**
+             * Resource Id
+             * Format: uuid
+             */
+            resource_id: string;
+            /**
+             * Resource Kind
+             * @enum {string}
+             */
+            resource_kind: "CASE_VIEW" | "TASK_VIEW";
+            /** Resource Version */
+            resource_version: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "NOT_STARTED" | "IN_PROGRESS" | "WAITING" | "COMPLETED" | "FAILED" | "UNKNOWN" | "NOT_APPLICABLE";
         };
         /**
          * UIOption

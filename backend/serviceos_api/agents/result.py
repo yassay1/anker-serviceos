@@ -3,16 +3,35 @@
 import json
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, NotRequired, TypedDict, cast
 
 
-ALLOWED_HINTS = frozenset({"QuestionForm", "ChoiceGroup", "DiagnosticSteps", "RiskNotice", "HandoffSummary"})
+ALLOWED_HINTS = frozenset({"QuestionForm", "ChoiceGroup", "DiagnosticSteps", "RiskNotice", "HandoffSummary",
+                           "KnowledgeMetricChart", "CaseProcessFlow"})
+ALLOWED_KNOWLEDGE_SOURCES = frozenset({"eufy-s1-pro-heating-battery-v1"})
+UIHint = Literal["QuestionForm", "ChoiceGroup", "DiagnosticSteps", "RiskNotice", "HandoffSummary",
+                 "KnowledgeMetricChart", "CaseProcessFlow"]
+
+
+class UIOption(TypedDict):
+    label: str
+    value: str
+
+
+class UIProposal(TypedDict):
+    purpose: str
+    audience: Literal["CUSTOMER", "STAFF"]
+    fallback_text: str
+    component_hints: list[UIHint]
+    options: NotRequired[list[UIOption]]
+    knowledge_source_id: NotRequired[str]
+    case_id: NotRequired[str]
 
 
 @dataclass(frozen=True)
 class AgentResult:
     text: str
-    ui_proposal: dict[str, Any] | None = None
+    ui_proposal: UIProposal | None = None
     ui_fallback_code: str | None = None
 
 
@@ -70,13 +89,13 @@ def _text(value: Any) -> str:
     return text
 
 
-def _ui_proposal(value: Any) -> dict[str, Any]:
+def _ui_proposal(value: Any) -> UIProposal:
     required = {"purpose", "audience", "fallback_text", "component_hints"}
     if not isinstance(value, dict):
         raise ValueError("ui_proposal_invalid")
     keys = set(value)
     # Everything required, nothing beyond the optional options: an unknown key still fails here.
-    if not required <= keys or keys - required - {"options"}:
+    if not required <= keys or keys - required - {"options", "knowledge_source_id", "case_id"}:
         raise ValueError("ui_proposal_invalid")
     if value["audience"] not in ("CUSTOMER", "STAFF"):
         raise ValueError("ui_proposal_invalid")
@@ -92,7 +111,23 @@ def _ui_proposal(value: Any) -> dict[str, Any]:
         raise ValueError("ui_proposal_invalid")
     if "options" in value:
         _options(value["options"])
-    return value
+    if "knowledge_source_id" in value and (
+        not isinstance(value["knowledge_source_id"], str) or
+        value["knowledge_source_id"] not in ALLOWED_KNOWLEDGE_SOURCES or
+        "KnowledgeMetricChart" not in hints
+    ):
+        raise ValueError("ui_proposal_invalid")
+    if "case_id" in value and (
+        not isinstance(value["case_id"], str) or
+        not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", value["case_id"], re.IGNORECASE) or
+        "CaseProcessFlow" not in hints
+    ):
+        raise ValueError("ui_proposal_invalid")
+    if "KnowledgeMetricChart" in hints and ("knowledge_source_id" not in value or value["audience"] != "CUSTOMER"):
+        raise ValueError("ui_proposal_invalid")
+    if "CaseProcessFlow" in hints and ("case_id" not in value or value["audience"] != "STAFF"):
+        raise ValueError("ui_proposal_invalid")
+    return cast(UIProposal, value)
 
 
 def _options(value: Any) -> list[dict[str, str]]:

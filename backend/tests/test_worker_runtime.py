@@ -757,6 +757,96 @@ def test_customer_projection_without_options_keeps_the_question_form(database_en
         assert question.options == []
 
 
+def test_customer_projection_builds_metric_from_verified_model_and_curated_source(database_engine):
+    class MetricRuntime:
+        configured = True
+
+        def invoke(self, **_):
+            return AgentResult("加热功能的额外电量消耗约为以下数值。", {
+                "purpose": "解释加热功能的额外电量消耗", "audience": "CUSTOMER",
+                "fallback_text": "可按文字查看近似估算。", "component_hints": ["KnowledgeMetricChart"],
+                "knowledge_source_id": "eufy-s1-pro-heating-battery-v1",
+            }), {"step_count": 1}
+
+    with Session(database_engine) as session:
+        tenant, customer, conversation, _, _, case = seed_message(session, with_case=True)
+        device = DevicePassport(tenant_id=tenant.id, customer_id=customer.id, model="T8D04",
+                                identity_source="staff_verified", identity_status="VERIFIED",
+                                verified_by="客服核验", verified_at=datetime.now(timezone.utc))
+        session.add(device)
+        session.flush()
+        session.add(CaseDevice(tenant_id=tenant.id, case_id=case.id, device_id=device.id,
+                               role="AFFECTED", is_primary=True))
+        session.commit()
+        tenant_id, customer_id, conversation_id = tenant.id, customer.id, conversation.id
+    worker = MessageWorker(database_engine, Settings(environment="test"), runtime=MetricRuntime())
+    worker.process(worker.claim_one())
+
+    with Session(database_engine) as session:
+        projected = ConversationService(session, Principal(tenant_id, customer_id, "CUSTOMER", "客户")) \
+            .publish_ui_projection(conversation_id)
+        assert projected.catalog_version == 3
+        chart = next(item for item in projected.components if item.type == "KnowledgeMetricChart")
+        assert [point.model_dump() for point in chart.chart.points] == [
+            {"label": "5 分钟", "value": 10.0}, {"label": "10 分钟", "value": 20.0},
+            {"label": "15 分钟", "value": 30.0},
+        ]
+        assert chart.actions == [] and chart.data_source.kind == "AGENT_RUN_VIEW"
+
+
+def test_customer_metric_is_suppressed_without_verified_applicable_model(database_engine):
+    class MetricRuntime:
+        configured = True
+
+        def invoke(self, **_):
+            return AgentResult("以下估算仅适用于核验型号。", {
+                "purpose": "解释加热功能的额外电量消耗", "audience": "CUSTOMER",
+                "fallback_text": "可阅读文字说明。", "component_hints": ["KnowledgeMetricChart"],
+                "knowledge_source_id": "eufy-s1-pro-heating-battery-v1",
+            }), {"step_count": 1}
+
+    with Session(database_engine) as session:
+        tenant, customer, conversation, _, _, _ = seed_message(session)
+        session.commit()
+        tenant_id, customer_id, conversation_id = tenant.id, customer.id, conversation.id
+    worker = MessageWorker(database_engine, Settings(environment="test"), runtime=MetricRuntime())
+    worker.process(worker.claim_one())
+    with Session(database_engine) as session:
+        projected = ConversationService(session, Principal(tenant_id, customer_id, "CUSTOMER", "客户")) \
+            .publish_ui_projection(conversation_id)
+        assert all(item.type != "KnowledgeMetricChart" for item in projected.components)
+
+
+def test_staff_projection_builds_case_flow_from_authorized_linked_case(database_engine):
+    class FlowRuntime:
+        configured = True
+
+        def invoke(self, **_):
+            return AgentResult("我已整理当前案例办理状态。", {
+                "purpose": "查看当前案例的办理进度", "audience": "STAFF",
+                "fallback_text": "可直接查看案例状态。", "component_hints": ["CaseProcessFlow"],
+                "case_id": str(case_id),
+            }), {"step_count": 1}
+
+    with Session(database_engine) as session:
+        tenant, _, conversation, _, _, case = seed_message(session, with_case=True)
+        seed_local_accounts(session)
+        staff = session.scalar(select(StaffUser).where(StaffUser.external_subject == "local:staff"))
+        tenant_id, conversation_id, staff_id, case_id = tenant.id, conversation.id, staff.id, case.id
+        session.commit()
+    worker = MessageWorker(database_engine, Settings(environment="test"), runtime=FlowRuntime())
+    worker.process(worker.claim_one())
+
+    with Session(database_engine) as session:
+        projected = ConversationService(session, Principal(tenant_id, staff_id, "STAFF", "本地客服", "SUPPORT")) \
+            .publish_ui_projection(conversation_id)
+        flow = next(item for item in projected.components if item.type == "CaseProcessFlow")
+        assert projected.audience == "STAFF" and projected.visibility == "INTERNAL"
+        assert flow.flow.nodes[0].resource_id == case_id
+        assert flow.flow.nodes[0].status == "IN_PROGRESS"
+        assert flow.actions == []
+
+
 def test_an_answered_question_is_not_projected_again(database_engine):
     """The card kept asking the same question: once the customer replies, that question is
     answered, and an older run's proposal must not be resurrected from the lookback window."""

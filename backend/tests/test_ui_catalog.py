@@ -83,3 +83,84 @@ def test_only_choice_group_may_carry_options():
     smuggling["options"] = [{"label": "甲", "value": "a"}, {"label": "乙", "value": "b"}]
     with pytest.raises(ServiceError):
         validate_components([smuggling], "CUSTOMER", allowed)
+
+
+def metric_chart(run_id):
+    return {"id": "knowledge-metric", "type": "KnowledgeMetricChart",
+            "props": {"title": "额外电量消耗估算", "body": "已发布知识条目的近似值。"},
+            "data_source": {"kind": "AGENT_RUN_VIEW", "resource_id": str(run_id),
+                            "resource_version": 1, "binding": "metric"},
+            "actions": [], "children": [],
+            "chart": {"metric_id": "heating-extra-battery", "chart_type": "BAR",
+                      "x_axis_label": "加热时长（分钟）", "y_axis_label": "额外电量消耗", "unit": "%",
+                      "points": [{"label": "5 分钟", "value": 10.0}, {"label": "10 分钟", "value": 20.0},
+                                 {"label": "15 分钟", "value": 30.0}],
+                      "source_label": "已发布 S1 Pro 知识库条目", "source_version": "a" * 16,
+                      "note": "近似估算，不是设备遥测。"}}
+
+
+def test_knowledge_metric_chart_is_fixed_source_bound_and_inert():
+    run_id = uuid4()
+    allowed = {("AGENT_RUN_VIEW", run_id): 1}
+    result = validate_components([metric_chart(run_id)], "CUSTOMER", allowed)[0]
+    assert result["chart"]["metric_id"] == "heating-extra-battery"
+    assert result["actions"] == []
+    for change in ({"points": [{"label": "5 分钟", "value": 99.0}]},
+                   {"unit": "Wh"}, {"source_version": "unknown"}):
+        invalid = metric_chart(run_id)
+        invalid["chart"].update(change)
+        with pytest.raises(ServiceError):
+            validate_components([invalid], "CUSTOMER", allowed)
+    invalid_source = metric_chart(run_id)
+    invalid_source["data_source"]["binding"] = "question"
+    with pytest.raises(ServiceError):
+        validate_components([invalid_source], "CUSTOMER", allowed)
+    with pytest.raises(ServiceError):
+        validate_components([metric_chart(run_id)], "STAFF", allowed)
+
+
+def test_case_process_flow_is_staff_only_and_validates_authorized_dag():
+    case_id, task_id = uuid4(), uuid4()
+    allowed = {("CASE_VIEW", case_id): 3, ("TASK_VIEW", task_id): 2}
+    value = {"id": "case-flow", "type": "CaseProcessFlow",
+             "props": {"title": "案例办理流程", "body": "来源于实际状态记录。"},
+             "data_source": {"kind": "CASE_VIEW", "resource_id": str(case_id),
+                             "resource_version": 3, "binding": "process_flow"},
+             "actions": [], "children": [],
+             "flow": {"nodes": [
+                 {"id": "case", "label": "服务案例", "status": "IN_PROGRESS", "detail": "当前状态：IN_PROGRESS",
+                  "resource_kind": "CASE_VIEW", "resource_id": str(case_id), "resource_version": 3},
+                 {"id": "human-task", "label": "人工协作", "status": "WAITING", "detail": "任务状态：OPEN",
+                  "resource_kind": "TASK_VIEW", "resource_id": str(task_id), "resource_version": 2}],
+                 "edges": [{"source": "case", "target": "human-task"}]}}
+    result = validate_components([value], "STAFF", allowed)[0]
+    assert result["flow"]["edges"] == [{"source": "case", "target": "human-task"}]
+    with pytest.raises(ServiceError):
+        validate_components([value], "CUSTOMER", allowed)
+    cyclic = deepcopy(value)
+    cyclic["flow"]["edges"].append({"source": "human-task", "target": "case"})
+    with pytest.raises(ServiceError):
+        validate_components([cyclic], "STAFF", allowed)
+    unlinked = deepcopy(value)
+    unlinked["flow"]["nodes"][1]["resource_id"] = str(uuid4())
+    with pytest.raises(ServiceError):
+        validate_components([unlinked], "STAFF", allowed)
+    other_case_id = uuid4()
+    mismatched_case = deepcopy(value)
+    mismatched_case["flow"]["nodes"][0]["resource_id"] = str(other_case_id)
+    allowed_with_other_case = {**allowed, ("CASE_VIEW", other_case_id): 3}
+    with pytest.raises(ServiceError):
+        validate_components([mismatched_case], "STAFF", allowed_with_other_case)
+    missing_case = deepcopy(value)
+    missing_case["flow"]["nodes"] = missing_case["flow"]["nodes"][1:]
+    missing_case["flow"]["edges"] = []
+    with pytest.raises(ServiceError):
+        validate_components([missing_case], "STAFF", allowed)
+    malformed = deepcopy(value)
+    malformed["flow"]["edges"][0]["source"] = []
+    with pytest.raises(ServiceError):
+        validate_components([malformed], "STAFF", allowed)
+    malformed = deepcopy(value)
+    malformed["flow"]["nodes"][0]["id"] = []
+    with pytest.raises(ServiceError):
+        validate_components([malformed], "STAFF", allowed)

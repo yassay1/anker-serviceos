@@ -14,6 +14,7 @@ const catalog: Record<string, readonly string[]> = {
   ChoiceGroup: ['title', 'body'],
   ProgressTimeline: ['title', 'body', 'status'], HandoffSummary: ['title', 'body', 'status'],
   ActionBar: ['title', 'body'],
+  KnowledgeMetricChart: ['title', 'body'], CaseProcessFlow: ['title', 'body'],
 }
 const optionTypes = new Set(['ChoiceGroup'])
 const optionSlug = /^[a-z0-9-]{1,32}$/
@@ -40,6 +41,73 @@ const uuid = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
 const isText = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0 && value.length <= 2000
 const positiveInteger = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+const chartPoints = [{ label: '5 分钟', value: 10 }, { label: '10 分钟', value: 20 }, { label: '15 分钟', value: 30 }]
+const flowIds = new Set(['case', 'human-task', 'service-action', 'verification'])
+const flowStatuses = new Set(['NOT_STARTED', 'IN_PROGRESS', 'WAITING', 'COMPLETED', 'FAILED', 'UNKNOWN', 'NOT_APPLICABLE'])
+const flowStatusLabels: Record<string, string> = {
+  NOT_STARTED: '未开始', IN_PROGRESS: '处理中', WAITING: '等待中', COMPLETED: '已完成',
+  FAILED: '未通过', UNKNOWN: '未知', NOT_APPLICABLE: '不适用',
+}
+
+type ChartData = { metric_id: string, chart_type: string, x_axis_label: string, y_axis_label: string, unit: string,
+  points: { label: string, value: number }[], source_label: string, source_version: string, note: string }
+type FlowNode = { id: string, label: string, status: string, detail: string, resource_kind: string,
+  resource_id: string, resource_version: number }
+type FlowData = { nodes: FlowNode[], edges: { source: string, target: string }[] }
+type VisualComponent = UIDocument['components'][number] & { chart?: unknown, flow?: unknown }
+
+function safeVisualText(value: unknown, limit: number): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= limit &&
+    !/<|>|https?:\/\/|javascript:|data:|\bon\w+\s*=/i.test(value)
+}
+
+function validChart(value: unknown): value is ChartData {
+  if (!isRecord(value) || Object.keys(value).length !== 9) return false
+  return value.metric_id === 'heating-extra-battery' && value.chart_type === 'BAR' &&
+    value.x_axis_label === '加热时长（分钟）' && value.y_axis_label === '额外电量消耗' && value.unit === '%' &&
+    Array.isArray(value.points) && JSON.stringify(value.points) === JSON.stringify(chartPoints) &&
+    safeVisualText(value.source_label, 180) && typeof value.source_version === 'string' && /^[\da-f]{16}$/.test(value.source_version) &&
+    safeVisualText(value.note, 240)
+}
+
+function validFlow(value: unknown, source: Record<string, unknown>): value is FlowData {
+  if (!isRecord(value) || Object.keys(value).length !== 2 || !Array.isArray(value.nodes) ||
+    value.nodes.length < 1 || value.nodes.length > 8 || !Array.isArray(value.edges) || value.edges.length > 8) return false
+  const nodes = value.nodes as unknown[]
+  const ids = new Set<string>()
+  for (const raw of nodes) {
+    if (!isRecord(raw) || Object.keys(raw).length !== 7 || typeof raw.id !== 'string' || !flowIds.has(raw.id) || ids.has(raw.id) ||
+      !safeVisualText(raw.label, 80) || typeof raw.status !== 'string' || !flowStatuses.has(raw.status) ||
+      !safeVisualText(raw.detail, 240) || !['CASE_VIEW', 'TASK_VIEW'].includes(String(raw.resource_kind)) ||
+      typeof raw.resource_id !== 'string' || !uuid.test(raw.resource_id) || !positiveInteger(raw.resource_version)) return false
+    if (raw.id === 'human-task') {
+      if (raw.resource_kind !== 'TASK_VIEW') return false
+    } else if (raw.resource_kind !== 'CASE_VIEW' || raw.resource_id !== source.resource_id ||
+      raw.resource_version !== source.resource_version) return false
+    ids.add(raw.id)
+  }
+  if (!ids.has('case')) return false
+  const adjacency = new Map([...ids].map(id => [id, [] as string[]]))
+  const pairs = new Set<string>()
+  for (const raw of value.edges as unknown[]) {
+    if (!isRecord(raw) || Object.keys(raw).length !== 2 || typeof raw.source !== 'string' || typeof raw.target !== 'string' ||
+      !ids.has(raw.source) || !ids.has(raw.target) || raw.source === raw.target) return false
+    const key = `${raw.source}:${raw.target}`
+    if (pairs.has(key)) return false
+    pairs.add(key)
+    adjacency.get(raw.source)?.push(raw.target)
+  }
+  const visiting = new Set<string>(), visited = new Set<string>()
+  const visit = (id: string): boolean => {
+    if (visiting.has(id)) return false
+    if (visited.has(id)) return true
+    visiting.add(id)
+    for (const target of adjacency.get(id) ?? []) if (!visit(target)) return false
+    visiting.delete(id); visited.add(id)
+    return true
+  }
+  return [...ids].every(visit)
+}
 
 function validComponents(value: unknown, conversationId: string, version: number, desk: boolean): value is UIDocument['components'] {
   if (!Array.isArray(value) || value.length === 0 || value.length > 12) return false
@@ -67,6 +135,13 @@ function validComponents(value: unknown, conversationId: string, version: number
     } else if (item.actions.length) return false
     const options = (item as { options?: unknown }).options ?? []
     if (!validOptions(options, item.type)) return false
+    const visual = item as VisualComponent
+    if (item.type === 'KnowledgeMetricChart') {
+      if (desk || !validChart(visual.chart) || visual.flow != null || source.kind !== 'AGENT_RUN_VIEW' || source.binding !== 'metric' || item.actions.length) return false
+    } else if (visual.chart != null) return false
+    if (item.type === 'CaseProcessFlow') {
+      if (!desk || !validFlow(visual.flow, source) || visual.chart != null || source.kind !== 'CASE_VIEW' || source.binding !== 'process_flow' || item.actions.length) return false
+    } else if (visual.flow != null) return false
   }
   const components = value as UIDocument['components']
   const byId = new Map(components.map(component => [component.id, component]))
@@ -118,7 +193,7 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
   // Version 2 added ChoiceGroup; a version-1 document is still valid and simply
   // never contains the new type.
   const supported = audienceMatches && revisionValid && !regressed &&
-    document.schema_version === 1 && [1, 2].includes(document.catalog_version) && document.status === 'ACTIVE' &&
+    document.schema_version === 1 && [1, 2, 3].includes(document.catalog_version) && document.status === 'ACTIVE' &&
     (desk ? document.surface === 'DESK_PANEL' : ['SUPPORT_INLINE', 'SUPPORT_PANEL'].includes(document.surface)) &&
     (expires === null || expires > Date.now()) && validComponents(document.components, conversationId, conversationVersion, desk)
   const choiceSubmitted = Boolean(document && choiceSubmission?.uiId === document.ui_id && choiceSubmission.revision === document.revision)
@@ -207,6 +282,56 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
       return <article className={`ui-card ui-${component.type}`} key={component.id}>
         <h3><Icon size={18} aria-hidden="true" />{component.props.title}</h3>
         {component.type === 'ProgressTimeline' ? <ol className="ui-timeline"><li><p>{component.props.body}</p><StatusBadge value={component.props.status} label={component.props.status === 'FAILED' ? '处理失败' : undefined} /></li></ol> : <p>{component.props.body}</p>}
+        {component.type === 'KnowledgeMetricChart' && (() => {
+          const chart = (component as VisualComponent).chart as ChartData
+          return <div className="ui-chart-wrap">
+            <svg className="ui-chart" viewBox="0 0 360 210" role="img" aria-label={`${chart.y_axis_label}柱状图`}>
+              <text x="12" y="18" className="ui-chart-axis-label">{chart.y_axis_label}（{chart.unit}）</text>
+              <line x1="42" y1="162" x2="344" y2="162" className="ui-chart-axis" />
+              {chart.points.map((point, index) => {
+                const height = point.value * 3
+                const x = 68 + index * 92
+                return <g key={point.label}>
+                  <rect x={x} y={162 - height} width="42" height={height} rx="4" className="ui-chart-bar" />
+                  <text x={x + 21} y={151 - height} textAnchor="middle" className="ui-chart-value">{point.value}{chart.unit}</text>
+                  <text x={x + 21} y="181" textAnchor="middle" className="ui-chart-tick">{point.label}</text>
+                </g>
+              })}
+              <text x="190" y="204" textAnchor="middle" className="ui-chart-axis-label">{chart.x_axis_label}</text>
+            </svg>
+            <dl className="ui-chart-source"><div><dt>来源</dt><dd>{chart.source_label}</dd></div>
+              <div><dt>来源版本</dt><dd>{chart.source_version}</dd></div></dl>
+            <p className="ui-visual-note">{chart.note}</p>
+          </div>
+        })()}
+        {component.type === 'CaseProcessFlow' && (() => {
+          const flow = (component as VisualComponent).flow as FlowData
+          const layout: Record<string, { x: number, y: number }> = {
+            case: { x: 72, y: 66 }, 'human-task': { x: 220, y: 32 },
+            'service-action': { x: 220, y: 100 }, verification: { x: 368, y: 66 },
+          }
+          const positions = new Map(flow.nodes.map(node => [node.id, layout[node.id]]))
+          return <div className="ui-flow-wrap">
+            <svg className="ui-flow" viewBox="0 0 440 150" role="img" aria-label="案例办理流程图">
+              {flow.edges.map(edge => {
+                const from = positions.get(edge.source), to = positions.get(edge.target)
+                if (!from || !to) return null
+                return <line key={`${edge.source}-${edge.target}`} x1={from.x + 55} y1={from.y} x2={to.x - 55} y2={to.y} className="ui-flow-edge" />
+              })}
+              {flow.nodes.map(node => {
+                const point = positions.get(node.id)!
+                return <g key={node.id}>
+                  <rect x={point.x - 58} y={point.y - 28} width="116" height="56" rx="9" className={`ui-flow-node status-${node.status}`} />
+                  <text x={point.x} y={point.y - 3} textAnchor="middle" className="ui-flow-label">{node.label}</text>
+                  <text x={point.x} y={point.y + 15} textAnchor="middle" className="ui-flow-status">{flowStatusLabels[node.status]}</text>
+                </g>
+              })}
+            </svg>
+            <ol className="ui-flow-details">{flow.nodes.map(node => <li key={node.id}>
+              <strong>{node.label} · {flowStatusLabels[node.status]}</strong><span>{node.detail}</span>
+            </li>)}</ol>
+          </div>
+        })()}
         {(component.type === 'CaseSummaryCard' || component.type === 'HandoffSummary') && <p><StatusBadge value={component.props.status} label={component.props.status === 'FAILED' ? '处理失败' : undefined} /></p>}
         {'source' in component.props && <dl className="ui-evidence-meta"><div><dt>来源</dt><dd>{component.props.source}</dd></div>
           <div><dt>核验</dt><dd><StatusBadge value={component.props.verification} /></dd></div></dl>}

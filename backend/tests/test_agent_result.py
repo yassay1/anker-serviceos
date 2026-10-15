@@ -93,3 +93,21 @@ def test_fenced_plain_prose_stays_prose():
     result = parse_agent_result("```\n请先断开电源。\n```")
     assert "请先断开电源。" in result.text
     assert result.ui_proposal is None and result.ui_fallback_code is None
+
+
+def test_visual_hints_require_audience_and_allowlisted_source():
+    chart = {"purpose": "解释加热耗电", "audience": "CUSTOMER", "fallback_text": "可阅读文字说明。",
+             "component_hints": ["KnowledgeMetricChart"],
+             "knowledge_source_id": "eufy-s1-pro-heating-battery-v1"}
+    flow = {"purpose": "查看案例进度", "audience": "STAFF", "fallback_text": "查看案例状态。",
+            "component_hints": ["CaseProcessFlow"], "case_id": "00000000-0000-0000-0000-000000000001"}
+    assert parse_agent_result(json.dumps({"text": "说明如下", "ui_proposal": chart})).ui_proposal == chart
+    assert parse_agent_result(json.dumps({"text": "内部查看", "ui_proposal": flow})).ui_proposal == flow
+
+    for value in (
+        {**chart, "audience": "STAFF"},
+        {**chart, "knowledge_source_id": []},
+        {**flow, "audience": "CUSTOMER"},
+    ):
+        result = parse_agent_result(json.dumps({"text": "使用文字说明。", "ui_proposal": value}))
+        assert result.ui_proposal is None and result.ui_fallback_code == "ui_proposal_invalid"

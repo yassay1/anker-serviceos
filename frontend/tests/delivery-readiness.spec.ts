@@ -271,6 +271,76 @@ test('delivery UI: staff catalog preserves evidence, handoff and single-node rea
   await expect(cards.getByText(/已完成|已解决/)).toHaveCount(0)
 })
 
+test('delivery UI: customer metric uses the bounded curated chart payload', async ({ page }) => {
+  const state = await fixture(page, false)
+  state.document.catalog_version = 3
+  state.document.components.push({ id: 'metric', type: 'KnowledgeMetricChart',
+    props: { title: '加热功能的额外电量消耗估算', body: '来自已发布知识条目的估算。' }, actions: [], children: [],
+    data_source: { kind: 'AGENT_RUN_VIEW', binding: 'metric', resource_id: ids.device, resource_version: 1 },
+    chart: { metric_id: 'heating-extra-battery', chart_type: 'BAR', x_axis_label: '加热时长（分钟）',
+      y_axis_label: '额外电量消耗', unit: '%',
+      points: [{ label: '5 分钟', value: 10 }, { label: '10 分钟', value: 20 }, { label: '15 分钟', value: 30 }],
+      source_label: '已发布知识条目', source_version: '0123456789abcdef', note: '近似估算，不是个人设备遥测。' },
+  })
+  await page.goto('/support')
+  const card = page.locator('.ui-KnowledgeMetricChart')
+  await expect(card.getByRole('img', { name: '额外电量消耗柱状图' })).toBeVisible()
+  await expect(card.locator('.ui-chart-bar')).toHaveCount(3)
+  await expect(card.locator('.ui-chart-source')).toContainText('0123456789abcdef')
+  await expect(page.getByLabel('描述你的问题')).toBeEnabled()
+})
+
+test('delivery UI: staff case process flow displays source states and is staff-only', async ({ page }) => {
+  const state = await fixture(page)
+  state.document.catalog_version = 3
+  state.document.components = [{ id: 'process-flow', type: 'CaseProcessFlow',
+    props: { title: '案例办理流程', body: '节点状态来自当前案例和任务。' }, actions: [], children: [],
+    data_source: { kind: 'CASE_VIEW', binding: 'process_flow', resource_id: ids.second, resource_version: 2 },
+    flow: { nodes: [
+      { id: 'case', label: '服务案例', status: 'WAITING', detail: '当前案例状态：WAITING_CUSTOMER',
+        resource_kind: 'CASE_VIEW', resource_id: ids.second, resource_version: 2 },
+      { id: 'human-task', label: '人工协作', status: 'IN_PROGRESS', detail: '当前任务状态：ASSIGNED',
+        resource_kind: 'TASK_VIEW', resource_id: ids.device, resource_version: 1 },
+    ], edges: [{ source: 'case', target: 'human-task' }] },
+  }]
+  await page.goto('/desk')
+  const card = page.locator('.ui-CaseProcessFlow')
+  await expect(card.getByRole('img', { name: '案例办理流程图' })).toBeVisible()
+  await expect(card.locator('.ui-flow-details')).toContainText('当前任务状态：ASSIGNED')
+  expect(await card.locator('.ui-flow').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+})
+
+test('delivery UI: customer document cannot render a staff process flow', async ({ page }) => {
+  const state = await fixture(page, false)
+  state.document.catalog_version = 3
+  state.document.components = [{ id: 'process-flow', type: 'CaseProcessFlow',
+    props: { title: '案例办理流程', body: '内部流程。' }, actions: [], children: [],
+    data_source: { kind: 'CASE_VIEW', binding: 'process_flow', resource_id: ids.second, resource_version: 2 },
+    flow: { nodes: [{ id: 'case', label: '服务案例', status: 'WAITING', detail: '等待客户补充信息。',
+      resource_kind: 'CASE_VIEW', resource_id: ids.second, resource_version: 2 }], edges: [] },
+  }]
+  await page.goto('/support')
+  await expect(page.getByRole('button', { name: '刷新交互卡' })).toBeVisible()
+  await expect(page.locator('.ui-CaseProcessFlow')).toHaveCount(0)
+})
+
+test('delivery UI: altered metric values fall back without rendering SVG data', async ({ page }) => {
+  const state = await fixture(page, false)
+  state.document.catalog_version = 3
+  state.document.components.push({ id: 'metric', type: 'KnowledgeMetricChart',
+    props: { title: '加热估算', body: '估算说明。' }, actions: [], children: [],
+    data_source: { kind: 'AGENT_RUN_VIEW', binding: 'metric', resource_id: ids.device, resource_version: 1 },
+    chart: { metric_id: 'heating-extra-battery', chart_type: 'BAR', x_axis_label: '加热时长（分钟）',
+      y_axis_label: '额外电量消耗', unit: '%',
+      points: [{ label: '5 分钟', value: 999 }, { label: '10 分钟', value: 20 }, { label: '15 分钟', value: 30 }],
+      source_label: '已发布知识条目', source_version: '0123456789abcdef', note: '近似估算。' },
+  })
+  await page.goto('/support')
+  await expect(page.getByRole('button', { name: '刷新交互卡' })).toBeVisible()
+  await expect(page.locator('.ui-chart')).toHaveCount(0)
+  await expect(page.getByLabel('描述你的问题')).toBeEnabled()
+})
+
 test('delivery UI: catalog types are distinct, text remains inert, and mobile cards are accessible', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.emulateMedia({ reducedMotion: 'reduce' })

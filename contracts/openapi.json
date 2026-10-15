@@ -2638,6 +2638,87 @@
         "title": "UIActionResult",
         "type": "object"
       },
+      "UIChartData": {
+        "additionalProperties": false,
+        "properties": {
+          "chart_type": {
+            "const": "BAR",
+            "title": "Chart Type",
+            "type": "string"
+          },
+          "metric_id": {
+            "title": "Metric Id",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/UIChartPoint"
+            },
+            "maxItems": 8,
+            "minItems": 2,
+            "title": "Points",
+            "type": "array"
+          },
+          "source_label": {
+            "title": "Source Label",
+            "type": "string"
+          },
+          "source_version": {
+            "title": "Source Version",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "x_axis_label": {
+            "title": "X Axis Label",
+            "type": "string"
+          },
+          "y_axis_label": {
+            "title": "Y Axis Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric_id",
+          "chart_type",
+          "x_axis_label",
+          "y_axis_label",
+          "unit",
+          "points",
+          "source_label",
+          "source_version",
+          "note"
+        ],
+        "title": "UIChartData",
+        "type": "object"
+      },
+      "UIChartPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "UIChartPoint",
+        "type": "object"
+      },
       "UIComponent": {
         "additionalProperties": false,
         "properties": {
@@ -2648,6 +2729,16 @@
             "title": "Actions",
             "type": "array"
           },
+          "chart": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UIChartData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "children": {
             "items": {
               "type": "string"
@@ -2657,6 +2748,16 @@
           },
           "data_source": {
             "$ref": "#/components/schemas/UIDataSource"
+          },
+          "flow": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UIFlowData"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "id": {
             "title": "Id",
@@ -2830,6 +2931,134 @@
           "expires_at"
         ],
         "title": "UIDocumentRead",
+        "type": "object"
+      },
+      "UIFlowData": {
+        "additionalProperties": false,
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/UIFlowEdge"
+            },
+            "maxItems": 8,
+            "title": "Edges",
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/UIFlowNode"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Nodes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "nodes",
+          "edges"
+        ],
+        "title": "UIFlowData",
+        "type": "object"
+      },
+      "UIFlowEdge": {
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "enum": [
+              "case",
+              "human-task",
+              "service-action",
+              "verification"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "target": {
+            "enum": [
+              "case",
+              "human-task",
+              "service-action",
+              "verification"
+            ],
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "target"
+        ],
+        "title": "UIFlowEdge",
+        "type": "object"
+      },
+      "UIFlowNode": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Detail",
+            "type": "string"
+          },
+          "id": {
+            "enum": [
+              "case",
+              "human-task",
+              "service-action",
+              "verification"
+            ],
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "resource_id": {
+            "format": "uuid",
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "resource_kind": {
+            "enum": [
+              "CASE_VIEW",
+              "TASK_VIEW"
+            ],
+            "title": "Resource Kind",
+            "type": "string"
+          },
+          "resource_version": {
+            "minimum": 1.0,
+            "title": "Resource Version",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "NOT_STARTED",
+              "IN_PROGRESS",
+              "WAITING",
+              "COMPLETED",
+              "FAILED",
+              "UNKNOWN",
+              "NOT_APPLICABLE"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "status",
+          "detail",
+          "resource_kind",
+          "resource_id",
+          "resource_version"
+        ],
+        "title": "UIFlowNode",
         "type": "object"
       },
       "UIOption": {

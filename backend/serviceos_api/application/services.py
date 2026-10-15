@@ -13,8 +13,9 @@ from serviceos_api.application.contracts import (
 from serviceos_api.application.business import BusinessService
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.ui_catalog import CATALOG_VERSION, SCHEMA_VERSION, safe_text, validate_components
+from serviceos_api.application.ui_visualizations import case_process_flow, knowledge_metric_chart
 from serviceos_api.persistence.models import (
-    AgentProposal, AgentRun, CaseConversation, CaseDevice, CaseEvidence, Conversation, ConversationEvent, DeviceFact,
+    AgentProposal, AgentRun, CaseAction, CaseConversation, CaseDevice, CaseEvidence, CaseVerification, Conversation, ConversationEvent, DeviceFact,
     DevicePassport, Message, MessageJob, OutboxEvent, ServiceCase, ServiceTask, TaskAssignment,
     UIActionInvocation, UIDocument,
 )
@@ -200,6 +201,25 @@ class ConversationService(BusinessService):
                     AgentRun.status == "COMPLETED",
                     AgentRun.created_at > latest_customer_turn if latest_customer_turn else true(),
                 ).order_by(AgentRun.created_at.desc()).limit(5)).all()
+                verified_models = {model.upper() for model in self.session.scalars(
+                    select(DevicePassport.model).join(CaseDevice, and_(
+                        CaseDevice.device_id == DevicePassport.id,
+                        CaseDevice.tenant_id == DevicePassport.tenant_id,
+                    )).join(CaseConversation, and_(
+                        CaseConversation.case_id == CaseDevice.case_id,
+                        CaseConversation.tenant_id == CaseDevice.tenant_id,
+                    )).join(ServiceCase, and_(
+                        ServiceCase.id == CaseConversation.case_id,
+                        ServiceCase.tenant_id == CaseConversation.tenant_id,
+                    )).where(
+                        CaseConversation.tenant_id == self.actor.tenant_id,
+                        CaseConversation.conversation_id == conversation.id,
+                        ServiceCase.customer_id == conversation.customer_id,
+                        DevicePassport.customer_id == conversation.customer_id,
+                        DevicePassport.identity_status == "VERIFIED",
+                        DevicePassport.archived_at.is_(None),
+                    )
+                ).all() if model}
                 for run in runs:
                     proposal = (run.result_payload or {}).get("ui_proposal")
                     public_message = self.session.scalar(select(Message.id).where(
@@ -209,17 +229,32 @@ class ConversationService(BusinessService):
                         Message.visibility == "PUBLIC",
                     ))
                     if proposal and proposal.get("audience") == "CUSTOMER" and public_message:
-                        refs[("AGENT_RUN_VIEW", run.id)] = 1
+                        hints = set(proposal.get("component_hints", []))
                         options = proposal.get("options") or []
-                        kind = "ChoiceGroup" if len(options) >= 2 else "QuestionForm"
-                        components.append({"id": "agent-choice" if kind == "ChoiceGroup" else "agent-question",
-                                           "type": kind,
-                                           "props": {"title": "下一步需要的信息", "body": proposal["purpose"]},
-                                           "data_source": {"kind": "AGENT_RUN_VIEW", "resource_id": str(run.id),
-                                                           "resource_version": 1, "binding": "question"},
-                                           "actions": [], "children": [], "options": options})
-                        source_run_id = run.id
-                        break
+                        run_components = []
+                        if "QuestionForm" in hints or "ChoiceGroup" in hints:
+                            kind = "ChoiceGroup" if len(options) >= 2 and "ChoiceGroup" in hints else "QuestionForm"
+                            run_components.append({"id": "agent-choice" if kind == "ChoiceGroup" else "agent-question",
+                                                   "type": kind,
+                                                   "props": {"title": "下一步需要的信息", "body": proposal["purpose"]},
+                                                   "data_source": {"kind": "AGENT_RUN_VIEW", "resource_id": str(run.id),
+                                                                   "resource_version": 1, "binding": "question"},
+                                                   "actions": [], "children": [],
+                                                   "options": options if kind == "ChoiceGroup" else []})
+                        if "KnowledgeMetricChart" in hints:
+                            chart = knowledge_metric_chart(proposal.get("knowledge_source_id", ""), verified_models)
+                            if chart:
+                                run_components.append({"id": "knowledge-metric", "type": "KnowledgeMetricChart",
+                                                       "props": {"title": "加热功能的额外电量消耗估算",
+                                                                 "body": chart["note"]},
+                                                       "data_source": {"kind": "AGENT_RUN_VIEW", "resource_id": str(run.id),
+                                                                       "resource_version": 1, "binding": "metric"},
+                                                       "actions": [], "children": [], "chart": chart})
+                        if run_components:
+                            refs[("AGENT_RUN_VIEW", run.id)] = 1
+                            components.extend(run_components)
+                            source_run_id = run.id
+                            break
         else:
             summaries = self.desk_case_summaries(conversation.id)
             for summary in summaries[:5]:
@@ -247,6 +282,47 @@ class ConversationService(BusinessService):
                                    "data_source": {"kind": "TASK_VIEW", "resource_id": str(task.id),
                                                    "resource_version": task.version, "binding": "handoff"},
                                    "actions": [], "children": []})
+            latest_customer_turn = self.session.scalar(select(Message.created_at).where(
+                Message.tenant_id == self.actor.tenant_id, Message.conversation_id == conversation.id,
+                Message.author_kind == "CUSTOMER", Message.visibility == "PUBLIC",
+            ).order_by(Message.created_at.desc(), Message.id.desc()).limit(1))
+            internal_runs = self.session.scalars(select(AgentRun).where(
+                AgentRun.tenant_id == self.actor.tenant_id,
+                AgentRun.conversation_id == conversation.id,
+                AgentRun.status == "COMPLETED",
+                AgentRun.created_at > latest_customer_turn if latest_customer_turn else true(),
+            ).order_by(AgentRun.created_at.desc()).limit(5)).all()
+            cases_by_id = {str(summary.case.id): summary.case for summary in summaries}
+            for run in internal_runs:
+                proposal = (run.result_payload or {}).get("ui_proposal")
+                if not proposal or proposal.get("audience") != "STAFF" or "CaseProcessFlow" not in proposal.get("component_hints", []):
+                    continue
+                case = cases_by_id.get(proposal.get("case_id"))
+                if case is None:
+                    continue
+                task = self.session.scalar(select(ServiceTask).where(
+                    ServiceTask.tenant_id == self.actor.tenant_id, ServiceTask.conversation_id == conversation.id,
+                    ServiceTask.case_id == case.id,
+                ).order_by(ServiceTask.created_at.desc(), ServiceTask.id.desc()).limit(1))
+                action = self.session.scalar(select(CaseAction).where(
+                    CaseAction.tenant_id == self.actor.tenant_id, CaseAction.case_id == case.id,
+                ).order_by(CaseAction.created_at.desc(), CaseAction.id.desc()).limit(1))
+                verification = self.session.scalar(select(CaseVerification).where(
+                    CaseVerification.tenant_id == self.actor.tenant_id, CaseVerification.case_id == case.id,
+                ).order_by(CaseVerification.created_at.desc(), CaseVerification.id.desc()).limit(1))
+                refs[("CASE_VIEW", case.id)] = case.version
+                if task is not None:
+                    refs[("TASK_VIEW", task.id)] = task.version
+                flow = case_process_flow(case, task, action, verification)
+                if len(components) >= 12:
+                    break
+                components.append({"id": f"case-flow-{str(case.id)[:8]}", "type": "CaseProcessFlow",
+                                   "props": {"title": "案例办理流程", "body": "节点状态来自当前案例、任务、模拟动作和客户核验记录。"},
+                                   "data_source": {"kind": "CASE_VIEW", "resource_id": str(case.id),
+                                                   "resource_version": case.version, "binding": "process_flow"},
+                                   "actions": [], "children": [], "flow": flow})
+                source_run_id = run.id
+                break
             if not components:
                 components.append({"id": "conversation-progress", "type": "ProgressTimeline",
                                    "props": {"title": "会话状态", "body": "会话已建立；尚无关联案例或人工任务。",
@@ -297,7 +373,7 @@ class ConversationService(BusinessService):
         ))
         if active and active.expires_at and active.expires_at <= datetime.now(timezone.utc):
             return None
-        if active and active.source_agent_run_id and not (
+        if active and audience == "CUSTOMER" and active.source_agent_run_id and not (
             conversation.collaboration_mode == "AI_LEAD" and conversation.reply_policy == "AI_AUTO"
         ):
             return None

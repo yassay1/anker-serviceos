@@ -406,6 +406,43 @@ class UIOption(Schema):
     value: str = Field(pattern=r"^[a-z0-9-]{1,32}$")
 
 
+class UIChartPoint(Schema):
+    label: str = Field(min_length=1, max_length=80)
+    value: float
+
+
+class UIChartData(Schema):
+    metric_id: str
+    chart_type: Literal["BAR"]
+    x_axis_label: str
+    y_axis_label: str
+    unit: str
+    points: list[UIChartPoint] = Field(min_length=2, max_length=8)
+    source_label: str
+    source_version: str
+    note: str
+
+
+class UIFlowNode(Schema):
+    id: Literal["case", "human-task", "service-action", "verification"]
+    label: str = Field(min_length=1, max_length=80)
+    status: Literal["NOT_STARTED", "IN_PROGRESS", "WAITING", "COMPLETED", "FAILED", "UNKNOWN", "NOT_APPLICABLE"]
+    detail: str = Field(min_length=1, max_length=240)
+    resource_kind: Literal["CASE_VIEW", "TASK_VIEW"]
+    resource_id: UUID
+    resource_version: int = Field(ge=1)
+
+
+class UIFlowEdge(Schema):
+    source: Literal["case", "human-task", "service-action", "verification"]
+    target: Literal["case", "human-task", "service-action", "verification"]
+
+
+class UIFlowData(Schema):
+    nodes: list[UIFlowNode] = Field(min_length=1, max_length=8)
+    edges: list[UIFlowEdge] = Field(max_length=8)
+
+
 class UIComponent(Schema):
     id: str
     type: str
@@ -414,6 +451,8 @@ class UIComponent(Schema):
     actions: list[UIAction]
     children: list[str]
     options: list[UIOption] = Field(default_factory=list)
+    chart: UIChartData | None = None
+    flow: UIFlowData | None = None
 
 
 class UIDocumentRead(Schema):
