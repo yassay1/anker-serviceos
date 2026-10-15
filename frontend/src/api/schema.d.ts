@@ -352,6 +352,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/conversations/{conversation_id}/skill-executions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Skill Executions */
+        get: operations["list_skill_executions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/conversations/{id}": {
         parameters: {
             query?: never;
@@ -703,10 +720,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Read Health
-         * @description API liveness only; does not assert database or Agent readiness.
-         */
+        /** Read Health */
         get: operations["read_health"];
         put?: never;
         post?: never;
@@ -744,6 +758,40 @@ export interface paths {
         put?: never;
         /** Decide Proposal */
         post: operations["decide_proposal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Readiness */
+        get: operations["read_readiness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Skills */
+        get: operations["list_skills"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1496,6 +1544,20 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** ReadinessResponse */
+        ReadinessResponse: {
+            /** Components */
+            components: {
+                [key: string]: string;
+            };
+            /** Production Ready */
+            production_ready: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ready" | "not_ready";
+        };
         /** ResolutionContractRead */
         ResolutionContractRead: {
             /**
@@ -1549,6 +1611,92 @@ export interface components {
             current_version?: number | null;
             /** Detail */
             detail: string;
+        };
+        /** SkillCatalog */
+        SkillCatalog: {
+            /** Items */
+            items: components["schemas"]["SkillDefinition"][];
+        };
+        /** SkillDefinition */
+        SkillDefinition: {
+            /** Allowed Tools */
+            allowed_tools: string[];
+            /** Allowed Ui Components */
+            allowed_ui_components: string[];
+            /** Applicability */
+            applicability: string[];
+            /**
+             * Availability
+             * @enum {string}
+             */
+            availability: "AVAILABLE" | "PREPARED";
+            /** Description */
+            description: string;
+            /** Failure Exit */
+            failure_exit: string;
+            /** Input Schema */
+            input_schema: {
+                [key: string]: unknown;
+            };
+            /** Output Schema */
+            output_schema: {
+                [key: string]: unknown;
+            };
+            /**
+             * Risk Level
+             * @constant
+             */
+            risk_level: "LOW";
+            /** Skill Id */
+            skill_id: string;
+            /** Title */
+            title: string;
+            /** Version */
+            version: string;
+        };
+        /** SkillExecutionPage */
+        SkillExecutionPage: {
+            /** Items */
+            items: components["schemas"]["SkillExecutionRead"][];
+            /** Next After */
+            next_after?: string | null;
+        };
+        /** SkillExecutionRead */
+        SkillExecutionRead: {
+            /** Execution Key */
+            execution_key: string;
+            /**
+             * Loaded At
+             * Format: date-time
+             */
+            loaded_at: string;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /**
+             * Skill Id
+             * @constant
+             */
+            skill_id: "diagnose-no-charge";
+            /** Source Message Ids */
+            source_message_ids: string[];
+            /**
+             * Status
+             * @constant
+             */
+            status: "LOADED";
+            /**
+             * Version
+             * @constant
+             */
+            version: "1.0.0";
+            /**
+             * Visibility
+             * @constant
+             */
+            visibility: "INTERNAL";
         };
         /** SummaryFact */
         SummaryFact: {
@@ -3089,6 +3237,40 @@ export interface operations {
             };
         };
     };
+    list_skill_executions: {
+        parameters: {
+            query?: {
+                after?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillExecutionPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     read_conversation: {
         parameters: {
             query?: never;
@@ -3950,6 +4132,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_readiness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadinessResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadinessResponse"];
+                };
+            };
+        };
+    };
+    list_skills: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillCatalog"];
                 };
             };
         };

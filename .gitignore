@@ -4,6 +4,11 @@ __pycache__/
 .pytest_cache/
 .data/
 .env
+.env.*
+!.env*.example
+*.pem
+*.key
+backups/
 *.log
 dist/
 .cache/

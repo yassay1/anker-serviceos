@@ -1,0 +1,18 @@
+# Standalone native-test database; no production config, worker or model access.
+name: serviceos-test
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:17}
+    environment:
+      POSTGRES_DB: serviceos_test
+      POSTGRES_USER: serviceos_test
+      POSTGRES_PASSWORD: ${POSTGRES_TEST_PASSWORD:?Set the isolated test PostgreSQL password}
+    ports:
+      - "127.0.0.1:55433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 20

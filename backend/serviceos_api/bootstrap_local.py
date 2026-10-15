@@ -44,8 +44,10 @@ def main():
     if not settings.local_auth_enabled:
         raise SystemExit("Explicit development local authentication is required for sample seeding.")
     engine = build_engine()
-    if engine.url.host not in ("127.0.0.1", "localhost") or engine.url.database != "serviceos_dev":
-        raise SystemExit("Sample seeding is limited to the loopback serviceos_dev database.")
+    hosts = ("127.0.0.1", "localhost") + (("postgres",) if settings.allow_container_bootstrap else ())
+    if engine.url.host not in hosts or engine.url.database != "serviceos_dev":
+        engine.dispose()
+        raise SystemExit("Sample seeding is limited to the explicit local serviceos_dev database.")
     try:
         with Session(engine) as session:
             seed_local_accounts(session)

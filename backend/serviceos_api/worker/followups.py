@@ -2,7 +2,6 @@
 
 import argparse
 import logging
-import time
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -11,6 +10,10 @@ from sqlalchemy.orm import Session
 from serviceos_api.application.evidence import enqueue_case_events
 from serviceos_api.persistence.database import build_engine
 from serviceos_api.persistence.models import FollowUpJob, ServiceTask, TaskAssignment
+from serviceos_api.worker.health import run_loop
+
+# Single source of truth for the container healthcheck role.
+ROLE = "followups"
 
 logger = logging.getLogger("serviceos.followups")
 
@@ -54,9 +57,7 @@ def main():
         if args.once:
             worker.run_once()
             return
-        while True:
-            if not worker.run_once():
-                time.sleep(1)
+        run_loop(ROLE, worker.run_once)
     finally:
         engine.dispose()
 

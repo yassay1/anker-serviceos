@@ -9,9 +9,8 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
-from uuid import UUID
 
-from serviceos_api.application.evidence_storage import EvidenceStorageFailure
+from serviceos_api.application.evidence_storage import EvidenceStorage, EvidenceStorageFailure, validate_evidence_key
 from serviceos_api.settings import Settings
 
 
@@ -22,13 +21,8 @@ class LocalEvidenceStorage:
         self.root = root.resolve()
 
     def _path(self, key: str) -> Path:
+        validate_evidence_key(key)
         parts = key.split("/")
-        try:
-            valid = len(parts) == 2 and all(str(UUID(part)) == part for part in parts)
-        except (ValueError, AttributeError):
-            valid = False
-        if not valid:
-            raise EvidenceStorageFailure("Invalid evidence object key.")
         parent = (self.root / parts[0]).resolve()
         if self.root not in parent.parents:
             raise EvidenceStorageFailure("Evidence object key escapes the private store.")
@@ -78,7 +72,10 @@ class LocalEvidenceStorage:
             raise EvidenceStorageFailure("Could not remove evidence bytes.") from error
 
 
-def evidence_storage_from_settings(settings: Settings) -> LocalEvidenceStorage:
+def evidence_storage_from_settings(settings: Settings) -> EvidenceStorage:
+    if settings.evidence_storage_backend == "s3":
+        from serviceos_api.integrations.s3_evidence_storage import S3EvidenceStorage
+        return S3EvidenceStorage(settings)
     if settings.environment not in ("development", "test"):
         raise EvidenceStorageFailure("A production object storage adapter is not configured.")
     root = Path(settings.evidence_storage_dir) if settings.evidence_storage_dir else (

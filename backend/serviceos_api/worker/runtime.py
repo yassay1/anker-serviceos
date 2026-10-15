@@ -24,6 +24,9 @@ from serviceos_api.settings import Settings
 
 logger = logging.getLogger("serviceos.worker")
 
+# Single source of truth for the container healthcheck role of the combined agent worker.
+ROLE = "agent"
+
 
 @dataclass(frozen=True)
 class Lease:
@@ -136,8 +139,9 @@ class MessageWorker:
             with Session(self.engine, expire_on_commit=False) as session:
                 job = session.scalar(select(MessageJob).where(
                     MessageJob.id == lease.item_id, MessageJob.tenant_id == lease.tenant_id,
-                    MessageJob.lease_token == lease.token,
-                ))
+                    MessageJob.status == "RUNNING", MessageJob.lease_token == lease.token,
+                    MessageJob.lease_expires_at > datetime.now(timezone.utc),
+                ).with_for_update())
                 if job is None:
                     return
                 message = session.scalar(select(Message).where(
@@ -145,13 +149,15 @@ class MessageWorker:
                 ))
                 conversation = session.scalar(select(Conversation).where(
                     Conversation.id == job.conversation_id, Conversation.tenant_id == job.tenant_id,
-                ))
+                ).with_for_update())
                 if message is None or conversation is None:
                     raise RuntimeError("job_subject_missing")
                 run = session.scalar(select(AgentRun).where(
                     AgentRun.tenant_id == job.tenant_id, AgentRun.message_id == message.id,
                 ).with_for_update())
                 if run and run.status == "COMPLETED":
+                    # Recover the finalization gap after publication without re-running the model.
+                    run.lease_token = lease.token
                     self._complete_job(session, job, lease)
                     return
                 if run is None:
@@ -168,6 +174,9 @@ class MessageWorker:
                     run.provider = "openai-compatible"
                     run.model = self.settings.llm_model
                     run.error_code = None
+                    run.completed_at = None
+                ConversationService.record_agent_progress(session, job.tenant_id, conversation.id,
+                                                           run.id, lease.token, "worker_started")
                 run_id = run.id
                 related_case_id = message.related_case_id
                 current_text = "\n".join(part.get("text", "") for part in message.content if part.get("type") == "text")
@@ -220,6 +229,7 @@ class MessageWorker:
                         AgentProposal.visibility == "INTERNAL",
                     ).order_by(AgentProposal.id)).all()
                     stored_payload = {
+                        **(run.result_payload or {}),
                         "schema_version": 1,
                         "ui_proposal": result.ui_proposal,
                         "ui_fallback_code": result.ui_fallback_code,
@@ -265,6 +275,14 @@ class MessageWorker:
     def _complete_job(self, session: Session, job: MessageJob, lease: Lease):
         if job.lease_token != lease.token:
             raise RuntimeError("worker_lease_lost")
+        run = session.scalar(select(AgentRun).where(
+            AgentRun.tenant_id == lease.tenant_id, AgentRun.job_id == job.id,
+            AgentRun.conversation_id == job.conversation_id,
+        ))
+        if run is None:
+            raise RuntimeError("agent_run_unavailable")
+        ConversationService.record_agent_progress(session, job.tenant_id, job.conversation_id,
+                                                   run.id, lease.token, "worker_completed")
         job.status = "COMPLETED"
         job.completed_at = datetime.now(timezone.utc)
         job.lease_owner = None
@@ -278,24 +296,35 @@ class MessageWorker:
         with Session(self.engine) as session:
             job = session.scalar(select(MessageJob).where(
                 MessageJob.id == lease.item_id, MessageJob.tenant_id == lease.tenant_id,
-                MessageJob.lease_token == lease.token,
+                MessageJob.status == "RUNNING", MessageJob.lease_token == lease.token,
+                MessageJob.lease_expires_at > now,
             ).with_for_update())
             if job is None:
                 return
             terminal = job.attempt_count >= min(job.max_attempts, self.settings.worker_max_attempts)
+            session.scalar(select(Conversation).where(
+                Conversation.id == job.conversation_id, Conversation.tenant_id == job.tenant_id,
+            ).with_for_update())
+            run = session.scalar(select(AgentRun).where(
+                AgentRun.tenant_id == lease.tenant_id, AgentRun.job_id == job.id,
+                AgentRun.lease_token == lease.token,
+            ).with_for_update())
+            if run and run.status != "COMPLETED":
+                run.status = "FAILED"
+                run.error_code = error_code
+                run.completed_at = now
+                try:
+                    ConversationService.record_agent_progress(session, job.tenant_id, job.conversation_id,
+                                                               run.id, lease.token, "worker_failed")
+                except ValueError:
+                    # A withdrawn conversation/source authorization cannot emit progress.
+                    pass
             job.status = "FAILED" if terminal else "QUEUED"
             job.last_error_code = error_code
             job.available_at = now + timedelta(seconds=min(300, 2 ** job.attempt_count))
             job.lease_owner = None
             job.lease_token = None
             job.lease_expires_at = None
-            run = session.scalar(select(AgentRun).where(
-                AgentRun.tenant_id == lease.tenant_id, AgentRun.job_id == job.id,
-            ).with_for_update())
-            if run and run.status != "COMPLETED":
-                run.status = "FAILED"
-                run.error_code = error_code
-                run.completed_at = now
             session.commit()
         logger.warning("message job ended: status=%s error_code=%s", "FAILED" if terminal else "QUEUED", error_code)
 
@@ -403,21 +432,24 @@ class OutboxDispatcher:
 def run_worker_forever(settings: Settings):
     if not settings.llm_configured:
         raise RuntimeError("LLM provider is not configured; no message jobs were claimed.")
-    from serviceos_api.worker.inspection import EvidenceInspectionWorker
     from serviceos_api.worker.actions import MockActionWorker
+    from serviceos_api.worker.health import run_loop
+    from serviceos_api.worker.inspection import EvidenceInspectionWorker
 
     engine = build_engine()
     messages = MessageWorker(engine, settings)
     evidence = EvidenceInspectionWorker(engine, settings) if settings.environment in ("development", "test") else None
     actions = MockActionWorker(engine, settings) if settings.environment in ("development", "test") else None
     outbox = OutboxDispatcher(engine, settings.worker_lease_seconds)
+
+    def poll() -> bool:
+        did_work = messages.run_once()
+        did_work = (evidence.run_once() if evidence is not None else False) or did_work
+        did_work = (actions.run_once() if actions is not None else False) or did_work
+        return bool(outbox.dispatch_batch()) or did_work
+
     try:
-        while True:
-            did_work = messages.run_once()
-            did_work = (evidence.run_once() if evidence is not None else False) or did_work
-            did_work = (actions.run_once() if actions is not None else False) or did_work
-            did_work = bool(outbox.dispatch_batch()) or did_work
-            if not did_work:
-                time.sleep(1)
+        # run_loop writes the heartbeat that the container healthcheck reads.
+        run_loop(ROLE, poll)
     finally:
         engine.dispose()

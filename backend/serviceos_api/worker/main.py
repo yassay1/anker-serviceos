@@ -3,7 +3,9 @@
 import logging
 
 from serviceos_api.settings import Settings
-from serviceos_api.worker.runtime import run_worker_forever
+from serviceos_api.worker.runtime import ROLE, run_worker_forever
+
+__all__ = ["ROLE", "main"]
 
 
 def main():

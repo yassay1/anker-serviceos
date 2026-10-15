@@ -35,6 +35,14 @@ uv run --project backend --locked python -m serviceos_api.worker.inspection
 
 隔离验收可在命令末尾加 `--once`，只处理当前一条待检查记录后退出。
 
+不需要模型配置的四个进程（图片检查、模拟动作、回访、事件派发）都会定期写心跳，容器健康检查与本地排查用同一条命令：
+
+```powershell
+uv run --project backend --locked python -m serviceos_api.worker.health --role inspection
+```
+
+`--role` 取 `inspection`、`actions`、`followups`、`outbox`、`agent`；每个 worker 模块里的 `ROLE` 常量是唯一来源，`compose.yaml` 的健康检查角色与该常量必须一致（有回归测试）。心跳文件位于系统临时目录，默认 120 秒内无成功轮询即视为不健康。
+
 未检查通过的图片不能下载。已配置 Provider 的消息 Worker 在领取对话任务之余也会领取图片检查任务；未配置时它仍然在领取任何对话任务前退出。
 开发环境的图片原文保存在私有 `backend/.data/evidence/`，数据库只保存元数据和对象引用。API 与图片检查 Worker 必须使用同一个本地目录；需要放在别处时，在两个进程的环境中设置相同的绝对路径 `SERVICEOS_EVIDENCE_STORAGE_DIR`。生产对象存储适配器尚未配置，图片证据接口在生产配置下返回不可用，不会静默写入进程本地磁盘。
 
@@ -82,3 +90,7 @@ uv run --project backend --locked python -m serviceos_api.export_openapi --check
 ```
 
 跨模块功能先由前后端核对[V1 接口提案](../contracts/proposed/v1/README.md)，按[协作开发指南](../docs/contributing.md)共同确认[拟定功能契约](../docs/templates/feature-contract.md)，再并行实现。接口由真实路由、Pydantic Schema 和应用服务实现后才导出 `contracts/openapi.json`；前端再生成 `src/api/schema.d.ts`。开发计划和阶段验收记录决定完成状态；工作区中的代码、草案或测试替身不自动构成已交付能力。
+
+新路由模块必须在 `serviceos_api/main.py` 注册：`tests/test_api_baseline.py` 会遍历 `serviceos_api.api` 下的每个路由模块，断言其全部路径都出现在真实应用的 OpenAPI 里。只在测试里自行组装应用的路由，等于未发布接口。
+
+`GET /api/v1/skills` 与 `GET /api/v1/conversations/{id}/skill-executions` 只对同租户客服开放（客户 403、跨租户 404），执行记录为仅内部可见的有界分页。Skill 是固定版本的服务方法，不是可执行的远程代码；`emotion-assessment` 当前为 `PREPARED`，不产生情绪判断，也不得据此自动退款、换货、关单或改变协作模式。运行手册见[部署与运维](../docs/operations.md)，逐环节服务规则见[售后 SOP](../docs/service-sop.md)。

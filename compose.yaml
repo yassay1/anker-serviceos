@@ -1,0 +1,189 @@
+name: serviceos-dev
+
+x-backend-environment: &backend-environment
+  SERVICEOS_ENV: development
+  SERVICEOS_AUTH_MODE: local
+  SERVICEOS_LOCAL_AUTH_PASSWORD: ${SERVICEOS_LOCAL_AUTH_PASSWORD:?Set the local-only login password}
+  SERVICEOS_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-serviceos_local}:${POSTGRES_PASSWORD:?Set the local PostgreSQL password}@postgres:5432/${POSTGRES_DB:-serviceos_dev}
+  SERVICEOS_LOCAL_AUTH_NETWORKS: 127.0.0.0/8,::1/128,172.30.85.0/24
+  SERVICEOS_ALLOWED_ORIGINS: http://127.0.0.1:8080,http://localhost:8080
+  SERVICEOS_EVIDENCE_STORAGE_BACKEND: local
+  SERVICEOS_EVIDENCE_STORAGE_DIR: /data/evidence
+
+x-backend: &backend
+  image: ${SERVICEOS_BACKEND_IMAGE:-serviceos-backend:local}
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+    args:
+      PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
+      PYPI_INDEX_URL: ${PYPI_INDEX_URL:-https://pypi.org/simple}
+
+  environment: *backend-environment
+  init: true
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: 60s
+  networks: [local]
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+x-worker-health: &worker-health
+  interval: 20s
+  timeout: 5s
+  retries: 3
+  start_period: 30s
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:17}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-serviceos_dev}
+      POSTGRES_USER: ${POSTGRES_USER:-serviceos_local}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set the local PostgreSQL password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    networks: [local]
+    logging: *logging
+
+  migrate:
+    <<: *backend
+    command: [alembic, -c, backend/alembic.ini, upgrade, head]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  seed:
+    <<: *backend
+    profiles: [seed]
+    command: [python, -m, serviceos_api.bootstrap_local]
+    environment:
+      <<: *backend-environment
+      SERVICEOS_ALLOW_CONTAINER_BOOTSTRAP: "1"
+    restart: "no"
+
+  api:
+    <<: *backend
+    command: [uvicorn, serviceos_api.main:app, --host, 0.0.0.0, --port, "8000", --no-proxy-headers, --no-access-log]
+    volumes:
+      - evidence-data:/data/evidence
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/readiness', timeout=4).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  inspection:
+    <<: *backend
+    command: [python, -m, serviceos_api.worker.inspection]
+    volumes:
+      - evidence-data:/data/evidence
+    healthcheck:
+      <<: *worker-health
+      test: [CMD, python, -m, serviceos_api.worker.health, --role, inspection]
+
+  actions:
+    <<: *backend
+    command: [python, -m, serviceos_api.worker.actions]
+    environment:
+      <<: *backend-environment
+      SERVICEOS_MOCK_ACTION_RESULT: ${SERVICEOS_MOCK_ACTION_RESULT:-SUCCEEDED}
+    healthcheck:
+      <<: *worker-health
+      test: [CMD, python, -m, serviceos_api.worker.health, --role, actions]
+
+  followups:
+    <<: *backend
+    command: [python, -m, serviceos_api.worker.followups]
+    healthcheck:
+      <<: *worker-health
+      test: [CMD, python, -m, serviceos_api.worker.health, --role, followups]
+
+  outbox:
+    <<: *backend
+    command: [python, -m, serviceos_api.worker.outbox]
+    healthcheck:
+      <<: *worker-health
+      test: [CMD, python, -m, serviceos_api.worker.health, --role, outbox]
+
+  checkpoints:
+    <<: *backend
+    profiles: [agent]
+    command: [python, -m, serviceos_api.checkpoints]
+    restart: "no"
+
+  agent:
+    <<: *backend
+    profiles: [agent]
+    command: [python, -m, serviceos_api.worker.main]
+    environment:
+      <<: *backend-environment
+      SERVICEOS_LLM_MODEL: ${SERVICEOS_LLM_MODEL:-}
+      SERVICEOS_LLM_BASE_URL: ${SERVICEOS_LLM_BASE_URL:-}
+      SERVICEOS_LLM_API_KEY: ${SERVICEOS_LLM_API_KEY:-}
+    volumes:
+      - evidence-data:/data/evidence
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      checkpoints:
+        condition: service_completed_successfully
+    healthcheck:
+      <<: *worker-health
+      test: [CMD, python, -m, serviceos_api.worker.health, --role, agent]
+
+  web:
+    image: ${SERVICEOS_WEB_IMAGE:-serviceos-web:local}
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:24-alpine}
+        NGINX_IMAGE: ${NGINX_IMAGE:-nginx:1.28-alpine}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/nginx-health]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777
+    networks: [local]
+    logging: *logging
+
+volumes:
+  postgres-data:
+  evidence-data:
+
+networks:
+  local:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.85.0/24

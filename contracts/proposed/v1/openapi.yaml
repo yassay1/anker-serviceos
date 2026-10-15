@@ -4,7 +4,7 @@ info:
   title: Anker ServiceOS API
   version: 0.1.0
 x-serviceos-proposal-status: draft
-x-serviceos-implemented-sha256: 810a917aad499f21b680d7eca0f6df656ba4fb9bc2af5972b0cc744b1bf6f1bd
+x-serviceos-implemented-sha256: 766121d5d74884a6cd3a0bcb4e8ca40e001b0a150db3f0e5cc1c5e619c1f7925
 x-serviceos-planned-source: contracts/proposed/v1/planned.yaml
 paths:
   /api/v1/actions/{id}:
@@ -1137,6 +1137,54 @@ paths:
       tags:
       - conversations
       x-serviceos-status: implemented
+  /api/v1/conversations/{conversation_id}/skill-executions:
+    get:
+      operationId: list_skill_executions
+      parameters:
+      - in: path
+        name: conversation_id
+        required: true
+        schema:
+          format: uuid
+          title: Conversation Id
+          type: string
+      - in: query
+        name: after
+        required: false
+        schema:
+          anyOf:
+          - maxLength: 60
+            type: string
+          - type: 'null'
+          title: After
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          maximum: 100
+          minimum: 1
+          title: Limit
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillExecutionPage'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Skill Executions
+      tags:
+      - skills
+      x-serviceos-status: implemented
   /api/v1/conversations/{id}:
     get:
       operationId: read_conversation
@@ -1972,7 +2020,6 @@ paths:
       x-serviceos-status: implemented
   /api/v1/health:
     get:
-      description: API liveness only; does not assert database or Agent readiness.
       operationId: read_health
       responses:
         '200':
@@ -2046,6 +2093,42 @@ paths:
       summary: Decide Proposal
       tags:
       - collaboration
+      x-serviceos-status: implemented
+  /api/v1/readiness:
+    get:
+      operationId: read_readiness
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+          description: Successful Response
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+          description: Service Unavailable
+      summary: Read Readiness
+      tags:
+      - health
+      x-serviceos-status: implemented
+  /api/v1/skills:
+    get:
+      operationId: list_skills
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillCatalog'
+          description: Successful Response
+      security:
+      - SessionCookie: []
+      summary: List Skills
+      tags:
+      - skills
       x-serviceos-status: implemented
   /api/v1/tasks/{id}/claim:
     post:
@@ -3371,6 +3454,29 @@ components:
       - created_at
       title: ProposalRead
       type: object
+    ReadinessResponse:
+      additionalProperties: false
+      properties:
+        components:
+          additionalProperties:
+            type: string
+          title: Components
+          type: object
+        production_ready:
+          title: Production Ready
+          type: boolean
+        status:
+          enum:
+          - ready
+          - not_ready
+          title: Status
+          type: string
+      required:
+      - status
+      - production_ready
+      - components
+      title: ReadinessResponse
+      type: object
     ResolutionContractRead:
       additionalProperties: false
       properties:
@@ -3458,6 +3564,149 @@ components:
       required:
       - detail
       title: ServiceErrorBody
+      type: object
+    SkillCatalog:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/SkillDefinition'
+          title: Items
+          type: array
+      required:
+      - items
+      title: SkillCatalog
+      type: object
+    SkillDefinition:
+      additionalProperties: false
+      properties:
+        allowed_tools:
+          items:
+            type: string
+          title: Allowed Tools
+          type: array
+        allowed_ui_components:
+          items:
+            type: string
+          title: Allowed Ui Components
+          type: array
+        applicability:
+          items:
+            type: string
+          title: Applicability
+          type: array
+        availability:
+          enum:
+          - AVAILABLE
+          - PREPARED
+          title: Availability
+          type: string
+        description:
+          title: Description
+          type: string
+        failure_exit:
+          title: Failure Exit
+          type: string
+        input_schema:
+          additionalProperties: true
+          title: Input Schema
+          type: object
+        output_schema:
+          additionalProperties: true
+          title: Output Schema
+          type: object
+        risk_level:
+          const: LOW
+          title: Risk Level
+          type: string
+        skill_id:
+          title: Skill Id
+          type: string
+        title:
+          title: Title
+          type: string
+        version:
+          title: Version
+          type: string
+      required:
+      - skill_id
+      - version
+      - title
+      - description
+      - availability
+      - input_schema
+      - output_schema
+      - applicability
+      - allowed_tools
+      - allowed_ui_components
+      - risk_level
+      - failure_exit
+      title: SkillDefinition
+      type: object
+    SkillExecutionPage:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/SkillExecutionRead'
+          title: Items
+          type: array
+        next_after:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next After
+      required:
+      - items
+      title: SkillExecutionPage
+      type: object
+    SkillExecutionRead:
+      additionalProperties: false
+      properties:
+        execution_key:
+          pattern: ^[a-f0-9]{64}$
+          title: Execution Key
+          type: string
+        loaded_at:
+          format: date-time
+          title: Loaded At
+          type: string
+        run_id:
+          format: uuid
+          title: Run Id
+          type: string
+        skill_id:
+          const: diagnose-no-charge
+          title: Skill Id
+          type: string
+        source_message_ids:
+          items:
+            format: uuid
+            type: string
+          maxItems: 8
+          minItems: 1
+          title: Source Message Ids
+          type: array
+        status:
+          const: LOADED
+          title: Status
+          type: string
+        version:
+          const: 1.0.0
+          title: Version
+          type: string
+        visibility:
+          const: INTERNAL
+          title: Visibility
+          type: string
+      required:
+      - run_id
+      - skill_id
+      - version
+      - status
+      - visibility
+      - source_message_ids
+      - execution_key
+      - loaded_at
+      title: SkillExecutionRead
       type: object
     SummaryFact:
       additionalProperties: false

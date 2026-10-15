@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { FileText, Headphones, Inbox, MessageSquare, ShieldCheck } from 'lucide-react'
 import {
@@ -11,11 +11,12 @@ import { readableError } from '../../shared/errors'
 import { ConnectionStatus } from '../../shared/ConnectionStatus'
 import { CollaborationPanel } from '../collaboration/CollaborationPanel'
 import { UIDocumentRenderer } from '../ui-document/UIDocumentRenderer'
-import { useConversationEvents } from './useConversationEvents'
+import { type AgentProgress, useConversationEvents } from './useConversationEvents'
 import { ConversationSidebar } from './ConversationSidebar'
 import { MessageThread } from './MessageThread'
 import { MessageComposer } from './MessageComposer'
-import { StatusBadge } from '../../shared/StatusBadge'
+import { AgentProgressNote, RelatedCases } from './ConversationContext'
+import { StatusBadge, statusLabel } from '../../shared/StatusBadge'
 
 type Pending = {
   conversationId: string
@@ -48,7 +49,8 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
   function setInternal(value: boolean) {
     if (selected) setDrafts(current => ({ ...current, [selected.id]: { text: current[selected.id]?.text ?? '', internal: value } }))
   }
-  const streamState = useConversationEvents(actor, selected?.id, desk)
+  const [progress, setProgress] = useState<AgentProgress | null>(null)
+  const streamState = useConversationEvents(actor, selected?.id, desk, setProgress)
   const messageQueryKey = queryKeys.messages(actor.tenant_id, actor.actor_id, selected?.id ?? '')
   const messages = useInfiniteQuery({
     queryKey: messageQueryKey,
@@ -80,9 +82,13 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
     refetchOnWindowFocus: false,
     refetchInterval: 10_000,
   })
-  const recorded = messages.data?.pages.flatMap((page) => page.items) ?? []
-  const recordedKeys = new Set(recorded.map((message) => message.client_message_id))
-  const visiblePending = pending.filter((item) => item.conversationId === selected?.id && !recordedKeys.has(item.body.client_message_id))
+  const recorded = useMemo(() => [...new Map((messages.data?.pages.flatMap((page) => page.items) ?? [])
+    .map(message => [message.id, message])).values()], [messages.data])
+  const visiblePending = useMemo(() => {
+    const recordedKeys = new Set(recorded.map(message => message.client_message_id))
+    return pending.filter(item => item.conversationId === selected?.id && !recordedKeys.has(item.body.client_message_id))
+  }, [recorded, pending, selected?.id])
+  const relatedCaseIds = [...new Set(recorded.flatMap(message => message.related_case_id ? [message.related_case_id] : []))]
 
   async function startConversation() {
     setCreating(true)
@@ -130,6 +136,22 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
     void deliver(item)
   }
 
+  const interactionCards = selected && <section id="conversation-interactions" tabIndex={-1}
+    className={`context-ui ${desk ? '' : 'conversation-ui'}`} aria-label="交互卡">
+    {uiDocument.isError && <div className="ui-load-error"><p className="ui-fallback" role="alert">{readableError(uiDocument.error)}；请继续使用文字消息。</p>
+      <button type="button" onClick={() => void uiDocument.refetch()}>重试交互卡</button></div>}
+    <UIDocumentRenderer key={selected.id} document={uiDocument.isError ? null : uiDocument.data ?? null}
+      loading={uiDocument.isPending} active={selected.status === 'ACTIVE' && !uiDocument.isError}
+      recoveryKey={`serviceos:pending-ui:${actor.tenant_id}:${actor.actor_id}:${selected.id}`}
+      conversationId={selected.id} conversationVersion={selected.version} desk={desk}
+      onReply={() => document.getElementById('message-draft')?.focus()}
+      onCompleted={() => {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.tasks(actor.tenant_id, selected.id) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, selected.id) })
+      }}
+      onRefresh={() => { void queryClient.invalidateQueries({ queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, selected.id) }) }} />
+  </section>
+
   return <div className={`workspace-page ${desk ? 'desk-view' : 'support-view'} mobile-${mobilePanel}`}>
     <div className="page-heading">
       <div>
@@ -157,7 +179,10 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
           <MessageThread key={selected.id} actor={actor} desk={desk} messages={recorded} pending={visiblePending}
             loading={messages.isPending} error={messages.isError ? readableError(messages.error) : undefined}
             hasMore={Boolean(messages.hasNextPage)} loadingMore={messages.isFetchingNextPage}
-            onMore={() => void messages.fetchNextPage()} onRetry={(item) => void deliver(item)} />
+            onMore={() => void messages.fetchNextPage()} onRetry={(item) => void deliver(item)}>
+            {progress?.conversationId === selected.id && <AgentProgressNote progress={progress} connected={streamState === 'connected'} />}
+            {!desk && interactionCards}
+          </MessageThread>
           <MessageComposer desk={desk} active={selected.status === 'ACTIVE'} draft={draft} internal={internal}
             onDraft={setDraft} onInternal={setInternal} onSubmit={submitMessage} />
         </> : <div className="message-empty"><h2>{conversations.isPending ? '正在加载会话…' : selectedId ? '会话不可访问' : '选择一个会话'}</h2>
@@ -178,18 +203,22 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
             </li>)}</ul>
           </article>)}
         </section>}
-        <CollaborationPanel key={selected.id} conversation={selected} actor={actor} desk={desk} />
-        <section className="context-ui" aria-label="交互卡">
-          {uiDocument.isError && <p className="ui-fallback" role="alert">{readableError(uiDocument.error)}；请继续使用文字消息。</p>}
-          <UIDocumentRenderer key={selected.id} document={uiDocument.data ?? null} active={selected.status === 'ACTIVE'}
-            recoveryKey={`serviceos:pending-ui:${actor.tenant_id}:${actor.actor_id}:${selected.id}`}
-            conversationId={selected.id} conversationVersion={selected.version} desk={desk}
-            onCompleted={() => {
-              void queryClient.invalidateQueries({ queryKey: queryKeys.tasks(actor.tenant_id, selected.id) })
-              void queryClient.invalidateQueries({ queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, selected.id) })
-            }}
-            onRefresh={() => { void queryClient.invalidateQueries({ queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, selected.id) }) }} />
-        </section>
+        {!desk && <RelatedCases key={selected.id} actor={actor} ids={relatedCaseIds} />}
+        {desk ? <CollaborationPanel key={selected.id} conversation={selected} actor={actor} desk /> :
+          <section className="collaboration-panel" aria-label="人机协作">
+            <h3><Headphones size={18} aria-hidden="true" />服务有人接续</h3>
+            <p className="policy-summary">当前：{statusLabel(selected.collaboration_mode)} · 发言策略：{statusLabel(selected.reply_policy)} · 版本 {selected.version}</p>
+            <p>补充信息与人工协助在会话中的交互卡处理，服务记录会继续保留。</p>
+            <button type="button" onClick={() => {
+              setMobilePanel('chat')
+              requestAnimationFrame(() => {
+                const cards = document.getElementById('conversation-interactions')
+                cards?.focus()
+                cards?.scrollIntoView({ block: 'nearest' })
+              })
+            }}>查看会话中的交互卡</button>
+          </section>}
+        {desk && interactionCards}
       </aside>}
     </div>
     <div className="workspace-foot"><p>消息与协作状态以服务器记录为准；断线时仍可查询。</p><ConnectionStatus /></div>

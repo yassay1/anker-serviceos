@@ -24,6 +24,8 @@
 - [阶段 4 图片界面增量](docs/phase4-image-ui-validation.md)：真实上传、检查状态、授权预览和未知上传对账。
 - [阶段 4 结果状态保护](docs/phase4-resolution-guard-validation.md)：有售后动作的案例在正式核验前禁止直接标记为已解决。
 - [阶段 4 结果核验增量](docs/phase4-verification-validation.md)：冻结条件、客户确认与服务端解决判定。
+- [阶段 5 交付准备与集成验收](docs/phase5-validation.md)：实际执行的命令与结果、本轮修复、本机可访问的体验服务，以及仍未通过的验收门槛。
+- [部署与运维手册](docs/operations.md)、[售后 SOP](docs/service-sop.md)：开发/生产依赖、迁移/备份/回滚/EC2+RDS+S3 网络与阻断说明，以及逐阶段服务流程与异常矩阵。
 - [前端适配验证](docs/backend-based-frontend-validation.md)与[全面逻辑检查](docs/comprehensive-logic-audit.md)：真实接口适配、浏览器路径、恢复修复及仍待验的边界。
 
 ## 当前实现范围
@@ -91,8 +93,28 @@ npm run dev
 
 - 用户入口：`http://127.0.0.1:5173/support`
 - 客服入口：`http://127.0.0.1:5173/desk`
-- 健康接口：`http://127.0.0.1:8000/api/v1/health`
+- 存活接口：`http://127.0.0.1:8000/api/v1/health`
+- 就绪接口：`http://127.0.0.1:8000/api/v1/readiness`（分别报告数据库、Schema、身份、Provider 与存储，并在未就绪时返回 503；不泄露连接信息）
 - 实际 API 文档：`http://127.0.0.1:8000/docs`
+
+图片检查、模拟动作、回访与事件派发都不需要模型配置，可各自单独启动：
+
+```powershell
+uv run --project backend --locked python -m serviceos_api.worker.inspection
+uv run --project backend --locked python -m serviceos_api.worker.actions
+uv run --project backend --locked python -m serviceos_api.worker.followups
+uv run --project backend --locked python -m serviceos_api.worker.outbox
+```
+
+这些进程会定期写入心跳文件，容器健康检查与本地排查使用同一条命令：
+
+```powershell
+uv run --project backend --locked python -m serviceos_api.worker.health --role inspection
+```
+
+`python -m serviceos_api.worker.main`（Agent 主 Worker）需要显式配置 `SERVICEOS_LLM_MODEL`、`SERVICEOS_LLM_BASE_URL` 和 `SERVICEOS_LLM_API_KEY`，未配置时立即退出，不领取任务也不生成回复。
+
+需要可复现的容器化环境时，使用仓库根的 Compose 说明与运维手册，而不是手工拼装进程。
 
 Vite 将 `/api` 代理到本地 API，开发服务均绑定回环地址。体验登录身份有 `customer-a`、`customer-b`、`staff`、`other-tenant`，密码使用 `.env` 的 `SERVICEOS_LOCAL_AUTH_PASSWORD`。浏览器只显示真实保存的消息与权限范围；未配置 Provider 时不会运行自动回复。
 

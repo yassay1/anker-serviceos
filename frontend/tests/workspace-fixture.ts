@@ -67,6 +67,7 @@ export async function fixture(page: Page, staff = true) {
       : method === 'GET' && path.endsWith('/health') ? health
       : method === 'GET' && path.endsWith('/conversations') ? { items: state.conversations }
       : method === 'GET' && path.endsWith('/messages') ? { items: state.messages.filter(item => path.includes(item.conversation_id)), next_cursor: null }
+      : method === 'GET' && path.endsWith('/event-history') ? { items: [], next_after: 0 }
       : method === 'GET' && path.endsWith('/case-summaries') ? [summary]
       : method === 'GET' && path.endsWith('/tasks') ? []
       : method === 'GET' && path.endsWith('/proposals') ? state.proposals

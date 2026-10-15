@@ -1,4 +1,5 @@
 from typing import Annotated
+from ipaddress import ip_address, ip_network
 
 from fastapi import Depends, Request, Security
 from fastapi.security import APIKeyCookie
@@ -62,5 +63,12 @@ def local_login_allowed(request: Request):
 def require_local_peer(request: Request):
     settings = request.app.state.settings
     peer = request.client.host if request.client else ""
-    if peer not in ("127.0.0.1", "::1") and not (settings.environment == "test" and peer == "testclient"):
-        raise ServiceError(403, "本地体验登录仅允许回环连接。")
+    if settings.environment == "test" and peer == "testclient":
+        return
+    try:
+        address = ip_address(peer)
+        allowed = any(address in ip_network(cidr) for cidr in settings.local_auth_networks)
+    except ValueError:
+        allowed = False
+    if not settings.local_auth_enabled or not allowed:
+        raise ServiceError(403, "本地体验登录仅允许显式配置的本地网络。")

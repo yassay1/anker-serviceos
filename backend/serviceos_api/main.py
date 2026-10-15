@@ -10,13 +10,16 @@ from serviceos_api.api.evidence import router as evidence_router
 from serviceos_api.api.actions import router as actions_router
 from serviceos_api.api.verification import router as verification_router
 from serviceos_api.api.followups import router as followups_router
+from serviceos_api.api.skills import router as skills_router
 from serviceos_api.application.errors import ServiceError
+from serviceos_api.observability import configure_logging, observe_request
 from serviceos_api.settings import Settings
 
 
 def create_app(*, database_engine=None, settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application):
+        configure_logging()
         yield
         if application.state.owns_engine and application.state.database_engine is not None:
             application.state.database_engine.dispose()
@@ -58,12 +61,14 @@ def create_app(*, database_engine=None, settings: Settings | None = None) -> Fas
     async def database_error(request: Request, error: SQLAlchemyError):
         return JSONResponse(status_code=503, content={"detail": "业务数据库暂不可用。"})
 
+    application.middleware("http")(observe_request)
     application.include_router(health_router)
     application.include_router(business_router)
     application.include_router(evidence_router)
     application.include_router(actions_router)
     application.include_router(verification_router)
     application.include_router(followups_router)
+    application.include_router(skills_router)
     return application
 
 

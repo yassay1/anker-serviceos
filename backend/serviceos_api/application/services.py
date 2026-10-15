@@ -358,26 +358,89 @@ class ConversationService(BusinessService):
     """Only application entry for publishing and reading user-visible messages."""
 
     @staticmethod
+    def record_agent_progress(session, tenant_id: UUID, conversation_id: UUID,
+                              run_id: UUID, lease_token: UUID, step: str):
+        """Persist only real, fixed system transitions under an active generation lease.
+
+        The caller owns the transaction. This is not an Agent text publication API;
+        no arbitrary stage, summary, tool argument or inferred waiting state is accepted.
+        """
+        from uuid import uuid5
+
+        from serviceos_api.application.agent_services import AgentProgress, PROGRESS_STEPS, validate_agent_execution
+
+        if step not in PROGRESS_STEPS:
+            raise ValueError("progress_step_not_allowed")
+        statuses = ("COMPLETED",) if step == "worker_completed" else ("FAILED",) if step == "worker_failed" else ("RUNNING",)
+        run, _, conversation, _ = validate_agent_execution(
+            session, tenant_id, conversation_id, run_id, lease_token, statuses=statuses)
+        event_id = uuid5(run.id, f"agent.progress:{lease_token}:{step}")
+        existing = session.scalar(select(OutboxEvent).where(
+            OutboxEvent.id == event_id, OutboxEvent.tenant_id == tenant_id,
+            OutboxEvent.conversation_id == conversation_id,
+        ))
+        if existing is not None:
+            return existing
+        stage, summary = PROGRESS_STEPS[step]
+        payload = AgentProgress(run_id=str(run.id), stage=stage, summary=summary)
+        visibility = "PUBLIC" if (conversation.collaboration_mode == "AI_LEAD"
+                                   and conversation.reply_policy == "AI_AUTO") else "INTERNAL"
+        event = OutboxEvent(id=event_id, tenant_id=tenant_id, conversation_id=conversation_id,
+                            type="agent.progress", visibility=visibility, data=payload.model_dump(),
+                            created_at=datetime.now(timezone.utc))
+        session.add(event)
+        session.flush()
+        return event
+
+    @staticmethod
     def dispatch_outbox_event(session, event: OutboxEvent):
         conversation = session.scalar(select(Conversation).where(
             Conversation.id == event.conversation_id, Conversation.tenant_id == event.tenant_id,
-        ).with_for_update())
+        ).with_for_update().execution_options(populate_existing=True))
         if conversation is None:
             raise ServiceError(409, "事件所属会话不可用。")
         if event.visibility == "PUBLIC" and event.type not in (
             "message.created", "conversations.created", "collaboration.mode_changed",
             "ui.document.published", "ui.action.accepted",
             "evidence.received", "evidence.inspected", "action.state_changed", "verification.recorded",
-            "follow_up.consented",
+            "follow_up.consented", "agent.progress",
         ):
             raise ServiceError(422, "公开事件类型未获授权。")
+        visibility = event.visibility
+        data = event.data
+        if event.type == "agent.progress":
+            from serviceos_api.application.agent_services import AgentProgress
+
+            try:
+                data = AgentProgress.model_validate(data).model_dump()
+            except (ValidationError, ValueError):
+                raise ServiceError(422, "进度事件字段或摘要未获授权。") from None
+            run = session.scalar(select(AgentRun.id).where(
+                AgentRun.id == UUID(data["run_id"]), AgentRun.tenant_id == event.tenant_id,
+                AgentRun.conversation_id == conversation.id,
+            ))
+            if run is None:
+                raise ServiceError(422, "进度事件运行引用无效。")
+            # Never promote INTERNAL events. Recheck after a mode change during dispatch delay.
+            if (conversation.status != "ACTIVE" or conversation.collaboration_mode != "AI_LEAD"
+                    or conversation.reply_policy != "AI_AUTO"):
+                visibility = "INTERNAL"
+        if event.id is not None:
+            existing = session.scalar(select(ConversationEvent).where(
+                ConversationEvent.id == event.id, ConversationEvent.tenant_id == event.tenant_id,
+                ConversationEvent.conversation_id == conversation.id,
+            ))
+            if existing is not None:
+                return existing
         current = session.scalar(select(ConversationEvent.sequence).where(
             ConversationEvent.tenant_id == event.tenant_id,
             ConversationEvent.conversation_id == conversation.id,
         ).order_by(ConversationEvent.sequence.desc()).limit(1)) or 0
-        row = ConversationEvent(tenant_id=event.tenant_id, conversation_id=conversation.id,
+        row = ConversationEvent(id=event.id, tenant_id=event.tenant_id, conversation_id=conversation.id,
                                 sequence=current + 1, type=event.type,
-                                visibility=event.visibility, data=event.data)
+                                visibility=visibility, data=data)
+        if event.type == "agent.progress" and event.created_at is not None:
+            row.created_at = event.created_at
         session.add(row)
         return row
 
