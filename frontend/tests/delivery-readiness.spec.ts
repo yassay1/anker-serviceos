@@ -150,6 +150,7 @@ test('delivery SSE: switching conversations closes and ignores late old handlers
   await expect(page.getByText('实时更新已连接', { exact: true })).toBeVisible()
   await emit(page, event(5, '第一段会话进度', 'RUNNING'), '5')
   await page.evaluate(() => { window.lateStreamMessage = window.testStreams.find(stream => !stream.closed)?.onmessage ?? undefined })
+  await page.locator('.conversation-selector summary').click()
   await page.getByRole('complementary', { name: '会话列表', exact: true }).getByRole('button', { name: /22222222/ }).click()
   await expect(page.getByText('第一段会话进度')).toHaveCount(0)
   await page.evaluate(value => window.lateStreamMessage?.(new MessageEvent('message', { data: JSON.stringify(value), lastEventId: '8' })), event(8, '延迟的旧进度'))

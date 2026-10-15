@@ -1,17 +1,22 @@
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
-import { ServicePage } from './app/ServicePage'
-import { Headphones, MessagesSquare, MonitorSmartphone, ShieldCheck } from 'lucide-react'
+import { NavLink, Route, Routes } from 'react-router-dom'
+import { AccountHeader, ServicePage } from './app/ServicePage'
+import { ShieldCheck } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { readActor } from './api/client'
+import { queryKeys } from './app/queryKeys'
 
 export function App() {
+  const actor = useQuery({ queryKey: queryKeys.actor, queryFn: readActor, retry: false, staleTime: 0 })
   return <>
     <a className="skip-link" href="#main-content">跳到主要内容</a>
     <header className="site-header"><div className="header-inner">
-      <NavLink className="brand" to="/support"><ShieldCheck aria-hidden="true" /><span>售后通</span><small>Anker ServiceOS</small></NavLink>
-      <nav aria-label="主要导航"><NavLink to="/support"><Headphones aria-hidden="true" />用户服务</NavLink><NavLink to="/desk"><MessagesSquare aria-hidden="true" />客服工作区</NavLink><NavLink to="/cases">服务案例</NavLink><NavLink to="/devices"><MonitorSmartphone aria-hidden="true" />设备档案</NavLink></nav>
+      <NavLink className="brand" to="/" aria-label="售后通首页"><span>售后通</span><small>AI 驱动的售后服务平台</small></NavLink>
+      <nav aria-label="主要导航"><NavLink to="/" end>首页</NavLink><NavLink to="/support">服务中心</NavLink><NavLink to="/cases">我的服务</NavLink><NavLink to="/devices">我的设备</NavLink>{actor.data?.kind === 'STAFF' && <NavLink to="/desk">客服工作区</NavLink>}</nav>
+      {actor.data && <AccountHeader key={`${actor.data.tenant_id}:${actor.data.actor_id}`} actor={actor.data} />}
     </div></header>
     <main id="main-content" tabIndex={-1}>
       <Routes>
-        <Route path="/" element={<Navigate to="/support" replace />} />
+        <Route path="/" element={<ServicePage home />} />
         <Route path="/support" element={<ServicePage />} />
         <Route path="/desk" element={<ServicePage desk />} />
         <Route path="/devices" element={<ServicePage devices />} />

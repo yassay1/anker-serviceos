@@ -134,12 +134,13 @@ for (const navigation of ['conversation', 'devices', 'reload'] as const) {
     await card.getByRole('button', { name: '请求人工协助', exact: true }).click()
     await expect(card.getByRole('button', { name: '用原请求重试', exact: true })).toBeVisible()
     if (navigation === 'conversation') {
+      await page.locator('.conversation-selector summary').click()
       const list = page.getByRole('complementary', { name: '会话列表', exact: true })
       await list.getByRole('button', { name: /22222222/ }).click()
       await list.getByRole('button', { name: /11111111/ }).click()
     } else if (navigation === 'devices') {
-      await page.getByRole('navigation', { name: '主要导航' }).getByRole('link', { name: '设备档案' }).click()
-      await page.getByRole('navigation', { name: '主要导航' }).getByRole('link', { name: '用户服务' }).click()
+      await page.getByRole('navigation', { name: '主要导航' }).getByRole('link', { name: '我的设备' }).click()
+      await page.getByRole('navigation', { name: '主要导航' }).getByRole('link', { name: '服务中心' }).click()
     } else await page.reload()
     await expect(card.getByRole('button', { name: '用原请求重试', exact: true })).toBeVisible()
     expect(bodies).toHaveLength(1)
@@ -164,8 +165,8 @@ test('logic audit: a late receipt cannot erase a newer uncertain request', async
     return route.fulfill({ json: { client_action_id: body.client_action_id, status: 'ACCEPTED', task_id: ids.second, replayed: number !== 1 } satisfies S['UIActionResult'] })
   })
   const returnToSupport = async () => {
-    await page.getByRole('navigation', { name: '主要导航' }).getByRole('link', { name: '设备档案' }).click()
-    await page.getByRole('navigation', { name: '主要导航' }).getByRole('link', { name: '用户服务' }).click()
+    await page.getByRole('navigation', { name: '主要导航' }).getByRole('link', { name: '我的设备' }).click()
+    await page.getByRole('navigation', { name: '主要导航' }).getByRole('link', { name: '服务中心' }).click()
   }
   await page.goto('/support')
   const card = page.getByRole('region', { name: '服务交互卡', exact: true })
