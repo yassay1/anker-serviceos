@@ -113,10 +113,28 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
       setPending((current) => current.map((part) => part.body.client_message_id === item.body.client_message_id
         ? { ...part, status: 'saved', error: undefined } : part))
       await queryClient.invalidateQueries({ queryKey: queryKeys.messages(actor.tenant_id, actor.actor_id, item.conversationId) })
+      return true
     } catch (failure) {
       setPending((current) => current.map((part) => part.body.client_message_id === item.body.client_message_id
         ? { ...part, status: 'uncertain', error: readableError(failure) } : part))
+      return false
     }
+  }
+
+  function submitChoice(label: string): Promise<boolean> {
+    if (!selected || desk || selected.status !== 'ACTIVE') return Promise.resolve(false)
+    const item: Pending = {
+      conversationId: selected.id,
+      body: {
+        client_message_id: crypto.randomUUID(),
+        content: [{ type: 'text', text: label }],
+        related_case_id: null,
+        visibility: 'PUBLIC',
+      },
+      status: 'sending',
+    }
+    setPending((current) => [...current, item])
+    return deliver(item)
   }
 
   function submitMessage(event: FormEvent<HTMLFormElement>) {
@@ -145,6 +163,7 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
       recoveryKey={`serviceos:pending-ui:${actor.tenant_id}:${actor.actor_id}:${selected.id}`}
       conversationId={selected.id} conversationVersion={selected.version} desk={desk}
       onReply={() => document.getElementById('message-draft')?.focus()}
+      onChoose={submitChoice}
       onCompleted={() => {
         void queryClient.invalidateQueries({ queryKey: queryKeys.tasks(actor.tenant_id, selected.id) })
         void queryClient.invalidateQueries({ queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, selected.id) })

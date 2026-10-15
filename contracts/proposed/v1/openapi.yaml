@@ -4,7 +4,7 @@ info:
   title: Anker ServiceOS API
   version: 0.1.0
 x-serviceos-proposal-status: draft
-x-serviceos-implemented-sha256: 766121d5d74884a6cd3a0bcb4e8ca40e001b0a150db3f0e5cc1c5e619c1f7925
+x-serviceos-implemented-sha256: 27d48c75dc856b336a364b87ccaee9a9b352a49a18264741522e6d3cd042fda2
 x-serviceos-planned-source: contracts/proposed/v1/planned.yaml
 paths:
   /api/v1/actions/{id}:
@@ -3923,6 +3923,11 @@ components:
         id:
           title: Id
           type: string
+        options:
+          items:
+            $ref: '#/components/schemas/UIOption'
+          title: Options
+          type: array
         props:
           additionalProperties:
             type: string
@@ -4042,6 +4047,24 @@ components:
       - created_at
       - expires_at
       title: UIDocumentRead
+      type: object
+    UIOption:
+      additionalProperties: false
+      description: An inert choice. Clicking one sends the label as an ordinary customer message.
+      properties:
+        label:
+          maxLength: 40
+          minLength: 1
+          title: Label
+          type: string
+        value:
+          pattern: ^[a-z0-9-]{1,32}$
+          title: Value
+          type: string
+      required:
+      - label
+      - value
+      title: UIOption
       type: object
     UpdateCase:
       additionalProperties: false

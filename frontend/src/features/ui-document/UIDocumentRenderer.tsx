@@ -9,8 +9,32 @@ const catalog: Record<string, readonly string[]> = {
   CaseSummaryCard: ['title', 'body', 'status', 'source', 'verification'],
   EvidenceSummary: ['title', 'body', 'source', 'verification'],
   QuestionForm: ['title', 'body'], RiskAlert: ['title', 'body'],
+  // ChoiceGroup carries its choices in the component-level options field: prop values are
+  // always strings, so a choice list can never travel inside props.
+  ChoiceGroup: ['title', 'body'],
   ProgressTimeline: ['title', 'body', 'status'], HandoffSummary: ['title', 'body', 'status'],
   ActionBar: ['title', 'body'],
+}
+const optionTypes = new Set(['ChoiceGroup'])
+const optionSlug = /^[a-z0-9-]{1,32}$/
+
+/** Choices are inert: a label to send and a stable slug. Only the collecting types may carry them. */
+function validOptions(value: unknown, type: string): boolean {
+  if (value === undefined) return type !== 'ChoiceGroup'
+  if (!Array.isArray(value) || value.length > 5) return false
+  if (type === 'ChoiceGroup' && value.length < 2) return false
+  if (value.length && !optionTypes.has(type)) return false
+  const labels = new Set<string>()
+  const slugs = new Set<string>()
+  return value.every(option => {
+    if (!isRecord(option) || Object.keys(option).length !== 2) return false
+    const { label, value: slug } = option
+    if (typeof label !== 'string' || !label.trim() || label.length > 40 || /<|>|https?:\/\/|javascript:|data:|\bon\w+\s*=/i.test(label)) return false
+    if (typeof slug !== 'string' || !optionSlug.test(slug) || labels.has(label.trim()) || slugs.has(slug)) return false
+    labels.add(label.trim())
+    slugs.add(slug)
+    return true
+  })
 }
 const uuid = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -41,6 +65,8 @@ function validComponents(value: unknown, conversationId: string, version: number
         action.input_schema_ref !== 'serviceos://ui-inputs/assistance-request/v1' ||
         Object.keys(action).length !== 3 || source.kind !== 'CONVERSATION_VIEW') return false
     } else if (item.actions.length) return false
+    const options = (item as { options?: unknown }).options ?? []
+    if (!validOptions(options, item.type)) return false
   }
   const components = value as UIDocument['components']
   const byId = new Map(components.map(component => [component.id, component]))
@@ -55,7 +81,7 @@ function errorText(error: unknown) {
   return error instanceof Error ? error.message : '交互卡暂不可用，请使用文字消息。'
 }
 
-export function UIDocumentRenderer({ document, conversationId, conversationVersion, active, desk, recoveryKey, loading = false, onReply, onCompleted, onRefresh }: {
+export function UIDocumentRenderer({ document, conversationId, conversationVersion, active, desk, recoveryKey, loading = false, onReply, onChoose, onCompleted, onRefresh }: {
   document: UIDocument | null
   conversationId: string
   conversationVersion: number
@@ -64,6 +90,7 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
   recoveryKey: string
   loading?: boolean
   onReply?: () => void
+  onChoose?: (label: string) => Promise<boolean>
   onCompleted: () => void
   onRefresh: () => void
 }) {
@@ -72,6 +99,9 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState('')
+  // Choice feedback is kept apart from the assistance result: sending a choice must not
+  // hide the assistance action, which stays available for the rest of the conversation.
+  const [choiceSubmission, setChoiceSubmission] = useState<{ uiId: string, revision: number, status: string } | null>(null)
   const [, tick] = useState(0)
   const latest = useRef<{ uiId: string, revision: number } | null>(null)
   const audienceMatches = isRecord(document) && document.audience === (desk ? 'STAFF' : 'CUSTOMER') &&
@@ -85,10 +115,13 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
     const timer = window.setTimeout(() => tick(value => value + 1), Math.min(expires - Date.now() + 1, 2_147_483_647))
     return () => window.clearTimeout(timer)
   }, [expires])
+  // Version 2 added ChoiceGroup; a version-1 document is still valid and simply
+  // never contains the new type.
   const supported = audienceMatches && revisionValid && !regressed &&
-    document.schema_version === 1 && document.catalog_version === 1 && document.status === 'ACTIVE' &&
+    document.schema_version === 1 && [1, 2].includes(document.catalog_version) && document.status === 'ACTIVE' &&
     (desk ? document.surface === 'DESK_PANEL' : ['SUPPORT_INLINE', 'SUPPORT_PANEL'].includes(document.surface)) &&
     (expires === null || expires > Date.now()) && validComponents(document.components, conversationId, conversationVersion, desk)
+  const choiceSubmitted = Boolean(document && choiceSubmission?.uiId === document.ui_id && choiceSubmission.revision === document.revision)
 
   function updatePending(body: UIActionBody) {
     savePendingAction(recoveryKey, body)
@@ -117,6 +150,26 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
       setBusy(false)
     }
   }
+  async function choose(label: string) {
+    // The workspace queues this as an ordinary customer message and retains its idempotency key
+    // for a retry when the transport result is unknown.
+    if (busy || choiceSubmitted || !onChoose || !active || !supported || !document || (expires !== null && expires <= Date.now())) return
+    setBusy(true)
+    setError('')
+    setChoiceSubmission({ uiId: document.ui_id, revision: document.revision, status: '正在发送选项…' })
+    try {
+      const saved = await onChoose(label)
+      setChoiceSubmission({ uiId: document.ui_id, revision: document.revision,
+        status: saved ? `已发送：${label}` : '发送结果未确认，请在消息列表中用原消息重试。' })
+      if (saved) onCompleted()
+    } catch (failure) {
+      setError(errorText(failure))
+      setChoiceSubmission({ uiId: document.ui_id, revision: document.revision,
+        status: '发送结果未确认，请在消息列表中用原消息重试。' })
+    } finally {
+      setBusy(false)
+    }
+  }
   function requestHuman() {
     if (busy || !active || !supported || !document || (expires !== null && expires <= Date.now()) || reason.trim().length < 3 || reason.length > 1000) return
     const body: UIActionBody = pending ?? {
@@ -133,7 +186,7 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
     <input id="pending-assistance-reason" value={String(pending.input.reason)} disabled />
     <button type="button" disabled={busy} onClick={() => void submit(pending)}>{busy ? '正在查询…' : '用原请求重试'}</button>
   </div>
-  const feedback = <>{recovery}{result && <p role="status">{result}</p>}{error && <p className="form-error" role="alert">{error}</p>}</>
+  const feedback = <>{recovery}{result && <p role="status">{result}</p>}{choiceSubmitted && <p role="status">{choiceSubmission?.status}</p>}{error && <p className="form-error" role="alert">{error}</p>}</>
 
   if (!supported || !document) return <section className="ui-document" aria-label={desk ? '客服交互卡' : '服务交互卡'}>
     <p className="ui-fallback">{loading ? '正在加载交互卡…' : audienceMatches && isText(document?.fallback_text) ? document.fallback_text : '暂无可用交互卡；可继续使用文字消息。'}</p>
@@ -148,7 +201,7 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
   return <section className="ui-document" aria-label={desk ? '客服交互卡' : '服务交互卡'}>
     <p className="ui-version">交互卡修订 {document.revision}</p>
     {components.map((component) => {
-      const Icon = component.type === 'RiskAlert' ? ShieldAlert : component.type === 'QuestionForm' ? CircleHelp :
+      const Icon = component.type === 'RiskAlert' ? ShieldAlert : (component.type === 'QuestionForm' || component.type === 'ChoiceGroup') ? CircleHelp :
         component.type === 'ActionBar' ? Headphones : component.type === 'HandoffSummary' ? UsersRound :
           component.type === 'ProgressTimeline' ? ListChecks : FileText
       return <article className={`ui-card ui-${component.type}`} key={component.id}>
@@ -158,6 +211,13 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
         {'source' in component.props && <dl className="ui-evidence-meta"><div><dt>来源</dt><dd>{component.props.source}</dd></div>
           <div><dt>核验</dt><dd><StatusBadge value={component.props.verification} /></dd></div></dl>}
         {component.type === 'QuestionForm' && !desk && <div className="ui-question-reply"><small>直接用文字回答；不便操作也可以说明。</small>{onReply && <button type="button" disabled={!active} onClick={onReply}>填写回复</button>}</div>}
+        {component.type === 'ChoiceGroup' && !desk && <div className="ui-choices">
+          <small>选一个最接近的情况，也可以直接用文字回答。</small>
+          <div role="group" aria-label={component.props.title}>
+            {(component.options ?? []).map(option => <button type="button" key={option.value} disabled={busy || choiceSubmitted || !active || !onChoose}
+              onClick={() => void choose(option.label)}>{option.label}</button>)}
+          </div>
+        </div>}
         {desk && component.data_source.kind === 'CASE_VIEW' && <Link className="ui-case-link" to={`/cases/${component.data_source.resource_id}`}>查看案例与证据</Link>}
         {component.type === 'ActionBar' && !result && !pending && <div className="ui-action">
           <label htmlFor={`assistance-reason-${document.ui_id}`}>请求原因</label>

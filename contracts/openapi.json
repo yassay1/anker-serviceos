@@ -2349,6 +2349,13 @@
             "title": "Id",
             "type": "string"
           },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/UIOption"
+            },
+            "title": "Options",
+            "type": "array"
+          },
           "props": {
             "additionalProperties": {
               "type": "string"
@@ -2510,6 +2517,29 @@
           "expires_at"
         ],
         "title": "UIDocumentRead",
+        "type": "object"
+      },
+      "UIOption": {
+        "additionalProperties": false,
+        "description": "An inert choice. Clicking one sends the label as an ordinary customer message.",
+        "properties": {
+          "label": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "pattern": "^[a-z0-9-]{1,32}$",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "UIOption",
         "type": "object"
       },
       "UpdateCase": {

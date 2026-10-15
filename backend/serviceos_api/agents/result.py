@@ -16,11 +16,27 @@ class AgentResult:
     ui_fallback_code: str | None = None
 
 
+# Models routinely fence their structured result. The fence must be removed before deciding,
+# otherwise the whole object is treated as prose and shown to the customer verbatim.
+FENCED = re.compile(r"```[A-Za-z0-9_-]*\s*\n?(?P<body>.*?)\n?```", re.DOTALL)
+
+
+def _structured_candidate(raw: str) -> str:
+    """Prefer a fenced JSON object; otherwise unwrap a fence that spans the whole content."""
+    for match in FENCED.finditer(raw):
+        body = match.group("body").strip()
+        if body.startswith("{"):
+            return body
+    whole = FENCED.fullmatch(raw)
+    return whole.group("body").strip() if whole else raw
+
+
 def parse_agent_result(content: str) -> AgentResult:
     """Accept plain text; reject malformed structured output without publishing its raw JSON."""
     raw = content.strip()
     if not raw:
         raise ValueError("agent_final_response_empty")
+    raw = _structured_candidate(raw)
     if not raw.startswith("{"):
         return AgentResult(_text(raw))
     try:
@@ -40,14 +56,27 @@ def parse_agent_result(content: str) -> AgentResult:
     return AgentResult(answer, ui_proposal=proposal)
 
 
+# Internal keys that must never reach a customer, whatever the model does with formatting.
+INTERNAL_KEYS = ("ui_proposal", "component_hints", "fallback_text", "action_proposals")
+
+
 def _text(value: Any) -> str:
     if not isinstance(value, str) or not value.strip() or len(value.strip()) > 8000:
         raise ValueError("agent_final_response_invalid_text")
-    return value.strip()
+    text = value.strip()
+    if any(key in text for key in INTERNAL_KEYS):
+        # Failing the run is strictly better than publishing our internal structure.
+        raise ValueError("agent_final_response_leaks_internal_keys")
+    return text
 
 
 def _ui_proposal(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != {"purpose", "audience", "fallback_text", "component_hints"}:
+    required = {"purpose", "audience", "fallback_text", "component_hints"}
+    if not isinstance(value, dict):
+        raise ValueError("ui_proposal_invalid")
+    keys = set(value)
+    # Everything required, nothing beyond the optional options: an unknown key still fails here.
+    if not required <= keys or keys - required - {"options"}:
         raise ValueError("ui_proposal_invalid")
     if value["audience"] not in ("CUSTOMER", "STAFF"):
         raise ValueError("ui_proposal_invalid")
@@ -61,4 +90,28 @@ def _ui_proposal(value: Any) -> dict[str, Any]:
         not isinstance(hint, str) or hint not in ALLOWED_HINTS for hint in hints
     ) or len(set(hints)) != len(hints):
         raise ValueError("ui_proposal_invalid")
+    if "options" in value:
+        _options(value["options"])
+    return value
+
+
+def _options(value: Any) -> list[dict[str, str]]:
+    """Bounded, inert choices. The value is a slug; the label is what the customer sends."""
+    if not isinstance(value, list) or not 2 <= len(value) <= 5:
+        raise ValueError("ui_proposal_invalid")
+    labels, values = set(), set()
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {"label", "value"}:
+            raise ValueError("ui_proposal_invalid")
+        label, slug = item["label"], item["value"]
+        if not isinstance(label, str) or not label.strip() or len(label) > 40:
+            raise ValueError("ui_proposal_invalid")
+        if re.search(r"<|>|https?://|javascript:|data:|\bon\w+\s*=", label, re.IGNORECASE):
+            raise ValueError("ui_proposal_invalid")
+        if not isinstance(slug, str) or not re.fullmatch(r"[a-z0-9-]{1,32}", slug):
+            raise ValueError("ui_proposal_invalid")
+        if label.strip() in labels or slug in values:
+            raise ValueError("ui_proposal_invalid")
+        labels.add(label.strip())
+        values.add(slug)
     return value
