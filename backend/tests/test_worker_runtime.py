@@ -546,7 +546,10 @@ def test_old_lease_cannot_store_agent_result(database_engine):
     worker.process(lease)
     with Session(database_engine) as session:
         run = session.scalar(select(AgentRun).where(AgentRun.job_id == job_id))
-        assert run.result_text is None and run.result_payload is None
+        # The agent result itself must not be stored. The context snapshot is different: a lease
+        # that was still valid computed it before the takeover and it carries no agent output.
+        assert run.result_text is None
+        assert set(run.result_payload or {}) <= {"context_memory"}
         assert session.scalar(select(func.count()).select_from(Message).where(Message.client_message_id == run.id)) == 0
 
 
@@ -590,10 +593,12 @@ def test_worker_real_progress_and_skill_audit_survive_result_storage(database_en
                 service = AgentToolService(session, kwargs["tenant_id"], kwargs["conversation_id"],
                                            kwargs["run_id"], kwargs["lease_token"])
                 service.load_skill("diagnose-no-charge", "1.0.0")
-                lookup = service.lookup_manual("手机不充电")
-                assert "SOURCE:" in lookup and "手机不充电" not in lookup
+                # Retrieval returns verbatim manual paragraphs, so a matching query word does
+                # appear in the result. What must never come back is arbitrary caller text.
+                lookup = service.lookup_manual("不充电 SECRET TOOL ARGUMENT")
+                assert "SOURCE:" in lookup
                 assert "SECRET TOOL ARGUMENT" not in lookup
-                service.lookup_manual("unknown private query")
+                service.lookup_manual("unknown private query SECRET RETRY")
                 service.record_proposal("MISSING_EVIDENCE", "INTERNAL DRAFT")
             return AgentResult("请确认型号。"), {"step_count": 3}
 

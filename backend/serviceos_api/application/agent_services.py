@@ -27,6 +27,7 @@ from serviceos_api.persistence.models import (
 
 CONTEXT_TOKEN_BUDGET = 6000
 HISTORY_SCAN_LIMIT = 200
+MAX_MEMORY_ITEMS = 30
 
 
 def estimate_tokens(value: object) -> int:
@@ -334,8 +335,16 @@ class AgentContextBuilder:
                 "message_id": entry["message_id"], "author": entry["author"],
                 "created_at": entry["created_at"], "excerpt": _bounded_text(entry["text"], 180),
             }
-        context_memory = {"method": "extractive_with_sources",
-                          "items": sorted(memory_by_id.values(), key=lambda item: item["created_at"])[-30:]}
+        ordered = sorted(memory_by_id.values(), key=lambda item: item["created_at"])
+        # Keep what already rolled out of the scan window first: those messages can no longer
+        # be re-read. Capping by recency alone dropped exactly the history memory exists to keep.
+        carried = {item["message_id"] for item in previous_memory}
+        retained = [item for item in ordered if item["message_id"] in carried][-MAX_MEMORY_ITEMS:]
+        room = MAX_MEMORY_ITEMS - len(retained)
+        if room > 0:
+            retained = sorted(retained + [item for item in ordered if item["message_id"] not in carried][-room:],
+                              key=lambda item: item["created_at"])
+        context_memory = {"method": "extractive_with_sources", "items": retained}
         context["context_memory"] = context_memory
         if context_memory["items"]:
             # Extractive digest: every snippet retains its source message ID and speaker.

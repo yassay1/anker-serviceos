@@ -388,6 +388,9 @@ class ExperienceCandidate(TenantRecord, Base):
     __table_args__ = tenant_args(
         tenant_reference("source_case_id", "service_cases"),
         tenant_reference("source_verification_id", "case_verifications"),
+        # Matches migration 0014: the author must belong to the same tenant. Nullable, so a
+        # candidate created without an author is unaffected.
+        tenant_reference("authored_by", "tenant_memberships", "staff_user_id"),
         UniqueConstraint("tenant_id", "source_verification_id"),
         CheckConstraint("status IN ('DRAFT','PENDING_REVIEW','APPROVED','REJECTED','REVOKED')", name="status_values"),
         CheckConstraint("version >= 1", name="version_positive"),

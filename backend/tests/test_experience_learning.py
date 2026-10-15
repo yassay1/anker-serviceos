@@ -122,14 +122,18 @@ def test_verified_case_candidate_review_and_runtime_retrieval(app, database_engi
 
     candidates_url = "/api/v1/experience-candidates"
     assert customer.get(candidates_url).status_code == 403
-    assert other_customer.get(candidates_url).json()["items"] == []
+    # The staff gate is on the actor kind, so another tenant's customer is refused the same way
+    # rather than served an empty page.
+    assert other_customer.get(candidates_url).status_code == 403
     candidates = staff.get(candidates_url + "?status=DRAFT").json()["items"]
     assert len(candidates) == 1
     candidate = candidates[0]
     assert candidate["source_case_id"] == case["id"]
     assert candidate["source_verification_id"] == recorded.json()["id"]
     assert candidate["content"] is None
-    assert other_customer.get(f"{candidates_url}/{candidate['id']}").status_code == 404
+    # Same actor kind, same gate as the list: the refusal is about the role, so it does not
+    # depend on which candidate id is asked for.
+    assert other_customer.get(f"{candidates_url}/{candidate['id']}").status_code == 403
 
     content = {
         "title": "A3134 不充电：先核对供电端与线材",
@@ -222,4 +226,7 @@ def test_unresolved_verification_does_not_seed_experience_candidate(app, databas
     body = verification_body(current["version"], result="UNCERTAIN", contract_version=contract["version"])
     result = customer.post(f"/api/v1/cases/{case['id']}/verifications", json=body)
     assert result.status_code == 201 and result.json()["decision"] == "PENDING"
-    assert login(app, "supervisor").get("/api/v1/experience-candidates").json()["items"] == []
+    # Scope to this case: the shared test database also holds candidates from the other tests
+    # in this module, and this assertion is about what this UNCERTAIN verification seeded.
+    listed = login(app, "supervisor").get("/api/v1/experience-candidates").json()["items"]
+    assert all(item["source_case_id"] != case["id"] for item in listed)
