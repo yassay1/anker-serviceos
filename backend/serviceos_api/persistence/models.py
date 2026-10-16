@@ -589,6 +589,88 @@ class AgentRun(TenantRecord, Base):
     result_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
 
+class DiagnosticTask(TenantRecord, Base):
+    """Business-owned diagnostic state; independent of a LangGraph checkpoint."""
+
+    __tablename__ = "diagnostic_tasks"
+    __table_args__ = tenant_args(
+        tenant_reference("conversation_id", "conversations"),
+        tenant_reference("source_message_id", "messages"),
+        tenant_reference("parent_agent_run_id", "agent_runs"),
+        tenant_reference("case_id", "service_cases"),
+        CheckConstraint(
+            "status IN ('QUEUED','RUNNING','WAITING_CUSTOMER','WAITING_STAFF','COMPLETED','FAILED','CANCELLED','EXPIRED')",
+            name="status_values",
+        ),
+        CheckConstraint("version >= 1", name="version_positive"),
+        Index("ix_diagnostic_tasks_conversation", "tenant_id", "conversation_id", "created_at"),
+        Index("ix_diagnostic_tasks_status_deadline", "tenant_id", "status", "expires_at"),
+    )
+    conversation_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    source_message_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    parent_agent_run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    case_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    idempotency_key: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(24), default="QUEUED", server_default="QUEUED")
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    input_payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    result_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    question_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    question_revision: Mapped[int | None] = mapped_column(Integer)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SpecialistRun(TenantRecord, Base):
+    """One durable invocation identity for a restricted specialist attempt."""
+
+    __tablename__ = "specialist_runs"
+    __table_args__ = tenant_args(
+        tenant_reference("diagnostic_task_id", "diagnostic_tasks"),
+        tenant_reference("parent_agent_run_id", "agent_runs"),
+        UniqueConstraint("tenant_id", "diagnostic_task_id", "attempt"),
+        UniqueConstraint("tenant_id", "checkpoint_thread_id"),
+        CheckConstraint("status IN ('QUEUED','RUNNING','COMPLETED','FAILED','INTERRUPTED')", name="status_values"),
+        CheckConstraint("attempt >= 1", name="attempt_positive"),
+        Index("ix_specialist_runs_task", "tenant_id", "diagnostic_task_id", "created_at"),
+        Index("uq_specialist_runs_one_active_task", "tenant_id", "diagnostic_task_id", unique=True,
+              postgresql_where=text("status IN ('QUEUED','RUNNING')")),
+    )
+    diagnostic_task_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    parent_agent_run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    checkpoint_thread_id: Mapped[str] = mapped_column(String(160))
+    attempt: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    status: Mapped[str] = mapped_column(String(24), default="QUEUED", server_default="QUEUED")
+    lease_token: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    result_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+
+class DiagnosticAnswer(TenantRecord, Base):
+    """One customer answer to a versioned task question; message/job enqueue is atomic."""
+
+    __tablename__ = "diagnostic_answers"
+    __table_args__ = tenant_args(
+        tenant_reference("diagnostic_task_id", "diagnostic_tasks"),
+        tenant_reference("source_message_id", "messages"),
+        tenant_reference("customer_id", "customers"),
+        UniqueConstraint("tenant_id", "diagnostic_task_id", "question_revision", name="uq_diag_answer_question_revision"),
+        UniqueConstraint("tenant_id", "client_action_id", name="uq_diag_answer_client_action"),
+        CheckConstraint("question_revision >= 1", name="question_revision_positive"),
+        Index("ix_diagnostic_answers_message", "tenant_id", "source_message_id"),
+    )
+    diagnostic_task_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    question_revision: Mapped[int] = mapped_column(Integer)
+    client_action_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    customer_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    source_message_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    answer: Mapped[str] = mapped_column(Text)
+
+
 class AgentProposal(TenantRecord, Base):
     __tablename__ = "agent_proposals"
     __table_args__ = tenant_args(

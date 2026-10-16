@@ -12,6 +12,18 @@ export type AgentProgress = {
   summary: string
   sequence: number
 }
+const specialistStages = ['STARTED', 'LOOKUP', 'RESULT_READY', 'WAITING_CUSTOMER', 'WAITING_STAFF', 'FAILED'] as const
+export type SpecialistActivity = {
+  conversationId: string
+  taskId: string
+  specialistRunId: string
+  agentType: 'DIAGNOSTIC'
+  displayName: '诊断专家'
+  stage: typeof specialistStages[number]
+  summary: string
+  certainty: 'HYPOTHESIS' | 'NONE'
+  sequence: number
+}
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -34,17 +46,20 @@ function visibleEvent(value: unknown, conversationId: string, desk: boolean) {
 }
 
 export function useConversationEvents(actor: Actor, conversationId: string | undefined, desk: boolean,
-  onProgress?: (progress: AgentProgress | null) => void): StreamState {
+  onProgress?: (progress: AgentProgress | null) => void,
+  onSpecialistActivity?: (activity: SpecialistActivity | null) => void): StreamState {
   const queryClient = useQueryClient()
   const scope = `${actor.tenant_id}:${actor.actor_id}:${conversationId ?? ''}:${desk}`
   const [connection, setConnection] = useState({ scope, state: 'connecting' as StreamState })
 
   useEffect(() => {
     onProgress?.(null)
+    onSpecialistActivity?.(null)
     if (!conversationId) return
     let disposed = false
     let historyRequest: AbortController | undefined
     let progressSequence = 0
+    let specialistSequence = 0
     const sequenceKey = `serviceos:event-sequence:${actor.tenant_id}:${actor.actor_id}:${conversationId}`
     let after = 0
     try { after = cursor(localStorage.getItem(sequenceKey)) ?? 0 } catch { /* Storage is optional. */ }
@@ -71,6 +86,21 @@ export function useConversationEvents(actor: Actor, conversationId: string | und
       progressSequence = event.sequence
       onProgress?.({ conversationId, runId: run_id, stage: stage as AgentProgress['stage'], summary, sequence: event.sequence })
     }
+    const acceptSpecialist = (event: NonNullable<ReturnType<typeof visibleEvent>>) => {
+      if (disposed || event.type !== 'specialist.activity' || event.sequence <= specialistSequence) return
+      const { task_id, specialist_run_id, agent_type, display_name, stage, summary, certainty } = event.data
+      if (typeof task_id !== 'string' || !task_id || task_id.length > 100 ||
+        typeof specialist_run_id !== 'string' || !specialist_run_id || specialist_run_id.length > 100 ||
+        agent_type !== 'DIAGNOSTIC' || display_name !== '诊断专家' ||
+        typeof stage !== 'string' || !specialistStages.includes(stage as SpecialistActivity['stage']) ||
+        typeof summary !== 'string' || !summary.trim() || summary.length > 500 ||
+        (certainty !== 'HYPOTHESIS' && certainty !== 'NONE') ||
+        ((stage === 'RESULT_READY') !== (certainty === 'HYPOTHESIS'))) return
+      specialistSequence = event.sequence
+      onSpecialistActivity?.({ conversationId, taskId: task_id, specialistRunId: specialist_run_id,
+        agentType: 'DIAGNOSTIC', displayName: '诊断专家', stage: stage as SpecialistActivity['stage'],
+        summary, certainty, sequence: event.sequence })
+    }
     const reconcileProgress = async () => {
       historyRequest?.abort()
       const request = new AbortController()
@@ -88,6 +118,7 @@ export function useConversationEvents(actor: Actor, conversationId: string | und
           for (const item of data.items) {
             const event = visibleEvent(item, conversationId, desk)
             if (event) acceptProgress(event)
+            if (event) acceptSpecialist(event)
           }
           const next = cursor(data.next_after)
           if (data.items.length < 100 || next === null || next <= historyAfter) return
@@ -121,6 +152,7 @@ export function useConversationEvents(actor: Actor, conversationId: string | und
       after = sequence
       try { localStorage.setItem(sequenceKey, String(after)) } catch { /* Keep the in-memory cursor. */ }
       acceptProgress(event)
+      acceptSpecialist(event)
       refreshSnapshots()
     }
     return () => {
@@ -131,7 +163,7 @@ export function useConversationEvents(actor: Actor, conversationId: string | und
       stream.onmessage = null
       stream.close()
     }
-  }, [actor.tenant_id, actor.actor_id, conversationId, desk, queryClient, scope, onProgress])
+  }, [actor.tenant_id, actor.actor_id, conversationId, desk, queryClient, scope, onProgress, onSpecialistActivity])
 
   return connection.scope === scope ? connection.state : 'connecting'
 }

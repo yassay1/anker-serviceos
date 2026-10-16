@@ -112,3 +112,22 @@
 ## Codex 单阶段执行原则
 
 一次任务只做明确阶段，先读取 `AGENTS.md` 与 docs，列出将修改的文件，完成实际代码/测试/校验后报告具体命令、结果和未完成项。不许通过 Mock 假装接入真实 Anker 售后后端。
+
+## 增量：可见 Diagnostic Agent 委派（阶段 A–D 已实现；生产验收与客服来源审查未完成）
+
+> 此增量不改写上方阶段 2/3/4 的真实勾选与历史验收。A–D 功能代码已实现：结构化委派、SSE/活动卡、受控问答和恢复、SOP/经验候选/安全策略边界。未完成项包括真实 Provider 质量与延迟基线、强制进程终止恢复验收、客服专属来源审查面板和过期任务后台调度器。当前 `AgentRun` 仍表示输入消息的协调运行，`ServiceTask` 仍只表示真人任务。证据见 [`specs/011-visible-specialist-orchestration/progress.md`](../specs/011-visible-specialist-orchestration/progress.md)。
+
+| 阶段 | 实际修改文件/模块 | 接口与迁移 | 依赖、延迟、风险和验收 |
+|---|---|---|---|
+| A. 主 Agent 委派并获取结构化结果（已实现 2026-10-16） | AgentRuntime、DiagnosticAgentRuntime、AgentToolService、typed contracts、DiagnosticTask/SpecialistRun、migration 0015 与测试 | 受限只读子 Agent、HYPOTHESIS result、父 lease fencing；沿用既有 Worker，无新 HTTP 路由 | 锁定 LangChain/LangGraph；仅按需委派。至少增加一次专家模型调用，主 Agent 可能额外综合；真实 Provider 延迟/tokens 未测。隔离 PostgreSQL 回归通过。 |
+| B. 专家身份/进度/结果可见（已实现） | ConversationService Outbox、`specialist.activity` allowlist、SSE history、conversation event hook 和活动卡 | 复用 generic EventRead、sequence 与 PUBLIC/INTERNAL；不新增 transport/OpenAPI 路由 | 提供真实进度但不降低模型 wall-clock；后端最新 reply policy 二次复核，历史/客户角色过滤验收通过。 |
+| C. 受控提问、答案与恢复（已实现） | DiagnosticQuestion/Answer、UI Catalog/Renderer、UIAction service、MessageJob/Worker、migration 0016 | 复用 `DIAGNOSTIC_TASK_VIEW` + `SUBMIT_DIAGNOSTIC_ANSWER`；同事务保存 Message/Answer/Job/Outbox；无专用 task endpoint | 等待不占用原 Worker lease；用户回答后再发生一轮专家推理。刷新/幂等/权限/版本/过期/同 lease checkpoint 恢复路径有定向测试；杀进程与真实 Provider 仍未测。 |
+| D. SOP/人工/知识与案例核验整合（已实现代码边界） | Agent context builder、只读经验候选/手册/固定 Skill、结果来源复核、ConversationService 安全发布、相关测试 | 不增加新可信事实接口；SAFETY_STOP/HUMAN_REVIEW 转 WAITING_STAFF；候选只作参考，Case/Device/Conversation 不合并 | 经验来源每次重新验证；客服专属 provenance review UI 与真实来源复核业务操作仍未交付。没有 Jev/RAG 平台。 |
+
+### 阶段化实施约束
+
+- 每阶段先检查本计划真实勾选和当前代码证据；用户已批准 spec 011，按 A–D 任务依赖实施。
+- 跨模块 API 先确认 `specs/011.../contracts/feature-contract.md`；后端以 Application Service/Pydantic/真实路由/OpenAPI 为单一接口来源，前端只消费生成 Client。
+- 真实 Provider 试验必须使用已批准的 Provider 配置，分开记录简单流量与委派流量的 `model_ttft_ms`、`agent_first_progress_ms`、总调用数、tokens、P50/P95。当前未运行该基线，禁止以测试替身冒充真实模型验收。
+- 测试聚焦成功、无效结构、工具/资源权限、并发冲突、幂等、policy变化、断线恢复、worker重启和Checkpoint丢失，不做无目标的大规模矩阵。
+- 长时间用户等待事件中写入固定脱敏 summary；事件/reply 内容都由服务端发布控制，不能把 Agent Trace 或 Prompt 交给客户端。

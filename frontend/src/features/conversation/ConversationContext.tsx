@@ -5,7 +5,7 @@ import { type Actor, readCase } from '../../api/client'
 import { queryKeys } from '../../app/queryKeys'
 import { readableError } from '../../shared/errors'
 import { StatusBadge } from '../../shared/StatusBadge'
-import { type AgentProgress } from './useConversationEvents'
+import { type AgentProgress, type SpecialistActivity } from './useConversationEvents'
 
 const progressLabels: Record<AgentProgress['stage'], string> = {
   RUNNING: '正在处理', LOOKUP: '正在查阅资料', WAITING_EVIDENCE: '等待补充信息',
@@ -17,6 +17,19 @@ export function AgentProgressNote({ progress, connected }: { progress: AgentProg
     <div><Activity size={16} aria-hidden="true" /><strong>{progressLabels[progress.stage]}</strong>{!connected && <small>上次收到的进度</small>}</div>
     <p>{progress.summary}</p>
     {progress.stage === 'COMPLETED' && <small>本轮运行结束不代表问题已解决，服务结果以案例核验为准。</small>}
+  </section>
+}
+
+const specialistStageLabels: Record<SpecialistActivity['stage'], string> = {
+  STARTED: '开始分析', LOOKUP: '查阅授权资料', RESULT_READY: '形成待核验假设',
+  WAITING_CUSTOMER: '等待你的补充信息', WAITING_STAFF: '等待客服进一步核实', FAILED: '本次分析未完成',
+}
+
+export function SpecialistActivityNote({ activity, connected }: { activity: SpecialistActivity, connected: boolean }) {
+  return <section className={`agent-progress specialist-activity stage-${activity.stage}`} aria-label="诊断专家活动" aria-live="polite">
+    <div><Activity size={16} aria-hidden="true" /><strong>{activity.displayName} · {specialistStageLabels[activity.stage]}</strong>{!connected && <small>上次收到的专家活动</small>}</div>
+    <p>{activity.summary}</p>
+    {activity.certainty === 'HYPOTHESIS' && <small>这是待核验的诊断假设，不是已确认的设备事实。</small>}
   </section>
 }
 

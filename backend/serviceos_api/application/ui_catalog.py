@@ -29,6 +29,7 @@ BINDINGS = {
     "CASE_VIEW": {"summary", "evidence", "process_flow"},
     "TASK_VIEW": {"handoff", "progress"},
     "AGENT_RUN_VIEW": {"question", "metric"},
+    "DIAGNOSTIC_TASK_VIEW": {"question"},
 }
 FLOW_STATUSES = {"NOT_STARTED", "IN_PROGRESS", "WAITING", "COMPLETED", "FAILED", "UNKNOWN", "NOT_APPLICABLE"}
 FLOW_NODE_IDS = {"case", "human-task", "service-action", "verification"}
@@ -118,7 +119,10 @@ def validate_components(components: list[dict], audience: str,
             raise ServiceError(422, "UI 组件属性不符合目录。")
         props = {key: safe_text(value) for key, value in props.items()}
         source = item["data_source"]
-        if not isinstance(source, dict) or set(source) != {"kind", "resource_id", "resource_version", "binding"}:
+        if not isinstance(source, dict) or set(source) not in (
+            {"kind", "resource_id", "resource_version", "binding"},
+            {"kind", "resource_id", "resource_version", "binding", "question_revision"},
+        ):
             raise ServiceError(422, "UI 数据来源无效。")
         if source["kind"] not in BINDINGS or source["binding"] not in BINDINGS[source["kind"]]:
             raise ServiceError(422, "UI 数据来源未获授权。")
@@ -128,7 +132,12 @@ def validate_components(components: list[dict], audience: str,
             raise ServiceError(422, "UI 数据来源资源 ID 无效。") from None
         if allowed_refs.get((source["kind"], resource_id)) != source["resource_version"]:
             raise ServiceError(403, "UI 数据来源与授权资源或版本不符。")
-        if audience == "CUSTOMER" and source["kind"] not in ("CONVERSATION_VIEW", "AGENT_RUN_VIEW"):
+        if source["kind"] == "DIAGNOSTIC_TASK_VIEW":
+            if type(source.get("question_revision")) is not int or source["question_revision"] < 1:
+                raise ServiceError(422, "诊断问题版本无效。")
+        elif source.get("question_revision") is not None:
+            raise ServiceError(422, "非诊断数据来源不能包含问题版本。")
+        if audience == "CUSTOMER" and source["kind"] not in ("CONVERSATION_VIEW", "AGENT_RUN_VIEW", "DIAGNOSTIC_TASK_VIEW"):
             raise ServiceError(403, "客户 UI 不能引用内部数据来源。")
         if kind == "KnowledgeMetricChart" and (source["kind"], source["binding"]) != ("AGENT_RUN_VIEW", "metric"):
             raise ServiceError(422, "知识图表必须引用获准的 AgentRun 来源。")
@@ -143,20 +152,31 @@ def validate_components(components: list[dict], audience: str,
         actions = item["actions"]
         if not isinstance(actions, list) or len(actions) > 1:
             raise ServiceError(422, "UI 动作数量无效。")
-        if kind != "ActionBar" and actions:
+        if kind not in ("ActionBar", "QuestionForm", "ChoiceGroup") and actions:
             raise ServiceError(422, "此组件不能发起动作。")
         if kind == "ActionBar":
             expected = {"action_id": "request-human-assistance", "intent": "REQUEST_ASSISTANCE",
                         "input_schema_ref": "serviceos://ui-inputs/assistance-request/v1"}
             if audience != "CUSTOMER" or actions != [expected]:
                 raise ServiceError(422, "UI 动作未获授权。")
+        if actions and kind in ("QuestionForm", "ChoiceGroup"):
+            expected = {"action_id": "submit-diagnostic-answer", "intent": "SUBMIT_DIAGNOSTIC_ANSWER",
+                        "input_schema_ref": "serviceos://ui-inputs/diagnostic-answer/v1"}
+            if (audience != "CUSTOMER" or actions != [expected]
+                    or (source["kind"], source["binding"]) != ("DIAGNOSTIC_TASK_VIEW", "question")):
+                raise ServiceError(422, "诊断回答动作未获授权。")
+        if source["kind"] == "DIAGNOSTIC_TASK_VIEW" and (kind not in ("QuestionForm", "ChoiceGroup")
+                                                            or source["binding"] != "question"):
+            raise ServiceError(422, "诊断任务只允许绑定受控问题组件。")
         children = item["children"]
         if not isinstance(children, list) or len(children) > 4 or any(not isinstance(value, str) for value in children):
             raise ServiceError(422, "UI 组件子节点无效。")
         normalized.append({"id": component_id, "type": kind, "props": props,
                            "data_source": {"kind": source["kind"], "resource_id": str(resource_id),
                                            "resource_version": source["resource_version"],
-                                           "binding": source["binding"]},
+                                           "binding": source["binding"],
+                                           **({"question_revision": source["question_revision"]}
+                                              if source.get("question_revision") is not None else {})},
                            "actions": actions, "children": children, "options": options,
                            "chart": chart, "flow": flow})
     by_id = {component["id"]: component for component in normalized}

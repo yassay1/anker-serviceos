@@ -26,6 +26,7 @@ export async function fixture(page: Page, staff = true) {
         content: [{ type: 'text', text: '收到，我们在这段会话继续处理。请补充充电线材与适配器的信息。' }],
         client_message_id: null, related_case_id: null, created_at: createdAt }] as S['MessageRead'][],
     sent: [] as S['SendMessage'][], unexpected: [] as string[],
+    actions: [] as S['UIActionRequest'][],
     proposals: [] as S['ProposalRead'][],
   }
   const device: S['DeviceRead'] = { id: ids.device, customer_id: ids.customer, model: 'Anker 737',
@@ -62,6 +63,12 @@ export async function fixture(page: Page, staff = true) {
         client_message_id: body.client_message_id, related_case_id: null, created_at: createdAt }
       state.messages.push(message)
       return route.fulfill({ status: 202, json: { message, replayed: false, processing_state: 'QUEUED' } satisfies S['MessageReceipt'] })
+    }
+    if (method === 'POST' && path.endsWith('/ui-actions')) {
+      const body = route.request().postDataJSON() as S['UIActionRequest']
+      state.actions.push(body)
+      return route.fulfill({ status: 200, json: { client_action_id: body.client_action_id, status: 'ACCEPTED',
+        task_id: null, diagnostic_task_id: ids.second, replayed: false } satisfies S['UIActionResult'] })
     }
     const json = method === 'GET' && path.endsWith('/auth/me') ? actor
       : method === 'GET' && path.endsWith('/health') ? health

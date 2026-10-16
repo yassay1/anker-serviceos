@@ -223,7 +223,7 @@ API 受理写消息、记录待运行任务和 Outbox，回复 202 的持久消�
 |---|---|---|
 | Case 摘要/流程 | ServiceCase、ServiceTask、ActionRecord、真实事件投影 | 显示当前版本、等待对象；不能由模型文本推断完成状态 |
 | 设备信息 | 关联 Device Passport 和 DeviceFact | VERIFIED 与候选分开；客户视图仅含有权限字段 |
-| 证据/诊断 | CaseEvidence、经校验的 Jev/Diagnosis 输出 | 区分 user statement、observation、tool result、hypothesis，并附来源 |
+| 证据/诊断 | CaseEvidence、只读手册结果、审核经验候选及 `DiagnosticResult` 假设 | 区分 user statement、observation、tool result、hypothesis，并附来源；Jev 暂缓，仓库无集成 |
 | Skill 推荐 | Capability Resolver 的 eligible 结果、Skill 版本与失败出口 | 显示“建议/可用”，加载或选择不等于执行成功 |
 | 审批/动作 | ApprovalRequest、ActionRecord、Operation Receipt | 明确待审批/执行中/成功/失败/未知；只以回执认定外部结果 |
 | Agent 进度 | AgentRun 和持久化公开进度事件 | 不泄露原始推理或内部工具参数；运行完成不等于 Case 解决 |
@@ -278,3 +278,42 @@ Rule、Capability Resolver 和服务端 UI Policy 在 Agent 之后再次过滤�
 6. 上传失败、Renderer 不支持、SSE 断线时，固定表单/文本路径仍可完成流程。
 7. 动作成功但业务核验未通过时，Case 不进入 RESOLVED；UNKNOWN 外部结果不显示成功。
 8. 组件满足键盘、屏幕阅读器、错误聚焦、移动端和简体中文长文本要求。
+
+## 可见 Specialist 协作扩展（阶段 A–D 已实现；若干运营验收仍待补）
+
+现有 AgentRun 仍是一次客户消息的执行记录，真人 `ServiceTask` 仍不得复用为专家工作单。新增 `DiagnosticTask`（业务任务状态）、`SpecialistRun`（受限专家调用身份）与 `DiagnosticAnswer`（版本绑定的客户回答），并保留 Checkpoint 与 Case/Conversation 的原有边界。
+
+| 信息 | 权威来源 | 不能推导成 |
+|---|---|---|
+| 诊断任务状态/当前问题/答案/截止时间 | DiagnosticTask、DiagnosticAnswer/受关联的真实 Message、业务事务 | LangGraph checkpoint 或 UI card |
+| 专家一次调用身份/阶段/结果引用 | SpecialistRun 与验证后的 DiagnosticResult | 专家类型固定名字或整段推理 |
+| 事实状态 | DeviceFact/Evidence 核验服务 | 任何 Agent 输出、confidence、Skill 或 RAG 命中 |
+| Case 完成 | Case 状态与 Resolution Contract 核验 | 专家结果完成、排查步骤完成或组件展示 |
+| 事件身份/可见性 | ConversationEvent + Service role filter | AG-UI attribution 字段或前端展示名 |
+
+DiagnosticTask 由应用服务在父 AgentRun lease 下创建，tenant/conversation/source message/parent run 为必需关联，Case 可选；多会话/多 Case 关系沿用现有关联表，不设一对一。当前任务状态含 `QUEUED/RUNNING/WAITING_CUSTOMER/WAITING_STAFF/COMPLETED/FAILED/CANCELLED/EXPIRED`；问题 revision、DiagnosticAnswer、答案去重与版本校验、7 天等待期限和跨 AgentRun 恢复已实现。过期在授权 UI 投影/答案校验时懒更新；没有独立过期调度器。task version 和单活动 SpecialistRun 约束已实现。
+
+已实现的结构化 `DiagnosticResult` schema_version=1 分开：`assessment`（固定为不确定诊断假设）、`evidence_refs`（当前任务已授权来源 ID/文档版本）、`unknowns`、`next_step`、可选 `question` 和客服摘要。服务端验证 task/evidence refs 与 Case/Device/审核经验当前版本；模型假设不会写成 VERIFIED。专家结果不自动形成公开消息；安全/转人工建议由 ConversationService 固定回复与最新策略约束。
+
+### 已实现的 Question UI Action
+
+`SUBMIT_DIAGNOSTIC_ANSWER` 是现有 `/ui-actions` 的类型化意图，仅可由 `DIAGNOSTIC_TASK_VIEW` 上受限 QuestionForm/ChoiceGroup 发起。请求包含 task version、question revision、答案及现有 action/UI revision/idempotency。执行序列为：认证 actor → tenant/customer 资源授权 → task/conversation/current policy → UI audience/revision → 问题与答案 schema → 期限/状态/版本 → 幂等键 → 同一事务持久答案、关联客户 Message、resume MessageJob、UIActionInvocation 与 Outbox；旧卡拒绝，不自动重放。没有专用 Task GET/Answer POST API。
+
+### Specialist 事件（已实现）
+
+`specialist.activity` 使用现有 `ConversationEvent` sequence 和 PUBLIC/INTERNAL；payload 只放 task/run IDs、固定 `DIAGNOSTIC` 身份、固定阶段枚举、受限摘要和版本。由 ConversationService 创建并由 dispatcher 按当前 policy 复核。不可放 provider trace、工具名/参数、tool result 全文、推理、STAFF message 或身份密钥。事件是状态变化通知；问题和结果快照通过既有 UI 投影/Message 展示。
+
+### 可见性决策矩阵（建议）
+
+| 模式 / 回复策略 | 客户可见 | 客服可见 |
+|---|---|---|
+| `AI_LEAD + AI_AUTO` | 通过审核的专家参与和真实阶段；最终诊断摘要由 Service Agent/ConversationService 授权发布 | 同租户授权详情 |
+| `AI_REVIEW_REQUIRED` | 客户不可见；如进入后续阶段仅按最新授权外发 | INTERNAL 专家活动摘要；细粒度来源审查面板尚未实现 |
+| `CO_SERVICE` | 默认 INTERNAL；客户不可见 | INTERNAL 专家活动摘要；细粒度来源审查面板尚未实现 |
+| `HUMAN_LEAD + HUMAN_ONLY` | 不显示专家活动、消息或 UI | 仅按授权显示 INTERNAL 活动摘要；细粒度来源审查面板尚未实现 |
+
+专家的“独立身份”仅是界面上的专业角色 attribution，不授予消息作者身份、API 认证身份或发布权限。INTERNAL 事件只通过服务端 staff actor filter 返回；dispatcher 写入时复核当前策略。历史事件仍按 actor visibility filter 读取，不因序号而泄露 INTERNAL 数据。
+
+阶段 A–D 的后端、前端与迁移已实现；没有新增 Task API，因此 OpenAPI 不需加入诊断专属路由。既有 UI Action Pydantic contract 已扩展并已导出/生成前端类型。详见 [011 feature contract](../specs/011-visible-specialist-orchestration/contracts/feature-contract.md)。
+
+**事件发布核对**：`dispatch_outbox_event` 对 `specialist.activity` 按当前策略执行投递期复核，并使用 PUBLIC/INTERNAL 过滤；前端过滤只是额外保护，不是授权边界。

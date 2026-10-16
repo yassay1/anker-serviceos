@@ -1,0 +1,15 @@
+"""Provider request options shared by the main and specialist Agent runtimes."""
+
+from urllib.parse import urlsplit
+
+from serviceos_api.settings import Settings
+
+
+def model_provider_options(settings: Settings) -> dict:
+    extra_body = dict(settings.llm_extra_body)
+    if urlsplit(settings.llm_base_url).hostname == "api.deepseek.com":
+        # DeepSeek defaults to thinking mode, which rejects ToolStrategy's required
+        # tool_choice. Other OpenAI-compatible providers can provide request options
+        # through SERVICEOS_LLM_EXTRA_BODY_JSON.
+        extra_body.setdefault("thinking", {"type": "disabled"})
+    return {"extra_body": extra_body} if extra_body else {}

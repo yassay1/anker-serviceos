@@ -11,11 +11,11 @@ import { readableError } from '../../shared/errors'
 import { ConnectionStatus } from '../../shared/ConnectionStatus'
 import { CollaborationPanel } from '../collaboration/CollaborationPanel'
 import { UIDocumentRenderer } from '../ui-document/UIDocumentRenderer'
-import { type AgentProgress, useConversationEvents } from './useConversationEvents'
+import { type AgentProgress, type SpecialistActivity, useConversationEvents } from './useConversationEvents'
 import { ConversationSidebar } from './ConversationSidebar'
 import { MessageThread } from './MessageThread'
 import { MessageComposer } from './MessageComposer'
-import { AgentProgressNote, RelatedCases } from './ConversationContext'
+import { AgentProgressNote, RelatedCases, SpecialistActivityNote } from './ConversationContext'
 import { StatusBadge, statusLabel } from '../../shared/StatusBadge'
 
 type Pending = {
@@ -59,7 +59,8 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
     if (selected) setDrafts(current => ({ ...current, [selected.id]: { text: current[selected.id]?.text ?? '', internal: value } }))
   }
   const [progress, setProgress] = useState<AgentProgress | null>(null)
-  const streamState = useConversationEvents(actor, selected?.id, desk, setProgress)
+  const [specialistActivity, setSpecialistActivity] = useState<SpecialistActivity | null>(null)
+  const streamState = useConversationEvents(actor, selected?.id, desk, setProgress, setSpecialistActivity)
   const messageQueryKey = queryKeys.messages(actor.tenant_id, actor.actor_id, selected?.id ?? '')
   const messages = useInfiniteQuery({
     queryKey: messageQueryKey,
@@ -211,6 +212,7 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
             hasMore={Boolean(messages.hasNextPage)} loadingMore={messages.isFetchingNextPage}
             onMore={() => void messages.fetchNextPage()} onRetry={(item) => void deliver(item)}>
             {progress?.conversationId === selected.id && <AgentProgressNote progress={progress} connected={streamState === 'connected'} />}
+            {specialistActivity?.conversationId === selected.id && <SpecialistActivityNote activity={specialistActivity} connected={streamState === 'connected'} />}
             {!desk && interactionCards}
           </MessageThread>
           <MessageComposer desk={desk} active={selected.status === 'ACTIVE'} draft={draft} internal={internal}

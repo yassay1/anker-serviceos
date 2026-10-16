@@ -388,15 +388,16 @@ class EventPage(Schema):
 
 
 class UIDataSource(Schema):
-    kind: Literal["CONVERSATION_VIEW", "CASE_VIEW", "TASK_VIEW", "AGENT_RUN_VIEW"]
+    kind: Literal["CONVERSATION_VIEW", "CASE_VIEW", "TASK_VIEW", "AGENT_RUN_VIEW", "DIAGNOSTIC_TASK_VIEW"]
     resource_id: UUID
     resource_version: int = Field(ge=1)
     binding: str
+    question_revision: int | None = Field(default=None, ge=1)
 
 
 class UIAction(Schema):
     action_id: str
-    intent: Literal["REQUEST_ASSISTANCE"]
+    intent: Literal["REQUEST_ASSISTANCE", "SUBMIT_DIAGNOSTIC_ANSWER"]
     input_schema_ref: str
 
 
@@ -475,7 +476,7 @@ class UIActionRequest(Schema):
     client_action_id: UUID
     ui_id: UUID
     revision: int = Field(ge=1)
-    action_id: Literal["request-human-assistance"]
+    action_id: Literal["request-human-assistance", "submit-diagnostic-answer"]
     input: dict[str, Any]
     expected_conversation_version: int = Field(ge=1)
 
@@ -483,7 +484,8 @@ class UIActionRequest(Schema):
 class UIActionResult(Schema):
     client_action_id: UUID
     status: Literal["ACCEPTED"]
-    task_id: UUID
+    task_id: UUID | None = None
+    diagnostic_task_id: UUID | None = None
     replayed: bool
 
 

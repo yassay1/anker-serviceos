@@ -38,6 +38,12 @@ function event(sequence: number, summary = '正在查阅当前问题的授权资
   return { id: crypto.randomUUID(), conversation_id: conversationId, sequence, visibility: 'PUBLIC',
     type: 'agent.progress', data: { run_id: ids.device, stage, summary }, created_at: '2026-10-14T01:00:00Z' }
 }
+function specialistEvent(sequence: number, stage = 'RESULT_READY', summary = '初步假设（待核验）：可能是供电连接问题。', conversationId = ids.conversation): S['EventRead'] {
+  return { id: crypto.randomUUID(), conversation_id: conversationId, sequence, visibility: 'PUBLIC',
+    type: 'specialist.activity', data: { task_id: ids.second, specialist_run_id: ids.device, agent_type: 'DIAGNOSTIC',
+      display_name: '诊断专家', stage, summary, certainty: stage === 'RESULT_READY' ? 'HYPOTHESIS' : 'NONE' },
+    created_at: '2026-10-14T01:00:00Z' }
+}
 async function emit(page: Page, value: unknown, lastEventId: string) {
   await page.evaluate(({ value, lastEventId }) => {
     window.testStreams.find(stream => !stream.closed)?.onmessage?.(new MessageEvent('message', { data: JSON.stringify(value), lastEventId }))
@@ -140,6 +146,48 @@ test('delivery SSE: history pagination cannot overwrite newer stream progress', 
   await expect(page.getByRole('region', { name: '助手最新进度' })).toContainText('新的失败回执')
   await expect(page.getByText('旧的等待状态')).toHaveCount(0)
   expect(afters).toEqual(['0', '100'])
+})
+
+test('delivery SSE: specialist identity and hypothesis restore from event history and remain separate from messages', async ({ page }) => {
+  await controlledStream(page, '40')
+  const state = await fixture(page, false)
+  await page.route('**/event-history?*', route => route.fulfill({ json: {
+    items: [specialistEvent(39, 'STARTED', '诊断专家已开始分析当前问题。'), specialistEvent(40)], next_after: 40,
+  } }))
+  await page.goto('/support')
+  const activity = page.getByRole('region', { name: '诊断专家活动' })
+  await expect(activity).toContainText('诊断专家 · 形成待核验假设')
+  await expect(activity).toContainText('可能是供电连接问题')
+  await expect(activity).toContainText('不是已确认的设备事实')
+  await expect(page.locator('.message-list')).not.toContainText('可能是供电连接问题')
+  await emit(page, specialistEvent(41, 'FAILED', '诊断专家本次分析未完成，服务助手将继续处理。'), '41')
+  await expect(activity).toContainText('本次分析未完成')
+  await emit(page, { ...specialistEvent(42, 'LOOKUP', '诊断专家正在查阅已批准的售后资料。'), visibility: 'INTERNAL' }, '42')
+  await expect(activity).toContainText('本次分析未完成')
+  await expect(activity).not.toContainText('正在查阅已批准的售后资料')
+  expect(state.unexpected).toEqual([])
+})
+
+test('diagnostic question UI submits a versioned answer through the controlled action API', async ({ page }) => {
+  const state = await fixture(page, false)
+  state.document.components.unshift({
+    id: 'diagnostic-question', type: 'QuestionForm',
+    props: { title: '诊断专家需要补充的信息', body: '充电器指示灯是否亮起？' },
+    actions: [{ action_id: 'submit-diagnostic-answer', intent: 'SUBMIT_DIAGNOSTIC_ANSWER',
+      input_schema_ref: 'serviceos://ui-inputs/diagnostic-answer/v1' }],
+    children: [], options: [],
+    data_source: { kind: 'DIAGNOSTIC_TASK_VIEW', resource_id: ids.second, resource_version: 8,
+      binding: 'question', question_revision: 2 },
+  })
+  await page.goto('/support')
+  await page.getByLabel('你的回答').fill('灯没有亮')
+  await page.getByRole('button', { name: '提交给诊断专家' }).click()
+  await expect(page.getByRole('status').filter({ hasText: '回答已保存，诊断专家将继续分析。' })).toBeVisible()
+  expect(state.actions).toHaveLength(1)
+  expect(state.actions[0].action_id).toBe('submit-diagnostic-answer')
+  expect(state.actions[0].input).toEqual({ task_version: 8, question_revision: 2, answer: '灯没有亮' })
+  expect(state.sent).toEqual([])
+  expect(state.unexpected).toEqual([])
 })
 
 test('delivery SSE: switching conversations closes and ignores late old handlers', async ({ page }) => {

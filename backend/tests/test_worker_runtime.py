@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from serviceos_api.application.agent_services import AgentContextBuilder
 from serviceos_api.application.agent_services import AgentToolService
-from serviceos_api.agents.result import AgentResult
+from serviceos_api.agents.result import AgentOutputInvalidError, AgentResult
 from serviceos_api.application.auth import Principal
 from serviceos_api.application.contracts import ProposalDecision
 from serviceos_api.application.errors import ServiceError
@@ -657,6 +657,102 @@ def test_progress_rechecks_mode_on_dispatch_and_rejects_unknown_fields(db_sessio
             ConversationService.dispatch_outbox_event(db_session, forged)
 
 
+def test_specialist_activity_is_idempotent_allowlisted_and_policy_rechecked(db_session):
+    from test_skills import active_skill_run
+    from serviceos_api.persistence.models import DiagnosticTask, SpecialistRun
+
+    tenant, customer, conversation, message, _, parent = active_skill_run(db_session)
+    task = DiagnosticTask(tenant_id=tenant.id, conversation_id=conversation.id, source_message_id=message.id,
+                          parent_agent_run_id=parent.id, idempotency_key="a" * 64, status="RUNNING", version=1,
+                          input_payload={"task_id": str(uuid4())})
+    db_session.add(task)
+    db_session.flush()
+    specialist = SpecialistRun(tenant_id=tenant.id, diagnostic_task_id=task.id, parent_agent_run_id=parent.id,
+                              checkpoint_thread_id=f"diagnostic:{uuid4()}", attempt=1, status="RUNNING",
+                              lease_token=parent.lease_token)
+    db_session.add(specialist)
+    db_session.flush()
+    event = ConversationService.record_specialist_event(
+        db_session, tenant.id, conversation.id, parent.id, parent.lease_token, task.id, specialist.id, "STARTED")
+    assert ConversationService.record_specialist_event(
+        db_session, tenant.id, conversation.id, parent.id, parent.lease_token, task.id, specialist.id, "STARTED").id == event.id
+    assert event.visibility == "PUBLIC"
+    conversation.collaboration_mode, conversation.reply_policy = "CO_SERVICE", "AI_AUTO"
+    db_session.flush()
+    published = ConversationService.dispatch_outbox_event(db_session, event)
+    assert published.data["display_name"] == "诊断专家"
+    assert published.data["stage"] == "STARTED"
+    assert published.visibility == "INTERNAL"
+    from serviceos_api.application.auth import Principal
+
+    customer_view = ConversationService(db_session, Principal(tenant.id, customer.id, "CUSTOMER", "客户"))
+    staff_view = ConversationService(db_session, Principal(tenant.id, uuid4(), "STAFF", "客服", "SUPPORT"))
+    assert not customer_view.events(conversation.id).items
+    assert staff_view.events(conversation.id).items[-1].type == "specialist.activity"
+    forged = OutboxEvent(tenant_id=tenant.id, conversation_id=conversation.id, type="specialist.activity",
+                         visibility="PUBLIC", data=dict(event.data, raw_reasoning="secret"))
+    with pytest.raises(ServiceError):
+        ConversationService.dispatch_outbox_event(db_session, forged)
+
+
+def test_specialist_result_event_never_claims_verified_fact(db_session):
+    from test_skills import active_skill_run
+    from serviceos_api.application.agent_services import AgentToolService
+    from serviceos_api.application.diagnostic_contracts import DiagnosticResult, DiagnosticTaskInput
+    from serviceos_api.persistence.models import DiagnosticTask, SpecialistRun
+
+    tenant, _, conversation, message, _, parent = active_skill_run(db_session)
+    task_input = DiagnosticTaskInput(task_id=uuid4(), conversation_id=conversation.id, goal="分析供电问题")
+    task = DiagnosticTask(tenant_id=tenant.id, conversation_id=conversation.id, source_message_id=message.id,
+                          parent_agent_run_id=parent.id, idempotency_key="b" * 64, status="RUNNING", version=1,
+                          input_payload=task_input.model_dump(mode="json"))
+    db_session.add(task)
+    db_session.flush()
+    task_input = task_input.model_copy(update={"task_id": task.id})
+    task.input_payload = task_input.model_dump(mode="json")
+    specialist = SpecialistRun(tenant_id=tenant.id, diagnostic_task_id=task.id, parent_agent_run_id=parent.id,
+                              checkpoint_thread_id=f"diagnostic:{uuid4()}", attempt=1, status="RUNNING",
+                              lease_token=parent.lease_token)
+    db_session.add(specialist)
+    db_session.flush()
+    result = DiagnosticResult(task_id=task.id, assessment="可能是供电连接问题", next_step={"kind": "ASK_CUSTOMER", "summary": "确认充电器", "question": {"prompt": "充电器指示灯是否亮起？"}}, staff_summary="待核验假设")
+    payload = AgentToolService(db_session, tenant.id, conversation.id, parent.id, parent.lease_token).complete_diagnostic(
+        task.id, specialist.id, result, {}, task_input)
+    events = db_session.scalars(select(OutboxEvent).where(
+        OutboxEvent.conversation_id == conversation.id, OutboxEvent.type == "specialist.activity")).all()
+    ready = next(event for event in events if event.data["stage"] == "RESULT_READY")
+    published = ConversationService.dispatch_outbox_event(db_session, ready)
+    assert payload["certainty"] == "HYPOTHESIS"
+    assert published.data["certainty"] == "HYPOTHESIS"
+    assert "待核验" in published.data["summary"]
+
+
+@pytest.mark.parametrize(("kind", "expected"), [
+    ("SAFETY_STOP", "请先停止使用和测试设备"),
+    ("HUMAN_REVIEW", "当前信息需要人工客服进一步核实"),
+])
+def test_sop_safety_and_human_review_override_freeform_agent_reply(db_session, kind, expected):
+    from test_skills import active_skill_run
+    from serviceos_api.persistence.models import DiagnosticTask
+
+    tenant, _, conversation, message, _, run = active_skill_run(db_session)
+    task = DiagnosticTask(
+        tenant_id=tenant.id, conversation_id=conversation.id, source_message_id=message.id,
+        parent_agent_run_id=run.id, idempotency_key="d" * 64, status="WAITING_STAFF", version=2,
+        input_payload={"task_id": str(uuid4())},
+        result_payload={"next_step": {"kind": kind}},
+    )
+    db_session.add(task)
+    db_session.flush()
+    published = ConversationService(db_session, actor=None).publish_agent_response(
+        tenant.id, conversation.id, run.id, run.lease_token,
+        "UNSAFE MODEL TEXT: continue testing and the problem is solved.",
+    )
+    text = published.content[0]["text"]
+    assert expected in text
+    assert "UNSAFE MODEL TEXT" not in text and "已解决" not in text
+
+
 def test_progress_generation_rejects_stale_lease_and_false_completion(db_session):
     from test_skills import active_skill_run
 
@@ -699,6 +795,35 @@ def test_failure_progress_is_fixed_and_retry_creates_fenced_new_attempt(database
             OutboxEvent.conversation_id == conversation_id, OutboxEvent.type == "agent.progress")).all()
         assert sorted(row.data["stage"] for row in events) == ["FAILED", "FAILED", "RUNNING", "RUNNING"]
         assert all("SECRET" not in str(row.data) for row in events)
+
+
+def test_agent_output_format_failure_is_terminal_without_job_retry(database_engine):
+    class InvalidOutputRuntime:
+        configured = True
+
+        def invoke(self, **_):
+            raise AgentOutputInvalidError("agent_output_invalid")
+
+    with Session(database_engine) as session:
+        _, _, conversation, _, job, _ = seed_message(session)
+        session.commit()
+        conversation_id, job_id = conversation.id, job.id
+    worker = MessageWorker(database_engine, Settings(environment="test"), runtime=InvalidOutputRuntime())
+    lease = worker.claim_one()
+    worker.process(lease)
+
+    with Session(database_engine) as session:
+        job = session.get(MessageJob, job_id)
+        run = session.scalar(select(AgentRun).where(AgentRun.job_id == job_id))
+        event = session.scalar(select(OutboxEvent).where(
+            OutboxEvent.conversation_id == conversation_id, OutboxEvent.type == "agent.progress",
+            OutboxEvent.data["stage"].as_string() == "FAILED",
+        ))
+        assert job.status == "FAILED" and job.attempt_count == 1
+        assert job.last_error_code == "agent_output_invalid"
+        assert run.status == "FAILED" and run.error_code == "agent_output_invalid"
+        assert event is not None
+        assert worker.claim_one() is None
 
 
 def test_customer_projection_renders_agent_options_as_a_choice_group(database_engine):

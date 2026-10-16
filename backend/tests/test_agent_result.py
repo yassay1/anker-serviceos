@@ -2,13 +2,31 @@ import json
 
 import pytest
 
-from serviceos_api.agents.result import parse_agent_result
+from serviceos_api.agents.result import AgentFinalOutput, parse_agent_payload, parse_agent_result
 
 
 def test_plain_text_is_separate_result():
     result = parse_agent_result("  请先停止使用异常发热的设备。 ")
     assert result.text == "请先停止使用异常发热的设备。"
     assert result.ui_proposal is None and result.ui_fallback_code is None
+
+
+def test_typed_output_uses_existing_ui_fallback_contract():
+    result = parse_agent_payload(AgentFinalOutput(
+        text="请用文字描述。", ui_proposal={"purpose": "x", "unknown": "secret"},
+    ))
+    assert result.text == "请用文字描述。"
+    assert result.ui_proposal is None and result.ui_fallback_code == "ui_proposal_invalid"
+
+
+@pytest.mark.parametrize("payload", [
+    {"text": "", "ui_proposal": None},
+    {"text": "   ", "ui_proposal": None},
+    {"text": "ui_proposal 内部对象", "ui_proposal": None},
+])
+def test_typed_output_rejects_empty_or_internal_text(payload):
+    with pytest.raises(ValueError):
+        AgentFinalOutput.model_validate(payload)
 
 
 def test_valid_ui_is_internal_metadata_not_text():

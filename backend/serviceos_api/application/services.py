@@ -10,13 +10,14 @@ from serviceos_api.application.contracts import (
     CaseRead, DeskCaseSummary, EventPage, EventRead, MessagePage, MessageRead, MessageReceipt, ProposalRead,
     SummaryFact, TaskRead, UIActionResult, UIDocumentRead,
 )
+from serviceos_api.application.diagnostic_contracts import DiagnosticQuestion
 from serviceos_api.application.business import BusinessService
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.ui_catalog import CATALOG_VERSION, SCHEMA_VERSION, safe_text, validate_components
 from serviceos_api.application.ui_visualizations import case_process_flow, knowledge_metric_chart
 from serviceos_api.persistence.models import (
     AgentProposal, AgentRun, CaseAction, CaseConversation, CaseDevice, CaseEvidence, CaseVerification, Conversation, ConversationEvent, DeviceFact,
-    DevicePassport, Message, MessageJob, OutboxEvent, ServiceCase, ServiceTask, TaskAssignment,
+    DevicePassport, DiagnosticAnswer, DiagnosticTask, Message, MessageJob, OutboxEvent, ServiceCase, ServiceTask, TaskAssignment,
     UIActionInvocation, UIDocument,
 )
 
@@ -60,6 +61,68 @@ class ConversationService(BusinessService):
         return event
 
     @staticmethod
+    def record_specialist_event(session, tenant_id: UUID, conversation_id: UUID, run_id: UUID,
+                                lease_token: UUID, task_id: UUID, specialist_run_id: UUID, stage: str,
+                                summary: str | None = None):
+        """Persist a fixed specialist activity projection behind the parent run lease."""
+        from uuid import uuid5
+
+        from serviceos_api.application.agent_services import validate_agent_execution
+        from serviceos_api.application.diagnostic_contracts import SpecialistEvent
+        from serviceos_api.persistence.models import DiagnosticTask, SpecialistRun
+
+        _, _, conversation, _ = validate_agent_execution(
+            session, tenant_id, conversation_id, run_id, lease_token)
+        task = session.scalar(select(DiagnosticTask).where(
+            DiagnosticTask.id == task_id, DiagnosticTask.tenant_id == tenant_id,
+            DiagnosticTask.conversation_id == conversation_id,
+            DiagnosticTask.parent_agent_run_id == run_id,
+        ).with_for_update())
+        specialist = session.scalar(select(SpecialistRun).where(
+            SpecialistRun.id == specialist_run_id, SpecialistRun.tenant_id == tenant_id,
+            SpecialistRun.diagnostic_task_id == task_id,
+            SpecialistRun.parent_agent_run_id == run_id,
+            SpecialistRun.lease_token == lease_token,
+        ).with_for_update())
+        if task is None or specialist is None:
+            raise ValueError("specialist_event_reference_invalid")
+        stage_status = {"STARTED": "RUNNING", "LOOKUP": "RUNNING", "RESULT_READY": "COMPLETED",
+                        "WAITING_CUSTOMER": "COMPLETED", "WAITING_STAFF": "COMPLETED", "FAILED": "FAILED"}
+        task_status_ok = (task.status == "WAITING_CUSTOMER" if stage == "WAITING_CUSTOMER" else
+                          task.status == "WAITING_STAFF" if stage == "WAITING_STAFF" else
+                          task.status in ("COMPLETED", "WAITING_CUSTOMER", "WAITING_STAFF") if stage == "RESULT_READY" else
+                          task.status == stage_status.get(stage))
+        if stage not in stage_status or not task_status_ok or specialist.status != stage_status[stage]:
+            raise ValueError("specialist_event_status_invalid")
+        fixed = {
+            "STARTED": "诊断专家已开始分析当前问题。",
+            "LOOKUP": "诊断专家正在查阅已批准的售后资料。",
+            "WAITING_CUSTOMER": "诊断专家需要补充一项信息。",
+            "WAITING_STAFF": "诊断结果需要客服进一步核实。",
+            "FAILED": "诊断专家本次分析未完成，服务助手将继续处理。",
+        }
+        payload = SpecialistEvent(
+            task_id=task.id, specialist_run_id=specialist.id, stage=stage,
+            summary=(summary if stage == "RESULT_READY" else fixed.get(stage, "")),
+            certainty="HYPOTHESIS" if stage == "RESULT_READY" else "NONE",
+        )
+        event_id = uuid5(specialist.id, f"specialist:{stage}")
+        existing = session.scalar(select(OutboxEvent).where(
+            OutboxEvent.id == event_id, OutboxEvent.tenant_id == tenant_id,
+            OutboxEvent.conversation_id == conversation_id,
+        ))
+        if existing is not None:
+            return existing
+        visibility = "PUBLIC" if (conversation.collaboration_mode == "AI_LEAD"
+                                   and conversation.reply_policy == "AI_AUTO") else "INTERNAL"
+        event = OutboxEvent(id=event_id, tenant_id=tenant_id, conversation_id=conversation_id,
+                            type="specialist.activity", visibility=visibility, data=payload.model_dump(mode="json"),
+                            created_at=datetime.now(timezone.utc))
+        session.add(event)
+        session.flush()
+        return event
+
+    @staticmethod
     def dispatch_outbox_event(session, event: OutboxEvent):
         conversation = session.scalar(select(Conversation).where(
             Conversation.id == event.conversation_id, Conversation.tenant_id == event.tenant_id,
@@ -70,7 +133,7 @@ class ConversationService(BusinessService):
             "message.created", "conversations.created", "collaboration.mode_changed",
             "ui.document.published", "ui.action.accepted",
             "evidence.received", "evidence.inspected", "action.state_changed", "verification.recorded",
-            "follow_up.consented", "agent.progress",
+            "follow_up.consented", "agent.progress", "specialist.activity",
         ):
             raise ServiceError(422, "公开事件类型未获授权。")
         visibility = event.visibility
@@ -89,6 +152,34 @@ class ConversationService(BusinessService):
             if run is None:
                 raise ServiceError(422, "进度事件运行引用无效。")
             # Never promote INTERNAL events. Recheck after a mode change during dispatch delay.
+            if (conversation.status != "ACTIVE" or conversation.collaboration_mode != "AI_LEAD"
+                    or conversation.reply_policy != "AI_AUTO"):
+                visibility = "INTERNAL"
+        elif event.type == "specialist.activity":
+            from serviceos_api.application.diagnostic_contracts import SpecialistEvent
+            from serviceos_api.persistence.models import DiagnosticTask, SpecialistRun
+
+            try:
+                payload = SpecialistEvent.model_validate(data)
+            except (ValidationError, ValueError):
+                raise ServiceError(422, "专家活动字段或摘要未获授权。") from None
+            task = session.scalar(select(DiagnosticTask).where(
+                DiagnosticTask.id == payload.task_id, DiagnosticTask.tenant_id == event.tenant_id,
+                DiagnosticTask.conversation_id == conversation.id,
+            ))
+            specialist = session.scalar(select(SpecialistRun).where(
+                SpecialistRun.id == payload.specialist_run_id, SpecialistRun.tenant_id == event.tenant_id,
+                SpecialistRun.diagnostic_task_id == payload.task_id,
+            ))
+            parent = session.scalar(select(AgentRun.id).where(
+                AgentRun.id == specialist.parent_agent_run_id,
+                AgentRun.tenant_id == event.tenant_id,
+                AgentRun.conversation_id == conversation.id,
+            )) if specialist else None
+            if task is None or specialist is None or parent is None:
+                raise ServiceError(422, "专家活动运行引用无效。")
+            data = payload.model_dump(mode="json")
+            # Never promote INTERNAL events. Recheck current publication policy at dispatch time.
             if (conversation.status != "ACTIVE" or conversation.collaboration_mode != "AI_LEAD"
                     or conversation.reply_policy != "AI_AUTO"):
                 visibility = "INTERNAL"
@@ -172,6 +263,16 @@ class ConversationService(BusinessService):
         visibility = "PUBLIC" if audience == "CUSTOMER" else "INTERNAL"
         if conversation.status != "ACTIVE":
             raise ServiceError(409, "会话已归档，不能发布新的 UI。")
+        now = datetime.now(timezone.utc)
+        expired_diagnostics = self.session.scalars(select(DiagnosticTask).where(
+            DiagnosticTask.tenant_id == self.actor.tenant_id,
+            DiagnosticTask.conversation_id == conversation.id,
+            DiagnosticTask.status == "WAITING_CUSTOMER",
+            DiagnosticTask.expires_at <= now,
+        ).with_for_update()).all()
+        for expired in expired_diagnostics:
+            expired.status = "EXPIRED"
+            expired.version += 1
         source = {"kind": "CONVERSATION_VIEW", "resource_id": str(conversation.id),
                   "resource_version": conversation.version, "binding": "assistance"}
         refs = {("CONVERSATION_VIEW", conversation.id): conversation.version}
@@ -185,6 +286,12 @@ class ConversationService(BusinessService):
                                             "input_schema_ref": "serviceos://ui-inputs/assistance-request/v1"}],
                                "children": []})
             if conversation.collaboration_mode == "AI_LEAD" and conversation.reply_policy == "AI_AUTO":
+                waiting_diagnostic = self.session.scalar(select(DiagnosticTask).where(
+                    DiagnosticTask.tenant_id == self.actor.tenant_id,
+                    DiagnosticTask.conversation_id == conversation.id,
+                    DiagnosticTask.status == "WAITING_CUSTOMER",
+                    DiagnosticTask.expires_at > datetime.now(timezone.utc),
+                ).order_by(DiagnosticTask.created_at.desc(), DiagnosticTask.id).limit(1))
                 # Only answer questions that are still open: an agent card belongs to a turn
                 # that came after the customer's latest message. Without this, a run whose
                 # proposal was unusable made the projection resurrect the previous question,
@@ -199,6 +306,7 @@ class ConversationService(BusinessService):
                     AgentRun.tenant_id == self.actor.tenant_id,
                     AgentRun.conversation_id == conversation.id,
                     AgentRun.status == "COMPLETED",
+                    AgentRun.id != waiting_diagnostic.parent_agent_run_id if waiting_diagnostic else true(),
                     AgentRun.created_at > latest_customer_turn if latest_customer_turn else true(),
                 ).order_by(AgentRun.created_at.desc()).limit(5)).all()
                 verified_models = {model.upper() for model in self.session.scalars(
@@ -255,6 +363,22 @@ class ConversationService(BusinessService):
                             components.extend(run_components)
                             source_run_id = run.id
                             break
+                if waiting_diagnostic is not None and len(components) < 12:
+                    question = DiagnosticQuestion.model_validate(waiting_diagnostic.question_payload)
+                    question_type = "ChoiceGroup" if len(question.options) >= 2 else "QuestionForm"
+                    components.append({
+                        "id": "diagnostic-question", "type": question_type,
+                        "props": {"title": "诊断专家需要补充的信息", "body": question.prompt},
+                        "data_source": {"kind": "DIAGNOSTIC_TASK_VIEW", "resource_id": str(waiting_diagnostic.id),
+                                        "resource_version": waiting_diagnostic.version, "binding": "question",
+                                        "question_revision": waiting_diagnostic.question_revision},
+                        "actions": [{"action_id": "submit-diagnostic-answer", "intent": "SUBMIT_DIAGNOSTIC_ANSWER",
+                                     "input_schema_ref": "serviceos://ui-inputs/diagnostic-answer/v1"}],
+                        "children": [], "options": [{"label": item, "value": f"answer-{index + 1}"}
+                                                       for index, item in enumerate(question.options)] if question_type == "ChoiceGroup" else [],
+                    })
+                    refs[("DIAGNOSTIC_TASK_VIEW", waiting_diagnostic.id)] = waiting_diagnostic.version
+                    source_run_id = waiting_diagnostic.parent_agent_run_id
         else:
             summaries = self.desk_case_summaries(conversation.id)
             for summary in summaries[:5]:
@@ -340,7 +464,6 @@ class ConversationService(BusinessService):
             UIDocument.conversation_id == conversation.id,
             UIDocument.audience == audience, UIDocument.status == "ACTIVE",
         ).with_for_update())
-        now = datetime.now(timezone.utc)
         if active and active.context_signature == signature and (active.expires_at is None or active.expires_at > now):
             return UIDocumentRead.model_validate(active)
         if active:
@@ -395,8 +518,10 @@ class ConversationService(BusinessService):
                 UIDocument.tenant_id == self.actor.tenant_id, UIDocument.conversation_id == conversation.id,
             )).all():
                 raise ServiceError(409, "同一动作标识已用于不同请求。")
+            diagnostic_task_id = (UUID(existing.result["diagnostic_task_id"])
+                                  if existing.result and existing.result.get("diagnostic_task_id") else None)
             return UIActionResult(client_action_id=request.client_action_id, status="ACCEPTED",
-                                  task_id=existing.task_id, replayed=True)
+                                  task_id=existing.task_id, diagnostic_task_id=diagnostic_task_id, replayed=True)
         document = self.session.scalar(select(UIDocument).where(
             UIDocument.tenant_id == self.actor.tenant_id,
             UIDocument.conversation_id == conversation.id,
@@ -408,6 +533,8 @@ class ConversationService(BusinessService):
             raise ServiceError(409, "UI 卡片已过期，请刷新后重试。")
         if conversation.version != request.expected_conversation_version:
             raise ServiceError(409, "会话版本已更新，请刷新后重试。")
+        if request.action_id == "submit-diagnostic-answer":
+            return self._submit_diagnostic_answer(conversation, document, request, fingerprint)
         if not any(component["type"] == "ActionBar" and any(
             action["action_id"] == request.action_id and action["intent"] == "REQUEST_ASSISTANCE"
             for action in component["actions"]
@@ -433,6 +560,87 @@ class ConversationService(BusinessService):
         self.session.commit()
         return UIActionResult(client_action_id=request.client_action_id, status="ACCEPTED",
                               task_id=task.id, replayed=False)
+
+    def _submit_diagnostic_answer(self, conversation, document, request, fingerprint):
+        if (conversation.status != "ACTIVE" or conversation.collaboration_mode != "AI_LEAD"
+                or conversation.reply_policy != "AI_AUTO"):
+            raise ServiceError(409, "当前协作策略已变化，请刷新交互卡后重试。")
+        component = next((item for item in document.components
+                          if item.get("type") in ("QuestionForm", "ChoiceGroup")
+                          and item.get("data_source", {}).get("kind") == "DIAGNOSTIC_TASK_VIEW"
+                          and item.get("actions") == [{"action_id": "submit-diagnostic-answer",
+                              "intent": "SUBMIT_DIAGNOSTIC_ANSWER",
+                              "input_schema_ref": "serviceos://ui-inputs/diagnostic-answer/v1"}]), None)
+        if component is None:
+            raise ServiceError(403, "诊断回答动作不在当前受信交互卡中。")
+        if set(request.input) != {"task_version", "question_revision", "answer"}:
+            raise ServiceError(422, "诊断回答字段无效。")
+        task_version = request.input.get("task_version")
+        question_revision = request.input.get("question_revision")
+        answer_text = request.input.get("answer")
+        if (type(task_version) is not int or type(question_revision) is not int
+                or not isinstance(answer_text, str) or not answer_text.strip() or len(answer_text) > 1000):
+            raise ServiceError(422, "诊断回答不能为空或字段格式无效。")
+        answer_text = " ".join(answer_text.split())
+        source = component["data_source"]
+        task = self.session.scalar(select(DiagnosticTask).where(
+            DiagnosticTask.id == source["resource_id"], DiagnosticTask.tenant_id == self.actor.tenant_id,
+            DiagnosticTask.conversation_id == conversation.id,
+        ).with_for_update())
+        if (task is None or task.status != "WAITING_CUSTOMER" or task.version != source["resource_version"]
+                or task.version != task_version or task.question_revision != question_revision):
+            raise ServiceError(409, "诊断问题已更新或已提交，请刷新后查看当前状态。")
+        if source.get("question_revision") != task.question_revision:
+            raise ServiceError(409, "诊断问题版本已更新，请刷新后重试。")
+        if task.expires_at is None or task.expires_at <= datetime.now(timezone.utc):
+            task.status = "EXPIRED"
+            task.version += 1
+            self.session.commit()
+            raise ServiceError(409, "诊断问题已过期，请继续使用文字消息或请求人工协助。")
+        question = DiagnosticQuestion.model_validate(task.question_payload)
+        options = component.get("options") or []
+        if options and answer_text not in {option["label"] for option in options}:
+            raise ServiceError(422, "请使用当前问题中的选项作答。")
+        if self.actor.actor_id != conversation.customer_id:
+            raise ServiceError(403, "只有当前客户可以回答此诊断问题。")
+        message_hash = hashlib.sha256(
+            f"diagnostic-answer:{request.client_action_id}:{task.id}:{task.question_revision}:{answer_text}".encode()
+        ).hexdigest()
+        message = Message(
+            tenant_id=self.actor.tenant_id, conversation_id=conversation.id, author_kind="CUSTOMER",
+            visibility="PUBLIC", author_customer_id=self.actor.actor_id,
+            content=[{"type": "text", "text": answer_text}], related_case_id=task.case_id,
+            client_message_id=request.client_action_id, request_hash=message_hash,
+        )
+        self.session.add(message)
+        self.session.flush()
+        answer = DiagnosticAnswer(
+            tenant_id=self.actor.tenant_id, diagnostic_task_id=task.id,
+            question_revision=task.question_revision, client_action_id=request.client_action_id,
+            customer_id=self.actor.actor_id, source_message_id=message.id, answer=answer_text,
+        )
+        self.session.add(answer)
+        self.session.flush()
+        accepted_question_revision = task.question_revision
+        task.status = "RUNNING"
+        task.version += 1
+        self.session.add(MessageJob(tenant_id=self.actor.tenant_id, message_id=message.id,
+                                   conversation_id=conversation.id))
+        self.session.add(UIActionInvocation(
+            tenant_id=self.actor.tenant_id, ui_document_id=document.id,
+            client_action_id=request.client_action_id, actor_kind=self.actor.kind, actor_id=self.actor.actor_id,
+            request_hash=fingerprint, action_id=request.action_id, status="ACCEPTED", task_id=None,
+            result={"diagnostic_task_id": str(task.id), "answer_id": str(answer.id)},
+        ))
+        self.record_event("message.created", {"message_id": str(message.id), "conversation_id": str(conversation.id)},
+                          visibility="PUBLIC", conversation_id=conversation.id)
+        self.record_event("ui.action.accepted", {"ui_id": str(document.ui_id), "revision": document.revision,
+                                                  "diagnostic_task_id": str(task.id),
+                                                  "question_revision": accepted_question_revision},
+                          visibility="PUBLIC", conversation_id=conversation.id)
+        self.session.commit()
+        return UIActionResult(client_action_id=request.client_action_id, status="ACCEPTED",
+                              diagnostic_task_id=task.id, replayed=False)
 
     def _task_read(self, task):
         assignment = self.session.scalar(select(TaskAssignment).where(
@@ -655,6 +863,19 @@ class ConversationService(BusinessService):
             linked = self.session.get(CaseConversation, (related_case_id, conversation.id))
             if case is None or linked is None:
                 raise ServiceError(409, "案例未关联到当前会话，Agent 结果未发布。")
+
+        diagnostic_task = self.session.scalar(select(DiagnosticTask).where(
+            DiagnosticTask.tenant_id == tenant_id,
+            DiagnosticTask.conversation_id == conversation.id,
+            DiagnosticTask.parent_agent_run_id == run.id,
+        ).order_by(DiagnosticTask.created_at.desc(), DiagnosticTask.id).limit(1))
+        next_kind = (((diagnostic_task.result_payload or {}).get("next_step") or {}).get("kind")
+                     if diagnostic_task is not None else None)
+        if next_kind == "SAFETY_STOP":
+            text = ("请先停止使用和测试设备，不要拆解或短接。若出现冒烟、异味、鼓包或异常发热，请远离易燃物并联系人工客服协助。"
+                    "当前设备状态尚未核验，问题尚未解决。")
+        elif next_kind == "HUMAN_REVIEW":
+            text = "当前信息需要人工客服进一步核实。你可以使用“需要真人协助”创建人工服务任务；当前问题尚未解决。"
 
         visibility = "PUBLIC" if (
             conversation.collaboration_mode == "AI_LEAD"

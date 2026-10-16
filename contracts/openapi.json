@@ -2926,7 +2926,10 @@
             "type": "string"
           },
           "intent": {
-            "const": "REQUEST_ASSISTANCE",
+            "enum": [
+              "REQUEST_ASSISTANCE",
+              "SUBMIT_DIAGNOSTIC_ANSWER"
+            ],
             "title": "Intent",
             "type": "string"
           }
@@ -2943,7 +2946,10 @@
         "additionalProperties": false,
         "properties": {
           "action_id": {
-            "const": "request-human-assistance",
+            "enum": [
+              "request-human-assistance",
+              "submit-diagnostic-answer"
+            ],
             "title": "Action Id",
             "type": "string"
           },
@@ -2992,6 +2998,18 @@
             "title": "Client Action Id",
             "type": "string"
           },
+          "diagnostic_task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnostic Task Id"
+          },
           "replayed": {
             "title": "Replayed",
             "type": "boolean"
@@ -3002,15 +3020,21 @@
             "type": "string"
           },
           "task_id": {
-            "format": "uuid",
-            "title": "Task Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
           }
         },
         "required": [
           "client_action_id",
           "status",
-          "task_id",
           "replayed"
         ],
         "title": "UIActionResult",
@@ -3183,10 +3207,23 @@
               "CONVERSATION_VIEW",
               "CASE_VIEW",
               "TASK_VIEW",
-              "AGENT_RUN_VIEW"
+              "AGENT_RUN_VIEW",
+              "DIAGNOSTIC_TASK_VIEW"
             ],
             "title": "Kind",
             "type": "string"
+          },
+          "question_revision": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Revision"
           },
           "resource_id": {
             "format": "uuid",

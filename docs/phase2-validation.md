@@ -64,3 +64,23 @@
 | `git diff --check` | 通过 |
 
 以上不验证真实模型行为、Provider 的工具协议、Token 估算精度或数据库集成路径。新增上下文连续性和 Case/权限查询仍需在配置隔离 PostgreSQL 的环境中运行；真实 Provider 多轮与强制终止恢复仍待凭据后验收。
+
+## 2026-10-16 Agent 结构化输出可靠性增量
+
+- 主 Agent 使用 LangChain `ToolStrategy(AgentFinalOutput)` 获取 Pydantic `structured_response`；文本字段有长度/非空/内部元数据检查，UI 提案仍由既有 allowlist 和业务规则验证，无效 UI 仅降级为文本。
+- 新轮次通过消息元数据标记 `typed_v1`，必须读取结构化结果；旧 checkpoint 可继续走既有兼容解析，但旧格式错误结果抛出稳定 `agent_output_invalid`，不会对客发布。结构化校验错误使用固定纠正提示并受现有 6 次模型调用预算约束。
+- Worker 将确定性 Agent 输出错误终止为 `FAILED`，记录 allowlisted `agent_output_invalid`，不再以同一个已完成的坏 checkpoint 做五次 Job 重试。Provider 网络等其他异常仍保留有界退避。
+- 主 Agent 和诊断专家共用模型名、OpenAI-compatible Base URL、Key、超时和可选 `SERVICEOS_LLM_EXTRA_BODY_JSON`；DeepSeek 官方 Chat Completions 在未覆盖 thinking 参数时自动禁用 Thinking，因为该 API 的 thinking 模式不接受 `tool_choice=required`。应用仍要求 Provider 支持当前业务工具调用和强制结构化工具调用；不能据一个 Provider 的联调宣称所有 OpenAI-compatible 服务都已验证。
+- 使用当前本地 `deepseek-flash` 配置，以合成提示完成一次 `AgentRuntime` 结构化输出调用；未包含客户对话，也未触发售后业务工具。Provider 返回并解析了结构化结果。第一次联调遇到 Thinking 模式 400；按官方兼容参数调整后重跑通过。
+
+验证命令与结果：
+
+| 命令 | 结果 |
+|---|---|
+| `uv run --project backend --locked pytest backend/tests --require-postgres -q`（设置本机隔离测试 PostgreSQL URL） | `268 passed`；fixture 创建并删除随机命名的独立数据库 |
+| `uv run --project backend --locked python -m serviceos_api.export_openapi --check` | OpenAPI 与应用一致；无路由改动 |
+| `uv lock --project backend --check` | 通过；无依赖升级 |
+| `uv run --project backend --locked python -m compileall -q backend/serviceos_api backend/tests` | 通过 |
+| `git diff --check` | 通过；仅提示两个 UTF-8 文件的 LF/CRLF 工作区转换 |
+
+尚未通过真实 Provider 验证多轮工具调用、进程中断后的端到端恢复或其他 Provider 的兼容矩阵；这些仍是阶段 2 的独立验收项。

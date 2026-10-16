@@ -4,11 +4,11 @@ import difflib
 import hashlib
 import json
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal
-from uuid import UUID
+from typing import Any, Literal
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 from sqlalchemy import and_, or_, select
@@ -22,11 +22,15 @@ from serviceos_api.application.knowledge_pipeline import normalize_seller
 from serviceos_api.application.knowledge_retrieval import KnowledgeRetrieval
 from serviceos_api.application.query_rewrite import QueryRewriter
 from serviceos_api.application.tool_envelope import ToolResult
+from serviceos_api.application.diagnostic_contracts import (
+    DiagnosticCaseRef, DiagnosticDeviceRef, DiagnosticEvidenceRef, DiagnosticExperience, DiagnosticResult, DiagnosticTaskInput,
+    validate_diagnostic_result,
+)
 from serviceos_api.persistence.knowledge_models import KnowledgeSegment
 from serviceos_api.persistence.models import (
     AgentProposal, AgentRun, CaseAction, CaseActionApproval, CaseConversation, CaseDevice,
     CaseEvidence, CaseImageEvidence, CaseVerification, Conversation, DeviceFact, DevicePassport,
-    ExperienceCandidate,
+    DiagnosticAnswer, DiagnosticTask, ExperienceCandidate, SpecialistRun,
     FollowUpJob, Message, MessageJob, ServiceCase, ServiceTask,
 )
 from serviceos_api.settings import Settings
@@ -81,6 +85,18 @@ COUNTRY_ALIASES = {
 def _normalize_country(value: str) -> str:
     key = value.strip().upper()
     return COUNTRY_ALIASES.get(key, key)
+def _public_diagnostic_summary(assessment: str) -> str:
+    """Conservative display projection; fall back when content resembles contact data."""
+    from serviceos_api.application.ui_catalog import safe_text
+
+    candidate = "初步假设（待核验）：" + " ".join(assessment.split())
+    contact_data = re.compile(r"(?:[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|(?<!\d)(?:\+?\d[\d ()-]{7,}\d)(?!\d))")
+    if len(candidate) > 460 or contact_data.search(candidate):
+        return "诊断专家已形成待核验假设；服务助手将结合当前授权信息继续处理。"
+    try:
+        return safe_text(candidate, limit=460)
+    except Exception:
+        return "诊断专家已形成待核验假设；服务助手将结合当前授权信息继续处理。"
 
 
 def _search_tokens(value: str) -> set[str]:
@@ -216,7 +232,7 @@ class AgentContextBuilder:
             by_device: dict[UUID, dict] = {}
             for device in device_rows:
                 by_device[device.id] = {
-                    "device_id": str(device.id),
+                    "device_id": str(device.id), "revision": device.revision,
                     "identity_status": device.identity_status,
                     "model": device.model if device.identity_status == "VERIFIED" else None,
                     "reported_model": device.model if device.identity_status != "VERIFIED" else None,
@@ -229,6 +245,7 @@ class AgentContextBuilder:
             ).order_by(DeviceFact.verified_at.desc(), DeviceFact.id).limit(30)).all() if by_device else []
             for fact in facts:
                 by_device[fact.device_id]["verified_facts"].append({
+                    "fact_id": str(fact.id),
                     "key": fact.fact_key, "value": _bounded_text(json.dumps(fact.value, ensure_ascii=False), 300),
                     "source": fact.source[:160], "verified_at": fact.verified_at.isoformat(),
                 })
@@ -302,7 +319,7 @@ class AgentContextBuilder:
             "collaboration_mode": conversation.collaboration_mode,
             "reply_policy": conversation.reply_policy,
             "current_customer_message_id": str(message.id),
-            "linked_cases": [{"id": str(case.id), "status": case.status,
+            "linked_cases": [{"id": str(case.id), "version": case.version, "status": case.status,
                               "problem": _bounded_text(case.problem_text, 1400),
                               "goal": _bounded_text(case.user_goal, 400)}
                              for case in cases],
@@ -347,6 +364,15 @@ class AgentContextBuilder:
                 "Do not claim that any external action was executed or the issue was resolved.",
             ],
         }
+        answer_row = self.session.scalar(select(DiagnosticAnswer).where(
+            DiagnosticAnswer.tenant_id == self.tenant_id,
+            DiagnosticAnswer.source_message_id == message.id,
+            DiagnosticAnswer.customer_id == conversation.customer_id,
+        ))
+        if answer_row is not None:
+            context["diagnostic_resume"] = {
+                "task_id": str(answer_row.diagnostic_task_id), "answer_id": str(answer_row.id),
+            }
         # Current case state and verified device facts are mandatory; history yields to them.
         used = model_context_tokens(context)
         remaining = max(0, token_budget - used)
@@ -530,12 +556,26 @@ class AgentToolService:
         payload.update(extra)
         run.result_payload = payload
 
-    def lookup_manual(self, query: str, *, verified_models: set[str] | None = None) -> ToolResult:
+    def record_specialist_activity(self, task_id: UUID, specialist_run_id: UUID, stage: str,
+                                   summary: str | None = None):
+        from serviceos_api.application.services import ConversationService
+
+        ConversationService.record_specialist_event(
+            self.session, self.tenant_id, self.conversation_id, self.run_id, self.lease_token,
+            task_id, specialist_run_id, stage, summary,
+        )
+        self.session.commit()
+
+    def lookup_manual(self, query: str, *, verified_models: set[str] | None = None,
+                      specialist: tuple[UUID, UUID] | None = None) -> ToolResult:
         # Query is deliberately neither logged nor included in the fixed progress payload.
         if not isinstance(query, str) or not query.strip():
             raise ValueError("manual_query_required")
         run, _, _, message = self._active_execution()
-        self._progress("lookup_started")
+        if specialist is None:
+            self._progress("lookup_started")
+        else:
+            self.record_specialist_activity(*specialist, "LOOKUP")
         if verified_models is None:
             context = AgentContextBuilder(self.session, self.tenant_id).build(self.conversation_id, message.id)
             verified_models = {row.get("model", "").casefold() for row in context.get("linked_devices", [])
@@ -548,17 +588,20 @@ class AgentToolService:
                 notes=["知识语料未导入：请运行 knowledge_ingest 或由客服在 /desk 上传知识文档；"
                        "不得根据此结果断言设备规格。"])
             self._audit(run, "lookup_manual", envelope, retrieval_path="none")
-            self._progress("lookup_completed")
+            if specialist is None:
+                self._progress("lookup_completed")
             self.session.commit()
             return envelope
         effective = query
         rewritten = QueryRewriter(settings).rewrite(query)
         if rewritten.applied:
             effective = rewritten.query
-            self._progress("retrieval_rewrite")
+            if specialist is None:
+                self._progress("retrieval_rewrite")
         result = retrieval.search(effective, verified_models)
-        for stage in result.stages:
-            self._progress(f"retrieval_{stage}")
+        if specialist is None:
+            for stage in result.stages:
+                self._progress(f"retrieval_{stage}")
         items = [item.content_item() for item in result.items]
         if items:
             status = "OK"
@@ -573,121 +616,8 @@ class AgentToolService:
             notes=notes)
         self._audit(run, "lookup_manual", envelope, retrieval_path="corpus",
                     knowledge_references=result.references, retrieval_stages=result.stages)
-        self._progress("lookup_completed")
-        self.session.commit()
-        return envelope
-
-    def query_order_warranty(self, order_no: str) -> ToolResult:
-        if not isinstance(order_no, str) or not order_no.strip():
-            raise ValueError("order_no_required")
-        run, _, _, _ = self._active_execution()
-        key = order_no.strip().casefold()
-        segment = self.session.scalar(select(KnowledgeSegment).where(
-            KnowledgeSegment.attrs["order_no"].as_string() == key).limit(1))
-        if segment is None:
-            envelope = ToolResult(
-                status="NOT_FOUND", applicability="REFERENCE_ORDER",
-                notes=["参考数据中没有该订单号的记录；不得据此推断订单、物流或质保状态。"])
-        else:
-            attrs = segment.attrs or {}
-            warranty_end = attrs.get("warranty_end") or ""
-            in_warranty = "unknown"
-            if warranty_end:
-                try:
-                    in_warranty = ("yes" if date.fromisoformat(warranty_end) >=
-                                   datetime.now(timezone.utc).date() else "no")
-                except ValueError:
-                    in_warranty = "unknown"
-            source = (segment.curation or {}).get("source_ref", segment.title)
-            fields = [f"{name}: {attrs[name]}" for name in
-                      ("order_no", "sku", "description", "qty", "purchase_date", "warranty_end",
-                       "status", "carrier", "tracking", "logistics_status", "ship_date", "amount")
-                      if attrs.get(name)]
-            fields.append(f"in_warranty: {in_warranty}")
-            envelope = ToolResult(
-                status="OK", items=[" | ".join(fields)],
-                references=[{"source_ref": source, "entry_key": segment.entry_key, "path": "typed"}],
-                applicability="REFERENCE_ORDER",
-                notes=[f"只读脱敏订单参考数据。SOURCE: {source} | APPLICABILITY: REFERENCE_ORDER"])
-        self._audit(run, "query_order_warranty", envelope)
-        self.session.commit()
-        return envelope
-
-    def check_dealer_authorization(self, country: str, seller: str) -> ToolResult:
-        if not isinstance(country, str) or not country.strip():
-            raise ValueError("country_required")
-        seller_norm = normalize_seller(seller if isinstance(seller, str) else "")
-        if not seller_norm:
-            raise ValueError("seller_required")
-        run, _, _, _ = self._active_execution()
-        country_key = _normalize_country(country)
-        candidates = list(self.session.scalars(select(KnowledgeSegment).where(
-            KnowledgeSegment.attrs["country"].as_string() == country_key,
-            KnowledgeSegment.attrs["seller_norm"].is_not(None))).all())
-        exact = [row for row in candidates if (row.attrs or {}).get("seller_norm") == seller_norm]
-        pool = exact or [row for row in candidates
-                         if _seller_fuzzy_match(seller_norm, (row.attrs or {}).get("seller_norm", ""))]
-        references = [{"source_ref": (row.curation or {}).get("source_ref", row.title),
-                       "entry_key": row.entry_key, "path": "typed"} for row in pool[:5]]
-        if not pool:
-            envelope = ToolResult(
-                status="NOT_FOUND", applicability="REFERENCE_DEALER", references=references,
-                notes=[f"判定：UNAUTHORIZED。国家 {country_key} 的授权名录中无匹配经销商；"
-                       "按规则应引导客户自行联系商家售后，不得承诺寄修/补单。"])
-        elif len(pool) > 1:
-            names = "、".join(sorted({(row.attrs or {}).get("seller", "") for row in pool})[:5])
-            envelope = ToolResult(
-                status="DEGRADED", applicability="REFERENCE_DEALER", references=references,
-                notes=[f"判定：AMBIGUOUS。国家 {country_key} 下有多个近似授权经销商：{names}；"
-                       "需人工确认后决定寄修/补单或引导联系商家。"])
-        else:
-            attrs = pool[0].attrs or {}
-            source = (pool[0].curation or {}).get("source_ref", pool[0].title)
-            envelope = ToolResult(
-                status="OK", applicability="REFERENCE_DEALER", references=references,
-                notes=[f"判定：AUTHORIZED。命中授权经销商「{attrs.get('seller')}」（country 精准 + seller 匹配），"
-                       f"SOURCE: {source}；可按授权渠道流程继续寄修/补单判断。"])
-        self._audit(run, "check_dealer_authorization", envelope)
-        self.session.commit()
-        return envelope
-
-    def case_stage(self) -> ToolResult:
-        run, _, conversation, _ = self._active_execution()
-        case = self.session.scalar(select(ServiceCase).join(
-            CaseConversation, CaseConversation.case_id == ServiceCase.id,
-        ).where(CaseConversation.conversation_id == conversation.id,
-                ServiceCase.tenant_id == self.tenant_id,
-                ).order_by(ServiceCase.created_at.desc()).limit(1))
-        if case is None:
-            envelope = ToolResult(status="NOT_FOUND", applicability="CASE_STAGE",
-                                  notes=["当前会话尚未关联服务案例，无法投影阶段。"])
-            self._audit(run, "get_case_stage", envelope)
-            self.session.commit()
-            return envelope
-        def exists(model, **filters):
-            return self.session.scalar(select(model.id).where(
-                model.tenant_id == case.tenant_id, model.case_id == case.id, *[
-                    getattr(model, key) == value for key, value in filters.items()]).limit(1)) is not None
-        if case.status == "RESOLVED":
-            stage, waiting_on = "RESOLVED", ""
-        elif case.status == "CLOSED":
-            stage, waiting_on = "CLOSED", ""
-        elif exists(CaseAction, status="WAITING_APPROVAL"):
-            stage, waiting_on = "ACTION_PENDING_APPROVAL", "主管审批"
-        elif exists(CaseAction, status="EXECUTING") or exists(CaseAction, status="UNKNOWN"):
-            stage, waiting_on = "ACTION_EXECUTING", "外部回执/对账"
-        elif exists(CaseVerification, decision="PENDING"):
-            stage, waiting_on = "VERIFICATION", "客户确认与服务端核验"
-        elif case.status == "WAITING_CUSTOMER":
-            stage, waiting_on = "DIAGNOSIS", "客户证据或确认"
-        else:
-            stage, waiting_on = "DIAGNOSIS", ""
-        envelope = ToolResult(
-            status="OK", applicability="CASE_STAGE",
-            references=[{"case_id": str(case.id), "case_version": case.version, "path": "typed"}],
-            notes=[f"当前案例阶段：{stage}" + (f"；等待：{waiting_on}" if waiting_on else "")
-                   + f"（case_status={case.status}）"])
-        self._audit(run, "get_case_stage", envelope)
+        if specialist is None:
+            self._progress("lookup_completed")
         self.session.commit()
         return envelope
 
@@ -718,3 +648,323 @@ class AgentToolService:
         self._audit(run, "record_proposal", envelope)
         self.session.commit()
         return envelope
+        return f"内部草稿已记录（{existing.id}）。尚未对客户发消息、未改变设备事实，也未执行任何外部动作。"
+
+    def start_diagnostic(self, goal: str, context: dict, current_text: str):
+        """Create/resume a business-owned task under the parent AgentRun lease."""
+        run, _, conversation, message = self._active_execution()
+        goal = " ".join(goal.split()) if isinstance(goal, str) else ""
+        if not 1 <= len(goal) <= 1000:
+            raise ValueError("diagnostic_goal_invalid")
+        idempotency_key = hashlib.sha256(f"{run.id}:diagnostic:{goal.casefold()}".encode()).hexdigest()
+        task = self.session.scalar(select(DiagnosticTask).where(
+            DiagnosticTask.tenant_id == self.tenant_id,
+            DiagnosticTask.parent_agent_run_id == run.id,
+        ).with_for_update())
+        if task is not None and task.idempotency_key != idempotency_key:
+            raise ValueError("diagnostic_already_delegated")
+        if task is None:
+            case_refs = [DiagnosticCaseRef(
+                case_id=row["id"], version=row["version"], problem=(row["problem"] or "已关联服务案例")[:1000],
+            ) for row in context.get("linked_cases", []) if row.get("id") and row.get("version")]
+            device_refs = [DiagnosticDeviceRef(
+                device_id=row["device_id"], revision=row["revision"],
+                identity_status=row["identity_status"], model=row.get("model"),
+                verified_facts=[f"{fact['key']}: {fact['value']}" for fact in row.get("verified_facts", [])],
+            ) for row in context.get("linked_devices", []) if row.get("device_id") and row.get("revision")]
+            evidence_refs = [DiagnosticEvidenceRef(
+                ref_id=row["evidence_id"], ref_kind="CASE_EVIDENCE",
+                summary=row.get("summary") or row.get("claim_type") or "案例证据",
+            ) for row in context.get("case_evidence", []) if row.get("evidence_id")]
+            for device in context.get("linked_devices", []):
+                for fact in device.get("verified_facts", []):
+                    if fact.get("fact_id"):
+                        evidence_refs.append(DiagnosticEvidenceRef(
+                            ref_id=fact["fact_id"], ref_kind="VERIFIED_DEVICE_FACT",
+                            summary=f"{fact['key']}: {fact['value']}",
+                        ))
+            evidence_refs.append(DiagnosticEvidenceRef(
+                ref_id=str(message.id), ref_kind="CUSTOMER_STATEMENT",
+                summary=current_text[:500] or "客户在当前会话描述的问题",
+            ))
+            experience_examples = [DiagnosticExperience.model_validate(item)
+                                   for item in context.get("experience_examples", [])[:2]]
+            evidence_refs.extend(DiagnosticEvidenceRef(
+                ref_id=str(item.candidate_id), ref_kind="EXPERIENCE_CANDIDATE", summary=item.title,
+            ) for item in experience_examples)
+            task_id = uuid4()
+            task_input = DiagnosticTaskInput(
+                task_id=task_id, conversation_id=conversation.id, goal=goal,
+                case_refs=case_refs[:5], device_refs=device_refs[:10], evidence_refs=evidence_refs[:60],
+                experience_examples=experience_examples,
+                public_history=[entry.get("text", "")[:500] for entry in context.get("public_history", [])][-8:],
+            )
+            case_id = message.related_case_id if any(
+                item.case_id == message.related_case_id for item in task_input.case_refs
+            ) else None
+            task = DiagnosticTask(
+                id=task_id, tenant_id=self.tenant_id, conversation_id=conversation.id,
+                source_message_id=message.id, parent_agent_run_id=run.id, case_id=case_id,
+                idempotency_key=idempotency_key, status="RUNNING", version=1,
+                input_payload=task_input.model_dump(mode="json"),
+            )
+            self.session.add(task)
+            self.session.flush()
+            attempt = 1
+            thread_id = f"diagnostic:{uuid4()}"
+            specialist_run = SpecialistRun(
+                tenant_id=self.tenant_id, diagnostic_task_id=task.id, parent_agent_run_id=run.id,
+                checkpoint_thread_id=thread_id, attempt=attempt, status="RUNNING", lease_token=self.lease_token,
+                started_at=datetime.now(timezone.utc),
+            )
+            self.session.add(specialist_run)
+            self.session.flush()
+            from serviceos_api.application.services import ConversationService
+
+            ConversationService.record_specialist_event(
+                self.session, self.tenant_id, self.conversation_id, self.run_id, self.lease_token,
+                task.id, specialist_run.id, "STARTED",
+            )
+            self.session.commit()
+            return task, specialist_run, task_input, None
+
+        if task.result_payload:
+            latest = self.session.scalar(select(SpecialistRun).where(
+                SpecialistRun.tenant_id == self.tenant_id, SpecialistRun.diagnostic_task_id == task.id,
+                SpecialistRun.status == "COMPLETED",
+            ).order_by(SpecialistRun.attempt.desc()).limit(1))
+            if latest:
+                return task, latest, DiagnosticTaskInput.model_validate(task.input_payload), DiagnosticResult.model_validate(task.result_payload)
+        latest = self.session.scalar(select(SpecialistRun).where(
+            SpecialistRun.tenant_id == self.tenant_id, SpecialistRun.diagnostic_task_id == task.id,
+        ).order_by(SpecialistRun.attempt.desc()).with_for_update().limit(1))
+        if latest is not None and latest.status == "RUNNING":
+            latest.lease_token = self.lease_token
+            self.session.commit()
+            return task, latest, DiagnosticTaskInput.model_validate(task.input_payload), None
+        attempt = (latest.attempt + 1) if latest else 1
+        specialist_run = SpecialistRun(
+            tenant_id=self.tenant_id, diagnostic_task_id=task.id, parent_agent_run_id=run.id,
+            checkpoint_thread_id=f"diagnostic:{uuid4()}", attempt=attempt, status="RUNNING",
+            lease_token=self.lease_token, started_at=datetime.now(timezone.utc),
+        )
+        task.status = "RUNNING"
+        task.version += 1
+        self.session.add(specialist_run)
+        self.session.commit()
+        return task, specialist_run, DiagnosticTaskInput.model_validate(task.input_payload), None
+
+    def resume_diagnostic(self, task_id: UUID, answer_id: UUID):
+        """Resume the same business task using only a persisted answer and current worker lease."""
+        run, _, conversation, message = self._active_execution()
+        task = self.session.scalar(select(DiagnosticTask).where(
+            DiagnosticTask.id == task_id, DiagnosticTask.tenant_id == self.tenant_id,
+            DiagnosticTask.conversation_id == self.conversation_id,
+        ).with_for_update())
+        answer = self.session.scalar(select(DiagnosticAnswer).where(
+            DiagnosticAnswer.id == answer_id, DiagnosticAnswer.tenant_id == self.tenant_id,
+            DiagnosticAnswer.diagnostic_task_id == task_id,
+            DiagnosticAnswer.source_message_id == message.id,
+            DiagnosticAnswer.customer_id == conversation.customer_id,
+        ))
+        if task is None or answer is None or task.question_revision != answer.question_revision:
+            raise ValueError("diagnostic_answer_resume_invalid")
+        latest = self.session.scalar(select(SpecialistRun).where(
+            SpecialistRun.tenant_id == self.tenant_id, SpecialistRun.diagnostic_task_id == task.id,
+            SpecialistRun.parent_agent_run_id == run.id,
+        ).order_by(SpecialistRun.attempt.desc()).with_for_update().limit(1))
+        if task.parent_agent_run_id == run.id and task.status in ("WAITING_CUSTOMER", "COMPLETED") and latest and latest.status == "COMPLETED":
+            return task, latest, DiagnosticTaskInput.model_validate(task.input_payload), answer, DiagnosticResult.model_validate(task.result_payload)
+        if task.status not in ("RUNNING", "FAILED") or task.question_payload is None:
+            raise ValueError("diagnostic_answer_resume_invalid")
+        if task.expires_at is None or task.expires_at <= datetime.now(timezone.utc):
+            task.status = "EXPIRED"
+            task.version += 1
+            self.session.commit()
+            raise ValueError("diagnostic_task_expired")
+        if latest is not None and latest.status == "RUNNING":
+            latest.lease_token = self.lease_token
+            self.session.commit()
+            return task, latest, DiagnosticTaskInput.model_validate(task.input_payload), answer, None
+        task.status = "RUNNING"
+        task.version += 1
+        task.parent_agent_run_id = run.id
+        task_input = DiagnosticTaskInput.model_validate(task.input_payload)
+        self._validate_current_diagnostic_context(task_input, conversation, message)
+        previous = self.session.scalar(select(SpecialistRun).where(
+            SpecialistRun.tenant_id == self.tenant_id, SpecialistRun.diagnostic_task_id == task.id,
+            SpecialistRun.status == "COMPLETED",
+        ).order_by(SpecialistRun.attempt.desc()).limit(1))
+        if previous is None:
+            raise ValueError("diagnostic_prior_run_missing")
+        specialist = SpecialistRun(
+            tenant_id=self.tenant_id, diagnostic_task_id=task.id, parent_agent_run_id=run.id,
+            checkpoint_thread_id=f"diagnostic:{task.id}:{answer.id}", attempt=previous.attempt + 1,
+            status="RUNNING", lease_token=self.lease_token, started_at=datetime.now(timezone.utc),
+        )
+        self.session.add(specialist)
+        self.session.flush()
+        from serviceos_api.application.services import ConversationService
+
+        ConversationService.record_specialist_event(
+            self.session, self.tenant_id, self.conversation_id, run.id, self.lease_token,
+            task.id, specialist.id, "STARTED",
+        )
+        self.session.commit()
+        return task, specialist, task_input, answer, None
+
+    def complete_diagnostic(self, task_id: UUID, specialist_run_id: UUID, result: DiagnosticResult,
+                            stats: dict[str, Any], task_input: DiagnosticTaskInput,
+                            additional_allowed_refs: set[str] | None = None):
+        _, _, conversation, message = self._active_execution()
+        task = self.session.scalar(select(DiagnosticTask).where(
+            DiagnosticTask.id == task_id, DiagnosticTask.tenant_id == self.tenant_id,
+            DiagnosticTask.conversation_id == self.conversation_id,
+        ).with_for_update())
+        specialist_run = self.session.scalar(select(SpecialistRun).where(
+            SpecialistRun.id == specialist_run_id, SpecialistRun.tenant_id == self.tenant_id,
+            SpecialistRun.diagnostic_task_id == task_id, SpecialistRun.lease_token == self.lease_token,
+            SpecialistRun.status == "RUNNING",
+        ).with_for_update())
+        if task is None or specialist_run is None:
+            raise ValueError("diagnostic_run_unavailable")
+        self._validate_current_diagnostic_context(task_input, conversation, message)
+        validated = validate_diagnostic_result(result, task_input, additional_allowed_refs)
+        payload = validated.model_dump(mode="json")
+        now = datetime.now(timezone.utc)
+        question = validated.next_step.question
+        requires_staff = validated.next_step.kind in ("SAFETY_STOP", "HUMAN_REVIEW")
+        task.status = ("WAITING_CUSTOMER" if question is not None else
+                       "WAITING_STAFF" if requires_staff else "COMPLETED")
+        task.result_payload = payload
+        task.version += 1
+        if question is not None:
+            task.question_payload = question.model_dump(mode="json")
+            task.question_revision = (task.question_revision or 0) + 1
+            task.expires_at = now + timedelta(days=7)
+        else:
+            task.question_payload = None
+            task.expires_at = None
+        specialist_run.status = "COMPLETED"
+        specialist_run.result_payload = payload
+        specialist_run.input_tokens = stats.get("input_tokens")
+        specialist_run.output_tokens = stats.get("output_tokens")
+        specialist_run.duration_ms = stats.get("duration_ms")
+        specialist_run.completed_at = now
+        from serviceos_api.application.services import ConversationService
+
+        ConversationService.record_specialist_event(
+            self.session, self.tenant_id, self.conversation_id, self.run_id, self.lease_token,
+            task.id, specialist_run.id, "RESULT_READY", _public_diagnostic_summary(validated.assessment),
+        )
+        if question is not None:
+            ConversationService.record_specialist_event(
+                self.session, self.tenant_id, self.conversation_id, self.run_id, self.lease_token,
+                task.id, specialist_run.id, "WAITING_CUSTOMER",
+            )
+        elif requires_staff:
+            ConversationService.record_specialist_event(
+                self.session, self.tenant_id, self.conversation_id, self.run_id, self.lease_token,
+                task.id, specialist_run.id, "WAITING_STAFF",
+            )
+        self.session.commit()
+        return payload
+
+    def _validate_current_diagnostic_context(self, task_input: DiagnosticTaskInput,
+                                             conversation: Conversation, message: Message) -> None:
+        case_ids = {reference.case_id for reference in task_input.case_refs}
+        for reference in task_input.case_refs:
+            case = self.session.scalar(select(ServiceCase).join(
+                CaseConversation,
+                and_(CaseConversation.case_id == ServiceCase.id,
+                     CaseConversation.tenant_id == ServiceCase.tenant_id),
+            ).where(
+                ServiceCase.id == reference.case_id, ServiceCase.tenant_id == self.tenant_id,
+                ServiceCase.customer_id == conversation.customer_id, ServiceCase.archived_at.is_(None),
+                CaseConversation.conversation_id == conversation.id,
+            ).with_for_update())
+            if case is None or case.version != reference.version:
+                raise ValueError("diagnostic_context_stale")
+        device_ids = set()
+        for reference in task_input.device_refs:
+            device = self.session.scalar(select(DevicePassport).join(
+                CaseDevice,
+                and_(CaseDevice.device_id == DevicePassport.id,
+                     CaseDevice.tenant_id == DevicePassport.tenant_id),
+            ).where(
+                DevicePassport.id == reference.device_id, DevicePassport.tenant_id == self.tenant_id,
+                DevicePassport.customer_id == conversation.customer_id, DevicePassport.archived_at.is_(None),
+                CaseDevice.case_id.in_(case_ids) if case_ids else False,
+            ).with_for_update())
+            if (device is None or device.revision != reference.revision
+                    or device.identity_status != reference.identity_status
+                    or (reference.identity_status == "VERIFIED" and device.model != reference.model)):
+                raise ValueError("diagnostic_context_stale")
+            device_ids.add(device.id)
+        for reference in task_input.evidence_refs:
+            if reference.ref_kind == "CUSTOMER_STATEMENT" and reference.ref_id == str(message.id):
+                continue
+            if reference.ref_kind == "CASE_EVIDENCE":
+                evidence = self.session.scalar(select(CaseEvidence).where(
+                    CaseEvidence.id == UUID(reference.ref_id), CaseEvidence.tenant_id == self.tenant_id,
+                    CaseEvidence.case_id.in_(case_ids), CaseEvidence.validity != "RETRACTED",
+                ).with_for_update())
+                if evidence is None:
+                    raise ValueError("diagnostic_context_stale")
+            elif reference.ref_kind == "VERIFIED_DEVICE_FACT":
+                fact = self.session.scalar(select(DeviceFact).where(
+                    DeviceFact.id == UUID(reference.ref_id), DeviceFact.tenant_id == self.tenant_id,
+                    DeviceFact.device_id.in_(device_ids), DeviceFact.validity == "VERIFIED",
+                ).with_for_update())
+                if fact is None:
+                    raise ValueError("diagnostic_context_stale")
+            elif reference.ref_kind == "EXPERIENCE_CANDIDATE":
+                example = next((item for item in task_input.experience_examples
+                                if str(item.candidate_id) == reference.ref_id), None)
+                latest_verification_id = (select(CaseVerification.id).where(
+                    CaseVerification.tenant_id == self.tenant_id,
+                    CaseVerification.case_id == ExperienceCandidate.source_case_id,
+                ).order_by(CaseVerification.created_at.desc(), CaseVerification.id.desc()).limit(1).scalar_subquery())
+                candidate = self.session.scalar(select(ExperienceCandidate).join(
+                    ServiceCase, and_(ServiceCase.id == ExperienceCandidate.source_case_id,
+                                      ServiceCase.tenant_id == ExperienceCandidate.tenant_id),
+                ).where(
+                    ExperienceCandidate.id == UUID(reference.ref_id),
+                    ExperienceCandidate.tenant_id == self.tenant_id,
+                    ExperienceCandidate.status == "APPROVED",
+                    ExperienceCandidate.version == example.candidate_version if example else False,
+                    ExperienceCandidate.source_case_id == example.source_case_id if example else False,
+                    ExperienceCandidate.source_verification_id == example.source_verification_id if example else False,
+                    ExperienceCandidate.source_verification_id == latest_verification_id,
+                    ServiceCase.status.in_(("RESOLVED", "CLOSED")), ServiceCase.archived_at.is_(None),
+                ).with_for_update())
+                if candidate is None:
+                    raise ValueError("diagnostic_context_stale")
+
+    def fail_diagnostic(self, task_id: UUID, specialist_run_id: UUID, error_code: str):
+        try:
+            self._active_execution()
+        except ValueError:
+            return
+        task = self.session.scalar(select(DiagnosticTask).where(
+            DiagnosticTask.id == task_id, DiagnosticTask.tenant_id == self.tenant_id,
+        ).with_for_update())
+        specialist_run = self.session.scalar(select(SpecialistRun).where(
+            SpecialistRun.id == specialist_run_id, SpecialistRun.tenant_id == self.tenant_id,
+            SpecialistRun.lease_token == self.lease_token, SpecialistRun.status == "RUNNING",
+        ).with_for_update())
+        if task is None or specialist_run is None:
+            self.session.rollback()
+            return
+        specialist_run.status = "FAILED"
+        specialist_run.error_code = error_code[:80]
+        specialist_run.completed_at = datetime.now(timezone.utc)
+        task.status = "FAILED"
+        task.version += 1
+        from serviceos_api.application.services import ConversationService
+
+        ConversationService.record_specialist_event(
+            self.session, self.tenant_id, self.conversation_id, self.run_id, self.lease_token,
+            task.id, specialist_run.id, "FAILED",
+        )
+        self.session.commit()
