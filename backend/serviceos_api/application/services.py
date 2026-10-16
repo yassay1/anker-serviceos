@@ -1,7 +1,7 @@
 import hashlib
 import json
 from datetime import datetime, timedelta, timezone
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 from pydantic import ValidationError
 from sqlalchemy import and_, or_, select, true
@@ -982,6 +982,28 @@ class ConversationService(BusinessService):
             self.session.flush()
             if guard_decision is not None:
                 guard_decision.proposal_id = proposal.id
+        if guard_decision is not None and guard_decision.decision == "BLOCKED":
+            # The customer must never see silence: a fixed system holding note goes out
+            # while the blocked draft waits for human review. No model claims inside.
+            holding_id = uuid5(run.id, "serviceos:guard-holding")
+            if self.session.scalar(select(Message).where(
+                    Message.tenant_id == tenant_id, Message.conversation_id == conversation.id,
+                    Message.client_message_id == holding_id)) is None:
+                holding = Message(
+                    tenant_id=tenant_id, conversation_id=conversation.id, author_kind="AGENT",
+                    visibility="PUBLIC",
+                    content=[{"type": "text", "text":
+                              "您的消息已收到并转人工复核，我们会尽快回复；本提示由系统自动生成，不代表处理结论。"}],
+                    related_case_id=related_case_id, client_message_id=holding_id,
+                    request_hash=hashlib.sha256(b"guard-holding-v1").hexdigest(),
+                )
+                self.session.add(holding)
+                self.session.flush()
+                self.session.add(OutboxEvent(
+                    tenant_id=tenant_id, conversation_id=conversation.id,
+                    type="message.created", visibility="PUBLIC",
+                    data={"message_id": str(holding.id), "conversation_id": str(conversation.id)},
+                ))
         self.session.add(OutboxEvent(
             tenant_id=tenant_id, conversation_id=conversation.id,
             type="message.created", visibility=visibility,
