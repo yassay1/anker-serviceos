@@ -1,13 +1,24 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowRight, ChevronRight, Power, Wifi, Box, Wrench, Truck, ClipboardList, Sparkles, Headphones, ShieldCheck, MonitorSmartphone, ImagePlus, X } from 'lucide-react'
+import { ArrowRight, ChevronRight, Power, Wifi, Box, Wrench, Truck, ClipboardList, Sparkles, Headphones, ShieldCheck, MonitorSmartphone, ImagePlus, X, Mic, Square } from 'lucide-react'
 import { type Actor, createConversation, listCases, listDevices, listConversations, sendMessage } from '../../api/client'
 import { queryKeys } from '../../app/queryKeys'
 import { StatusBadge } from '../../shared/StatusBadge'
 import { DeviceIcon } from '../../shared/DeviceIcon'
 import { isDemoRecord } from '../../shared/servicePresentation'
 import { readableError } from '../../shared/errors'
+
+type Recognition = {
+  lang: string, continuous: boolean, interimResults: boolean,
+  onresult: ((event: { results: ArrayLike<{ 0?: { transcript: string } }> }) => void) | null,
+  onerror: ((event: { error: string }) => void) | null, onend: (() => void) | null,
+  start: () => void, stop: () => void, abort: () => void,
+}
+type RecognitionWindow = Window & {
+  SpeechRecognition?: new () => Recognition,
+  webkitSpeechRecognition?: new () => Recognition,
+}
 
 const categories = [
   { title: '无法开机', description: '没有反应 / 电源问题', icon: Power, prompt: '我的设备无法开机，' },
@@ -32,6 +43,39 @@ export function CustomerHome({ actor }: { actor: Actor }) {
   const conversations = useQuery({ queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id), queryFn: listConversations })
 
   const allowed = ['image/jpeg', 'image/png', 'image/webp']
+  const recognition = useRef<Recognition | null>(null)
+  const [listening, setListening] = useState(false)
+  const [voiceError, setVoiceError] = useState('')
+  const nativeWindow = window as RecognitionWindow
+  const Speech = nativeWindow.SpeechRecognition ?? nativeWindow.webkitSpeechRecognition
+  useEffect(() => () => {
+    const current = recognition.current
+    if (current) {
+      current.onresult = null; current.onerror = null; current.onend = null
+      current.abort()
+    }
+  }, [])
+  function toggleVoice() {
+    if (recognition.current) { recognition.current.stop(); return }
+    if (!Speech) { setVoiceError('当前浏览器不支持语音识别，请直接输入文字。'); return }
+    const current = new Speech()
+    const before = draft.trimEnd()
+    current.lang = 'zh-CN'; current.continuous = true; current.interimResults = true
+    current.onresult = event => {
+      const text = Array.from(event.results).map(result => result[0]?.transcript ?? '').join('')
+      setDraft((before + (before ? '\n' : '') + text).slice(0, 8000))
+    }
+    current.onerror = event => {
+      if (event.error !== 'aborted') setVoiceError(event.error === 'not-allowed' || event.error === 'service-not-allowed'
+        ? '麦克风或语音服务未获授权，请在浏览器中允许后重试。'
+        : event.error === 'no-speech' ? '没有听清内容，请靠近麦克风重试。'
+          : '浏览器语音识别暂不可用，请直接输入文字。')
+    }
+    current.onend = () => { recognition.current = null; setListening(false) }
+    setVoiceError(''); recognition.current = current
+    try { current.start(); setListening(true) }
+    catch { recognition.current = null; setVoiceError('无法启动语音识别，请检查浏览器权限后重试。') }
+  }
   function addFiles(list: FileList | null) {
     setFileError('')
     if (!list) return
@@ -51,6 +95,7 @@ export function CustomerHome({ actor }: { actor: Actor }) {
   async function start(event: FormEvent) {
     event.preventDefault()
     if (busy || !draft.trim()) return
+    recognition.current?.stop()
     setBusy(true); setError('')
     try {
       const conversation = await createConversation()
@@ -79,6 +124,9 @@ export function CustomerHome({ actor }: { actor: Actor }) {
             <button type="button" className="ghost-button" onClick={() => fileInput.current?.click()} aria-label="添加图片">
               <ImagePlus size={18} />添加图片
             </button>
+            <button type="button" className="ghost-button" onClick={toggleVoice} aria-pressed={listening} aria-label="语音输入">
+              {listening ? <Square size={18} /> : <Mic size={18} />}{listening ? '聆听中·点击停止' : '语音输入'}
+            </button>
             <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" multiple hidden
               onChange={event => addFiles(event.target.files)} />
             {files.map((file, index) => <span key={`${file.name}:${index}`} className="attach-chip">
@@ -88,6 +136,8 @@ export function CustomerHome({ actor }: { actor: Actor }) {
             </span>)}
           </div>
           {fileError && <p className="form-error" role="alert">{fileError}</p>}
+          {voiceError && <p className="form-error" role="alert">{voiceError}</p>}
+          {listening && <p className="entry-hint" role="status">正在聆听，识别结果会实时追加到问题描述中。</p>}
           <p id="home-entry-hint" className="entry-hint">点击后将开启独立会话并立即发送；图片进入会话后自动归入服务案例证据。</p>
           <div className="diagnosis-entry-foot"><Link to="/support"><Headphones size={18} />继续上次会话／历史问答{conversations.data ? `（${conversations.data.length}）` : ''}</Link><button className="primary-button" type="submit" disabled={busy}><Sparkles size={19} />{busy ? '正在发送…' : '开始新的诊断'}<ArrowRight size={19} /></button></div>
           {error && <p className="form-error" role="alert">{error}</p>}
