@@ -44,7 +44,7 @@ export function GuardPanel({ actor }: { actor: Actor }) {
       <span><ShieldQuestion size={16} /> 复核发布 {stats.data?.overridden ?? '—'}</span>
     </div>
     {decisions.isError && <p className="form-error" role="alert">{readableError(decisions.error)}</p>}
-    <div className="table-scroll"><table className="case-table"><thead><tr>
+    <div className="table-scroll" tabIndex={0}><table className="case-table"><thead><tr>
       <th>时间</th><th>判定</th><th>原因</th><th>会话</th><th><span className="visually-hidden">操作</span></th>
     </tr></thead><tbody>
       {decisions.data?.items.map(item => <tr key={item.id}>
@@ -67,7 +67,7 @@ export function GuardPanel({ actor }: { actor: Actor }) {
     </tbody></table></div>
     {override.isError && <p className="form-error" role="alert">{readableError(override.error)}</p>}
     <h4>服务政策表（DMN 式，命中带 rule_id@version）</h4>
-    <div className="table-scroll"><table className="case-table"><thead><tr>
+    <div className="table-scroll" tabIndex={0}><table className="case-table"><thead><tr>
       <th>规则</th><th>国家</th><th>渠道</th><th>品类</th><th>质保</th><th>允许结局</th><th>状态</th>
     </tr></thead><tbody>
       {policies.data?.map(policy => <tr key={policy.id}>
