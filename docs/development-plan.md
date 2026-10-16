@@ -109,6 +109,8 @@
 4. 每类组件同时验收 PUBLIC/INTERNAL 隔离、过期 revision、降级、移动端和无障碍。
 5. 只有真实 Pydantic/OpenAPI 契约与应用服务存在后才发布接口，不注册空壳端点。
 
+2026-10-17 增量：feature 016「高级动态服务界面」已按独立计划完成本地实现和自动化验收。它复用现有 RichReply、UIDocument、Diagnostic Question、Case Evidence 和授权 Case/Task/Verification 服务；没有新增发布端点或第二套上传/动作协议。细节、精确命令、测试结果和未完成的真实 Provider/来源权利/生产验收见[动态服务界面验收记录](dynamic-service-interface-validation.md)。
+
 ## Codex 单阶段执行原则
 
 一次任务只做明确阶段，先读取 `AGENTS.md` 与 docs，列出将修改的文件，完成实际代码/测试/校验后报告具体命令、结果和未完成项。不许通过 Mock 假装接入真实 Anker 售后后端。

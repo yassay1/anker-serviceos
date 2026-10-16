@@ -25,8 +25,9 @@
 .rich-alert > svg { margin-top: 2px; }
 .rich-alert h4 { margin-bottom: 5px; }
 .rich-alert.warning { background: var(--warm); }
-.rich-alert.danger { color: var(--danger); background: color-mix(in srgb, var(--danger) 7%, var(--surface)); border-left: 3px solid var(--danger); }
+.rich-alert.danger { color: var(--danger); background: color-mix(in srgb, var(--danger) 7%, var(--surface)); border: 1px solid color-mix(in srgb, var(--danger) 24%, var(--border)); border-left: 4px solid var(--danger); border-radius: 10px; padding: 16px; }
 .rich-alert.danger h4 { color: var(--danger); }
+.rich-alert[role="alert"] { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 56%); }
 .rich-image { margin: 0; min-width: 0; }
 .rich-image-preview { position: relative; display: block; padding: 0; border-radius: 10px; overflow: hidden; max-width: 100%; background: var(--canvas); }
 .rich-image-preview img { display: block; max-width: 100%; width: 280px; max-height: 240px; object-fit: contain; }
@@ -66,4 +67,4 @@
 .quick-reply-chip:disabled { opacity: .6; }
 .message:has(.rich-reply) { min-width: 0; max-width: min(100%, 760px); }
 .conversation-evidence-links { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 0 18px 12px; font-size: 12px; }
-@media(max-width: 600px) { .rich-steps { padding: 13px; } .quick-reply-chip { font-size: 12px; padding: 6px 12px; } .rich-table-scroll th, .rich-table-scroll td { padding: 9px; } }
+@media(max-width: 600px) { .rich-steps { padding: 13px; } .rich-alert.danger { padding: 14px 13px; } .quick-reply-chip { font-size: 12px; padding: 6px 12px; } .rich-table-scroll th, .rich-table-scroll td { padding: 9px; } }

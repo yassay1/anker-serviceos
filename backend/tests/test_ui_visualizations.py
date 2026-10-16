@@ -1,7 +1,9 @@
 from types import SimpleNamespace
 from uuid import uuid4
 
-from serviceos_api.application.ui_visualizations import case_process_flow, knowledge_metric_chart
+from serviceos_api.application.ui_visualizations import (
+    case_process_flow, knowledge_metric_chart, knowledge_source_used_in_run,
+)
 
 
 def test_curated_metric_is_bound_to_verified_model_and_published_source():
@@ -12,6 +14,20 @@ def test_curated_metric_is_bound_to_verified_model_and_published_source():
     ]
     assert knowledge_metric_chart("unknown", {"T8D04"}) is None
     assert knowledge_metric_chart("eufy-s1-pro-heating-battery-v1", {"T8D04-OTHER"}) is None
+
+
+def test_metric_proposal_needs_same_run_authorized_manual_source_reference():
+    payload = {"tool_envelopes": [{"tool": "lookup_manual", "status": "OK",
+        "applicability": "verified_models:t8d04", "references": [
+            {"entry_key": "heating-extra-battery", "source_ref": "approved metric source"}]}]}
+    assert knowledge_source_used_in_run("eufy-s1-pro-heating-battery-v1", payload)
+    assert not knowledge_source_used_in_run("eufy-s1-pro-heating-battery-v1", {})
+    assert not knowledge_source_used_in_run("eufy-s1-pro-heating-battery-v1", {"tool_envelopes": [
+        {**payload["tool_envelopes"][0], "tool": "query_order_warranty"}]})
+    assert not knowledge_source_used_in_run("eufy-s1-pro-heating-battery-v1", {"tool_envelopes": [
+        {**payload["tool_envelopes"][0], "applicability": "generic"}]})
+    assert not knowledge_source_used_in_run("eufy-s1-pro-heating-battery-v1", {"tool_envelopes": [
+        {**payload["tool_envelopes"][0], "references": [{"entry_key": "unrelated"}]}]})
 
 
 def test_curated_metric_is_suppressed_if_publication_or_values_change(tmp_path, monkeypatch):

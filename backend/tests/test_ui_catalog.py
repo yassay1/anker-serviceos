@@ -168,3 +168,20 @@ def test_case_process_flow_is_staff_only_and_validates_authorized_dag():
     malformed["flow"]["nodes"][0]["id"] = []
     with pytest.raises(ServiceError):
         validate_components([malformed], "STAFF", allowed)
+
+
+def test_customer_progress_can_reference_only_authorized_case_progress_binding():
+    case_id = uuid4()
+    component = {"id": "case-progress", "type": "ProgressTimeline",
+        "props": {"title": "服务进度", "body": "等待你补充信息。", "status": "WAITING_CUSTOMER"},
+        "data_source": {"kind": "CASE_VIEW", "resource_id": str(case_id),
+                         "resource_version": 4, "binding": "progress"},
+        "actions": [], "children": []}
+    allowed = {("CASE_VIEW", case_id): 4}
+    result = validate_components([component], "CUSTOMER", allowed)
+    assert result[0]["data_source"]["binding"] == "progress"
+
+    internal_binding = deepcopy(component)
+    internal_binding["data_source"]["binding"] = "summary"
+    with pytest.raises(ServiceError):
+        validate_components([internal_binding], "CUSTOMER", allowed)

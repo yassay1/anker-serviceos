@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CircleHelp, FileText, Headphones, ListChecks, ShieldAlert, UsersRound } from 'lucide-react'
+import { ChevronRight, CircleHelp, FileText, Headphones, ListChecks, ShieldAlert, UsersRound } from 'lucide-react'
 import { ApiFailure, type UIActionBody, type UIDocument, invokeUIAction } from '../../api/client'
 import { StatusBadge } from '../../shared/StatusBadge'
 import { clearPendingAction, readPendingAction, savePendingAction } from './actionRecovery'
@@ -123,7 +123,8 @@ function validComponents(value: unknown, conversationId: string, version: number
     if (!isRecord(source) || typeof source.resource_id !== 'string' || !uuid.test(source.resource_id) ||
       !positiveInteger(source.resource_version) || !['CONVERSATION_VIEW', 'CASE_VIEW', 'TASK_VIEW', 'AGENT_RUN_VIEW', 'DIAGNOSTIC_TASK_VIEW'].includes(String(source.kind)) ||
       (source.kind === 'CONVERSATION_VIEW' && (source.resource_id !== conversationId || source.resource_version !== version)) ||
-      (!desk && !['CONVERSATION_VIEW', 'AGENT_RUN_VIEW', 'DIAGNOSTIC_TASK_VIEW'].includes(String(source.kind)))) return false
+      (!desk && !['CONVERSATION_VIEW', 'AGENT_RUN_VIEW', 'DIAGNOSTIC_TASK_VIEW'].includes(String(source.kind)) &&
+        !(source.kind === 'CASE_VIEW' && source.binding === 'progress' && item.type === 'ProgressTimeline'))) return false
     if (source.kind === 'DIAGNOSTIC_TASK_VIEW') {
       if (desk || item.type !== 'QuestionForm' && item.type !== 'ChoiceGroup' || source.binding !== 'question' ||
         !positiveInteger(source.question_revision) || !Array.isArray(item.actions) || item.actions.length !== 1) return false
@@ -205,10 +206,10 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
     const timer = window.setTimeout(() => tick(value => value + 1), Math.min(expires - Date.now() + 1, 2_147_483_647))
     return () => window.clearTimeout(timer)
   }, [expires])
-  // Version 2 added ChoiceGroup; a version-1 document is still valid and simply
-  // never contains the new type.
+  // Catalog 2 added ChoiceGroup; catalog 4 adds the customer-safe linked Case progress binding.
+  // Older documents remain renderable with their original source restrictions.
   const supported = audienceMatches && revisionValid && !regressed &&
-    document.schema_version === 1 && [1, 2, 3].includes(document.catalog_version) && document.status === 'ACTIVE' &&
+    document.schema_version === 1 && [1, 2, 3, 4].includes(document.catalog_version) && document.status === 'ACTIVE' &&
     (desk ? document.surface === 'DESK_PANEL' : ['SUPPORT_INLINE', 'SUPPORT_PANEL'].includes(document.surface)) &&
     (expires === null || expires > Date.now()) && validComponents(document.components, conversationId, conversationVersion, desk)
   const choiceSubmitted = Boolean(document && choiceSubmission?.uiId === document.ui_id && choiceSubmission.revision === document.revision)
@@ -367,7 +368,10 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
       return <Card className={`ui-card ui-${component.type}`} key={component.id}>
         {!(component.type === 'ActionBar' && placement === 'assistance') &&
           <Heading><Icon size={18} aria-hidden="true" />{component.props.title}{component.type === 'ActionBar' && <span className="assistance-expand">展开申请</span>}</Heading>}
-        {component.type === 'ProgressTimeline' ? <ol className="ui-timeline"><li><p>{component.props.body}</p><StatusBadge value={component.props.status} label={component.props.status === 'FAILED' ? '处理失败' : undefined} /></li></ol> :
+        {component.type === 'ProgressTimeline' ? <div className="ui-progress-summary" role="status" aria-label={`当前服务进度：${component.props.status}`}>
+          <span className={`ui-progress-rail status-${component.props.status}`} aria-hidden="true"><span /></span>
+          <div className="ui-progress-copy"><p>{component.props.body}</p><StatusBadge value={component.props.status} label={component.props.status === 'FAILED' ? '处理失败' : undefined} /></div>
+        </div> :
           !(component.type === 'ActionBar' && placement === 'assistance') && <p>{component.props.body}</p>}
         {component.type === 'KnowledgeMetricChart' && (() => {
           const chart = (component as VisualComponent).chart as ChartData
@@ -437,7 +441,7 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
             {(component.options ?? []).map(option => <button type="button" key={option.value}
               disabled={busy || (component.data_source.kind === 'DIAGNOSTIC_TASK_VIEW' ? diagnosticSubmitted || Boolean(diagnosticPending) : choiceSubmitted || !onChoose) || !active}
               onClick={() => component.data_source.kind === 'DIAGNOSTIC_TASK_VIEW'
-                ? void submitDiagnosticAnswer(component, option.label) : void choose(option.label)}>{option.label}</button>)}
+                ? void submitDiagnosticAnswer(component, option.label) : void choose(option.label)}><span>{option.label}</span><ChevronRight size={17} aria-hidden="true" /></button>)}
           </div>
         </div>}
         {desk && component.data_source.kind === 'CASE_VIEW' && <Link className="ui-case-link" to={`/cases/${component.data_source.resource_id}`}>查看案例与证据</Link>}

@@ -115,13 +115,17 @@ CI 使用同源契约和关键业务回归。旧原型目录已完成项目外�
 |---|---|---|---|
 | G001 | 阶段 2 Context Builder | `UIDocument`、组件 Catalog、UI Schema/Policy Validator 与 fallback 契约 | 已实现并通过未知组件、越权数据源、任意代码/URL 拒绝及文本降级测试 |
 | G002 | G001、持久事件 | UI revision/snapshot、PUBLIC/INTERNAL 事件与断线恢复 | 已实现；刷新可恢复，客户读不到 INTERNAL，旧 revision 不可操作 |
-| G003 | G001–G002 | React Renderer 与用户侧问题/证据/风险/核验只读或低风险卡 | 已实现 Renderer、错误/不支持组件文本或固定表单降级；浏览器端到端仍受本地登录加载问题限制 |
+| G003 | G001–G002 | React Renderer 与用户侧问题/证据/风险/核验只读或低风险卡 | Renderer、降级、手机端键盘/无障碍路径及 UI revision 场景已通过本地浏览器验收；真实 Provider 与生产验收仍待 |
 | G004 | 阶段 3 应用服务 | 客服摘要/Skill/草稿/审批/流程卡和 action intent | 已实现；HUMAN_LEAD/CO_SERVICE 下不偷发，按钮提交再次鉴权、锁版本、幂等 |
 | G005 | 阶段 4 Action/Verification | 回执、UNKNOWN 对账、核验与纵切面评测 | 动作完成不等于解决；只有真实回执和验证条件可更新状态 |
-| G006 | G001–G003、受信知识条目 | 固定来源指标图表；服务端绑定型号和数值，Renderer 绘图 | 已实现；纯测试、前端构建和定向浏览器测试通过；PostgreSQL 投影用例待验 |
-| G007 | G001、Case/Task/Action/Verification 服务 | 客服只读 Case 流程图，由授权业务记录生成节点、状态和连线 | 已实现；纯测试和定向浏览器测试通过；PostgreSQL 投影用例待验 |
+| G006 | G001–G003、受信知识条目 | 固定来源指标图表；服务端绑定型号和数值，Renderer 绘图 | 已实现；来源同次 AgentRun 的工具审计与 PostgreSQL 投影、前端构建和浏览器场景已通过；来源时效/权利仍须逐条审查 |
+| G007 | G001、Case/Task/Action/Verification 服务 | 客服只读 Case 流程图，由授权业务记录生成节点、状态和连线 | 已实现；授权记录投影、PUBLIC/INTERNAL 隔离、PostgreSQL 与浏览器场景已通过 |
 
 G006–G007 的[功能契约](../specs/010-generative-visual-components/contracts/feature-contract.md)已获本轮用户批准。来源是用户提供的资料包，`Published/Visible` 为资料中的字段，不能等同于已核验的当前厂商政策；后续仍需持续核对其时效。实际验证及限制见[可视化验收记录](generative-visual-components-validation.md)。
+
+### 增量：高级动态服务界面（feature 016，本地实现与自动化验收完成）
+
+`specs/016-dynamic-service-interface/` 按计划完成：受限 Agent 提案与 UI Catalog 契约对齐；安全提示优先且忽略模型提供的危险 fallback；客户可选项仍作为普通消息；指标卡须有同次 AgentRun 的授权手册来源记录；客户进度只从已关联 Case 和持久任务/动作/核验记录投影；Mock 回执不代表核验或解决；客服流程图仍保持 INTERNAL。Renderer 加入有状态进度轨道、可访问标签和触控行样式。完整命令、91 项浏览器及 PostgreSQL 回归结果见[动态服务界面验收记录](dynamic-service-interface-validation.md)。真实 Provider 质量、正式手册来源时效/展示权利、多模态理解和生产浏览器/部署验收仍未完成。
 
 ## 本轮验证记录
 

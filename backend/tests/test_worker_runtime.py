@@ -825,7 +825,7 @@ def test_specialist_result_event_never_claims_verified_fact(db_session):
 
 
 @pytest.mark.parametrize(("kind", "expected"), [
-    ("SAFETY_STOP", "请先停止使用和测试设备"),
+    ("SAFETY_STOP", "请停止使用和充电"),
     ("HUMAN_REVIEW", "当前信息需要人工客服进一步核实"),
 ])
 def test_sop_safety_and_human_review_override_freeform_agent_reply(db_session, kind, expected):
@@ -841,6 +841,10 @@ def test_sop_safety_and_human_review_override_freeform_agent_reply(db_session, k
     )
     db_session.add(task)
     db_session.flush()
+    if kind == "SAFETY_STOP":
+        run.result_payload = {"rich_reply": {"schema_version": 1, "blocks": [
+            {"type": "steps", "items": [{"title": "继续测试", "description": "保持设备通电。"}]},
+        ], "quick_replies": []}}
     published = ConversationService(db_session, actor=None, settings=Settings(environment="test")).publish_agent_response(
         tenant.id, conversation.id, run.id, run.lease_token,
         "UNSAFE MODEL TEXT: continue testing and the problem is solved.",
@@ -848,6 +852,12 @@ def test_sop_safety_and_human_review_override_freeform_agent_reply(db_session, k
     text = published.content[0]["text"]
     assert expected in text
     assert "UNSAFE MODEL TEXT" not in text and "已解决" not in text
+    if kind == "SAFETY_STOP":
+        alert = published.content[0]["rich"]["blocks"][0]
+        assert alert["status_code"] == "POLICY_SAFETY_STOP"
+        assert alert["severity"] == "danger"
+        assert "停止使用" in alert["text"]
+        assert all(block["type"] != "steps" for block in published.content[0]["rich"]["blocks"])
 
 
 def test_progress_generation_rejects_stale_lease_and_false_completion(db_session):
@@ -947,7 +957,7 @@ def test_customer_projection_renders_agent_options_as_a_choice_group(database_en
     with Session(database_engine) as session:
         principal = Principal(tenant_id, customer_id, "CUSTOMER", "客户")
         projected = ConversationService(session, principal).publish_ui_projection(conversation_id)
-        assert projected.catalog_version == 3
+        assert projected.catalog_version == 4
         assert projected.components[0].type == "ActionBar", "the assistance action stays first"
         choice = next(item for item in projected.components if item.type == "ChoiceGroup")
         assert choice.id == "agent-choice"
@@ -975,10 +985,54 @@ def test_customer_projection_without_options_keeps_the_question_form(database_en
     with Session(database_engine) as session:
         principal = Principal(tenant_id, customer_id, "CUSTOMER", "客户")
         projected = ConversationService(session, principal).publish_ui_projection(conversation_id)
+        assert projected.fallback_text == "也可用文字说明。"
         kinds = [item.type for item in projected.components]
         assert "ChoiceGroup" not in kinds
         question = next(item for item in projected.components if item.type == "QuestionForm")
         assert question.options == []
+
+
+def test_customer_safety_projection_does_not_use_model_fallback(database_engine):
+    class RiskRuntime:
+        configured = True
+
+        def invoke(self, **_):
+            return AgentResult("请先停止使用设备并联系人工客服。", {
+                "purpose": "确认下一步处理", "audience": "CUSTOMER",
+                "fallback_text": "请继续通电测试。", "component_hints": ["QuestionForm"],
+            }), {"step_count": 1}
+
+    with Session(database_engine) as session:
+        tenant, customer, conversation, message, _, _ = seed_message(session)
+        message.content = [{"type": "text", "text": "设备正在冒烟"}]
+        session.commit()
+        tenant_id, customer_id, conversation_id = tenant.id, customer.id, conversation.id
+    worker = MessageWorker(database_engine, Settings(environment="test"), runtime=RiskRuntime())
+    worker.process(worker.claim_one())
+
+    with Session(database_engine) as session:
+        projected = ConversationService(session, Principal(tenant_id, customer_id, "CUSTOMER", "客户")) \
+            .publish_ui_projection(conversation_id)
+        assert projected.fallback_text == "交互卡暂不可用，请继续使用文字消息。"
+        assert projected.fallback_text != "请继续通电测试。"
+
+
+def test_customer_progress_is_projected_from_linked_case_state(database_engine):
+    with Session(database_engine) as session:
+        tenant, customer, conversation, _, _, case = seed_message(session, with_case=True)
+        case.status = "WAITING_CUSTOMER"
+        session.commit()
+        tenant_id, customer_id, conversation_id = tenant.id, customer.id, conversation.id
+
+    with Session(database_engine) as session:
+        projected = ConversationService(session, Principal(tenant_id, customer_id, "CUSTOMER", "客户")) \
+            .publish_ui_projection(conversation_id)
+        progress = next(item for item in projected.components if item.type == "ProgressTimeline")
+        assert progress.data_source.kind == "CASE_VIEW"
+        assert progress.data_source.binding == "progress"
+        assert progress.props["status"] == "WAITING_CUSTOMER"
+        assert "等待你补充所需信息" in progress.props["body"]
+        assert progress.actions == []
 
 
 def test_customer_projection_builds_metric_from_verified_model_and_curated_source(database_engine):
@@ -1007,9 +1061,20 @@ def test_customer_projection_builds_metric_from_verified_model_and_curated_sourc
     worker.process(worker.claim_one())
 
     with Session(database_engine) as session:
-        projected = ConversationService(session, Principal(tenant_id, customer_id, "CUSTOMER", "客户")) \
+        principal = Principal(tenant_id, customer_id, "CUSTOMER", "客户")
+        projected = ConversationService(session, principal) \
             .publish_ui_projection(conversation_id)
-        assert projected.catalog_version == 3
+        assert all(item.type != "KnowledgeMetricChart" for item in projected.components), \
+            "a chart proposal must not stand in for same-run source use"
+        run = session.scalar(select(AgentRun).where(AgentRun.conversation_id == conversation_id))
+        run.result_payload = {**run.result_payload, "tool_envelopes": [{
+            "tool": "lookup_manual", "status": "OK", "applicability": "verified_models:t8d04",
+            "references": [{"entry_key": "heating-extra-battery", "source_ref": "eufy S1 Pro heating metric",
+                            "source_sha256_16": "1234567890abcdef", "path": "keyword"}], "notes": [],
+        }]}
+        session.commit()
+        projected = ConversationService(session, principal).publish_ui_projection(conversation_id)
+        assert projected.catalog_version == 4
         chart = next(item for item in projected.components if item.type == "KnowledgeMetricChart")
         assert [point.model_dump() for point in chart.chart.points] == [
             {"label": "5 分钟", "value": 10.0}, {"label": "10 分钟", "value": 20.0},

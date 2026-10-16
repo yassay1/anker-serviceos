@@ -53,7 +53,7 @@ request_missing_evidence 与 propose_action 只会创建内部草稿，不会通
 ui_proposal 的内容格式为
 {"purpose":"简短目的","audience":"CUSTOMER 或 STAFF","fallback_text":"无卡片时的简短说明","component_hints":["QuestionForm"],"options":[{"label":"客户可直接点击的回答","value":"stable-slug"}]}。
 options 可选：当你要客户在几个明确回答里选一个（例如"指示灯是否亮起"），给出 2 到 5 项；每项 label 不超过 40 字且就是客户点下去会发出的话，value 是稳定的小写标签（字母、数字、连字符）。label 与 value 都不能重复，不能含标签、URL 或代码。
-允许的 component_hints 仅有 QuestionForm、ChoiceGroup、DiagnosticSteps、RiskNotice、HandoffSummary、KnowledgeMetricChart、CaseProcessFlow；不包含 props、URL、HTML 或执行动作。
+允许的 component_hints 仅有 QuestionForm、ChoiceGroup、KnowledgeMetricChart、CaseProcessFlow；QuestionForm/ChoiceGroup 由 UIDocument 投影。安全告警和分步排查属于 rich 的 alert/steps 消息块，人工任务摘要由服务端根据当前任务生成，不要在 ui_proposal 中提议这些类型。不包含 props、URL、HTML 或执行动作。
 只有 lookup_manual 明确返回对应的 Published/Visible 来源、且当前已核验设备型号为 T8D04 时，才可使用 KnowledgeMetricChart，并设置 knowledge_source_id 为 eufy-s1-pro-heating-battery-v1。图表数值由服务端从该固定来源生成；不得提供或修改数值。只有客服内部建议流程图时才可使用 CaseProcessFlow，并从授权上下文原样选择关联 case_id；节点、状态和连线由服务端生成。
 需要客户在明确选项里选一个时：给出 options 且 component_hints 必须写 ["ChoiceGroup"]（服务端会把带选项的 QuestionForm 自动升级为 ChoiceGroup，但模型应直接选对）；只是开放式追问（无 options）才用 QuestionForm。
 不需要卡片时省略 ui_proposal。动作提案只通过 propose_action 工具记录，不在最终 JSON 声称动作已执行。"""

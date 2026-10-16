@@ -244,6 +244,20 @@ test('delivery UI: inaccessible associated cases show refusal rather than anothe
   await expect(page.getByLabel('描述你的问题')).toBeEnabled()
 })
 
+test('delivery UI: policy safety alert is prominent and replaces duplicate text fallback', async ({ page }) => {
+  const state = await fixture(page, false)
+  state.messages[1].author_kind = 'AGENT'
+  state.messages[1].content[0].text = '请查看下方安全提醒。'
+  const content = state.messages[1].content[0] as unknown as Record<string, unknown>
+  content.rich = { schema_version: 1, blocks: [{ type: 'alert', title: '先停止使用设备',
+    text: '如果设备异常发热，请停止使用和充电。', severity: 'danger', status_code: 'POLICY_SAFETY_STOP' }],
+    quick_replies: [] }
+  await page.goto('/support')
+  const alert = page.getByRole('alert').filter({ hasText: '先停止使用设备' })
+  await expect(alert).toContainText('如果设备异常发热，请停止使用和充电。')
+  await expect(page.getByText('请查看下方安全提醒。')).toHaveCount(0)
+})
+
 for (const invalid of ['unknown', 'props', 'null-components', 'duplicate', 'expired', 'stale-context', 'catalog', 'unsafe-action', 'internal'] as const) {
   test(`delivery UI: ${invalid} document falls back without exposing an action`, async ({ page }) => {
     const state = await fixture(page, false)
@@ -323,8 +337,8 @@ test('delivery UI: staff catalog preserves evidence, handoff and single-node rea
   await expect(cards.locator('.ui-CaseSummaryCard')).toContainText('待核验')
   await expect(cards.locator('.ui-EvidenceSummary')).toContainText('已撤销')
   await expect(cards.locator('.ui-HandoffSummary')).toContainText('待处理')
-  await expect(cards.locator('.ui-timeline li')).toHaveCount(1)
-  await expect(cards.locator('.ui-timeline')).toContainText('待审批')
+  await expect(cards.locator('.ui-progress-summary')).toHaveCount(1)
+  await expect(cards.locator('.ui-progress-summary')).toContainText('待审批')
   await expect(cards.getByRole('link', { name: '查看案例与证据' }).first()).toHaveAttribute('href', `/cases/${ids.second}`)
   await expect(cards.getByText(/已完成|已解决/)).toHaveCount(0)
 })
@@ -433,6 +447,24 @@ function withChoices(state: Awaited<ReturnType<typeof fixture>>, options: unknow
   return document
 }
 
+test('delivery UI: customer progress accepts the authorized linked Case projection', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const state = await fixture(page, false)
+  const uiDocument = structuredClone(state.document) as unknown as Record<string, unknown>
+  uiDocument.catalog_version = 4
+  const cards = uiDocument.components as S['UIComponent'][]
+  cards.push({ id: 'case-progress', type: 'ProgressTimeline',
+    props: { title: '当前服务进度', body: '等待你补充接口照片。', status: 'WAITING_CUSTOMER' },
+    actions: [], children: [],
+    data_source: { kind: 'CASE_VIEW', binding: 'progress', resource_id: ids.second, resource_version: 2 } })
+  await page.route('**/ui-document/refresh', route => route.fulfill({ json: uiDocument }))
+  await page.goto('/support')
+  await expect(page.locator('.ui-ProgressTimeline')).toContainText('等待你补充接口照片。')
+  await expect(page.getByRole('status', { name: '当前服务进度：WAITING_CUSTOMER' })).toBeVisible()
+  await expect(page.getByLabel('描述你的问题')).toBeEnabled()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
 test('delivery UI: clicking a choice sends it as an ordinary customer message', async ({ page }) => {
   const state = await fixture(page, false)
   await page.route('**/ui-document/refresh', route => route.fulfill({
@@ -443,6 +475,9 @@ test('delivery UI: clicking a choice sends it as an ordinary customer message', 
   await expandAssistance(page)
   const choices = region.getByRole('group', { name: '下一步需要的信息' })
   await expect(choices.getByRole('button')).toHaveCount(2)
+  const target = await choices.getByRole('button', { name: '指示灯完全不亮' }).boundingBox()
+  expect(target?.height).toBeGreaterThanOrEqual(44)
+  expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([])
   await choices.getByRole('button', { name: '指示灯完全不亮' }).click()
   await expect(region.getByRole('status')).toHaveText('已发送：指示灯完全不亮')
   expect(state.sent.at(-1)).toMatchObject({

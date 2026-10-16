@@ -14,7 +14,9 @@ from serviceos_api.application.diagnostic_contracts import DiagnosticQuestion
 from serviceos_api.application.business import BusinessService
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.ui_catalog import CATALOG_VERSION, SCHEMA_VERSION, safe_text, validate_components
-from serviceos_api.application.ui_visualizations import case_process_flow, knowledge_metric_chart
+from serviceos_api.application.ui_visualizations import (
+    case_process_flow, customer_case_progress, knowledge_metric_chart, knowledge_source_used_in_run,
+)
 from serviceos_api.persistence.models import (
     AgentProposal, AgentRun, CaseAction, CaseConversation, CaseDevice, CaseEvidence, CaseVerification, Conversation, ConversationEvent, DeviceFact,
     DevicePassport, DiagnosticAnswer, DiagnosticTask, Message, MessageJob, OutboxEvent, ServiceCase, ServiceTask, TaskAssignment,
@@ -284,6 +286,7 @@ class ConversationService(BusinessService):
         refs = {("CONVERSATION_VIEW", conversation.id): conversation.version}
         components = []
         source_run_id = None
+        proposal_fallback = None
         if audience == "CUSTOMER":
             components.append({"id": "request-assistance", "type": "ActionBar",
                                "props": {"title": "需要真人协助？", "body": "请求会创建人工任务；你仍可继续发送文字消息。"},
@@ -291,6 +294,38 @@ class ConversationService(BusinessService):
                                "actions": [{"action_id": "request-human-assistance", "intent": "REQUEST_ASSISTANCE",
                                             "input_schema_ref": "serviceos://ui-inputs/assistance-request/v1"}],
                                "children": []})
+            linked_cases = self.session.scalars(select(ServiceCase).join(CaseConversation, and_(
+                CaseConversation.case_id == ServiceCase.id,
+                CaseConversation.tenant_id == ServiceCase.tenant_id,
+            )).where(
+                CaseConversation.tenant_id == self.actor.tenant_id,
+                CaseConversation.conversation_id == conversation.id,
+                ServiceCase.tenant_id == self.actor.tenant_id,
+                ServiceCase.customer_id == conversation.customer_id,
+                ServiceCase.archived_at.is_(None),
+            ).order_by(ServiceCase.created_at.desc(), ServiceCase.id).limit(3)).all()
+            for case in linked_cases:
+                if len(components) >= 10:
+                    break
+                task = self.session.scalar(select(ServiceTask).where(
+                    ServiceTask.tenant_id == self.actor.tenant_id,
+                    ServiceTask.conversation_id == conversation.id,
+                    ServiceTask.case_id == case.id,
+                    ServiceTask.status != "CLOSED",
+                ).order_by(ServiceTask.created_at.desc(), ServiceTask.id.desc()).limit(1))
+                action = self.session.scalar(select(CaseAction).where(
+                    CaseAction.tenant_id == self.actor.tenant_id, CaseAction.case_id == case.id,
+                ).order_by(CaseAction.created_at.desc(), CaseAction.id.desc()).limit(1))
+                verification = self.session.scalar(select(CaseVerification).where(
+                    CaseVerification.tenant_id == self.actor.tenant_id, CaseVerification.case_id == case.id,
+                ).order_by(CaseVerification.created_at.desc(), CaseVerification.id.desc()).limit(1))
+                progress = customer_case_progress(case, task, action, verification)
+                refs[("CASE_VIEW", case.id)] = case.version
+                components.append({"id": f"case-progress-{str(case.id)[:8]}", "type": "ProgressTimeline",
+                                   "props": progress,
+                                   "data_source": {"kind": "CASE_VIEW", "resource_id": str(case.id),
+                                                   "resource_version": case.version, "binding": "progress"},
+                                   "actions": [], "children": []})
             if conversation.collaboration_mode == "AI_LEAD" and conversation.reply_policy == "AI_AUTO":
                 waiting_diagnostic = self.session.scalar(select(DiagnosticTask).where(
                     DiagnosticTask.tenant_id == self.actor.tenant_id,
@@ -334,8 +369,22 @@ class ConversationService(BusinessService):
                         DevicePassport.archived_at.is_(None),
                     )
                 ).all() if model}
+                from serviceos_api.application.rich_reply import RISK
+
                 for run in runs:
                     proposal = (run.result_payload or {}).get("ui_proposal")
+                    source_message = self.session.get(Message, run.message_id)
+                    diagnostic = self.session.scalar(select(DiagnosticTask).where(
+                        DiagnosticTask.tenant_id == self.actor.tenant_id,
+                        DiagnosticTask.conversation_id == conversation.id,
+                        DiagnosticTask.parent_agent_run_id == run.id,
+                    ).order_by(DiagnosticTask.created_at.desc(), DiagnosticTask.id).limit(1))
+                    safety_triggered = bool(
+                        (diagnostic and ((diagnostic.result_payload or {}).get("next_step") or {}).get("kind") == "SAFETY_STOP")
+                        or (source_message and RISK.search(" ".join(
+                            part.get("text", "") for part in source_message.content
+                        )))
+                    )
                     public_message = self.session.scalar(select(Message.id).where(
                         Message.tenant_id == self.actor.tenant_id,
                         Message.conversation_id == conversation.id,
@@ -343,6 +392,11 @@ class ConversationService(BusinessService):
                         Message.visibility == "PUBLIC",
                     ))
                     if proposal and proposal.get("audience") == "CUSTOMER" and public_message:
+                        if not safety_triggered:
+                            try:
+                                proposal_fallback = safe_text(proposal.get("fallback_text"), limit=500)
+                            except ServiceError:
+                                proposal_fallback = None
                         hints = set(proposal.get("component_hints", []))
                         options = proposal.get("options") or []
                         run_components = []
@@ -357,7 +411,9 @@ class ConversationService(BusinessService):
                                                                    "resource_version": 1, "binding": "question"},
                                                    "actions": [], "children": [],
                                                    "options": options if kind == "ChoiceGroup" else []})
-                        if "KnowledgeMetricChart" in hints:
+                        if ("KnowledgeMetricChart" in hints and
+                                knowledge_source_used_in_run(proposal.get("knowledge_source_id", ""),
+                                                             run.result_payload or {})):
                             chart = knowledge_metric_chart(proposal.get("knowledge_source_id", ""), verified_models)
                             if chart:
                                 run_components.append({"id": "knowledge-metric", "type": "KnowledgeMetricChart",
@@ -463,7 +519,7 @@ class ConversationService(BusinessService):
                                                    "resource_version": conversation.version, "binding": "overview"},
                                    "actions": [], "children": []})
         components = validate_components(components[:12], audience, refs)
-        fallback = safe_text("交互卡暂不可用，请继续使用文字消息。")
+        fallback = proposal_fallback or safe_text("交互卡暂不可用，请继续使用文字消息。")
         signature = hashlib.sha256(json.dumps({"components": components, "mode": conversation.collaboration_mode,
                                                "policy": conversation.reply_policy}, sort_keys=True,
                                               ensure_ascii=False).encode()).hexdigest()
@@ -920,7 +976,8 @@ class ConversationService(BusinessService):
         from serviceos_api.application.rich_reply import RISK, SAFETY_TEXT
         source_message = self.session.scalar(select(Message).where(Message.id == run.message_id,
             Message.tenant_id == tenant_id, Message.conversation_id == conversation.id))
-        safety = bool(source_message and RISK.search(' '.join(part.get('text', '') for part in source_message.content)))
+        safety = next_kind == "SAFETY_STOP" or bool(
+            source_message and RISK.search(' '.join(part.get('text', '') for part in source_message.content)))
         if safety:
             # A language model must not override the user's stop-use safety boundary.
             text = SAFETY_TEXT
@@ -949,7 +1006,8 @@ class ConversationService(BusinessService):
             draft_rich = {'schema_version': 1, 'blocks': [], 'quick_replies': []}
         if draft_rich:
             from serviceos_api.application.rich_reply import project_reply
-            rich = project_reply(self.session, conversation, run, draft_rich, related_case_id)
+            rich = project_reply(self.session, conversation, run, draft_rich, related_case_id,
+                                 force_safety=next_kind == "SAFETY_STOP")
             if rich and (rich['blocks'] or rich['quick_replies']):
                 content[0]['rich'] = rich
         fingerprint = hashlib.sha256(json.dumps({
