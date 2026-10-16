@@ -295,6 +295,11 @@ input[type="file"]::file-selector-button { background: var(--accent-soft); color
 .diagnosis-entry:focus-within { border-color: #9bb6fb; box-shadow: 0 0 0 4px rgb(40 96 255 / 6%), 0 8px 28px rgb(30 43 67 / 6%); }
 .diagnosis-entry textarea { font-size: 15px; min-height: 72px; }
 .entry-hint { font-size: 12px; }
+.home-attach-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 2px; }
+.home-attach-row .ghost-button { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.attach-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #4a6288;
+  background: #f2f5fa; border: 1px solid #e4e7ee; border-radius: 999px; padding: 3px 10px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attach-chip button { border: 0; background: none; padding: 0; display: inline-flex; color: #4a6288; }
 .diagnosis-entry-foot a { border: 0; padding-inline: 0; color: #4a6288; font-size: 12px; }
 .diagnosis-entry-foot button { font-size: 15px; min-height: 46px; padding-inline: 18px; }
 .issue-section { padding: 28px 32px; }

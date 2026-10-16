@@ -56,7 +56,7 @@ function LoginPanel() {
         {error && <p className="form-error" role="alert">{error}</p>}
         <button type="submit" className="primary-button" disabled={busy}>{busy ? '正在进入…' : '进入工作区'}</button>
       </form>
-      <p className="form-hint">体验密码见本项目本地配置说明。请勿输入真实客户或设备资料。</p>
+      <p className="form-hint">演示体验密码：serviceos_local_only（与 backend/.env 的 SERVICEOS_LOCAL_AUTH_PASSWORD 一致；仅本地开发环境启用，请勿输入真实客户或设备资料）。</p>
       <ConnectionStatus />
     </section>
   )

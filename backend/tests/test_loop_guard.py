@@ -152,6 +152,10 @@ def test_publish_hook_blocks_then_supervisor_override_publishes(guard_env):
         blocked_message = service.publish_agent_response(
             tenant2.id, conversation2.id, run2.id, token2, "您的 E99 型号已过保，我们保证明天修好。")
         assert blocked_message.visibility == "INTERNAL"
+        holding = session.scalar(select(Message).where(
+            Message.conversation_id == conversation2.id, Message.visibility == "PUBLIC",
+            Message.author_kind == "AGENT").order_by(Message.created_at.desc()))
+        assert holding is not None and "转人工复核" in holding.content[0]["text"]
         decision2 = session.scalar(select(PublicationGuardDecision).where(
             PublicationGuardDecision.run_id == run2.id))
         assert decision2.decision == "BLOCKED" and "UNGROUNDED_ENTITY" in decision2.reason_codes

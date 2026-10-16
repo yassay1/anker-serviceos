@@ -6,9 +6,9 @@ import { queryKeys } from '../../app/queryKeys'
 import { readableError } from '../../shared/errors'
 import { CaseEvidencePanel } from '../cases/CaseEvidencePanel'
 
-export function ConversationAttachments({ actor, conversationId, customerId, initialProblem, relatedCaseIds, onClose }: {
+export function ConversationAttachments({ actor, conversationId, customerId, initialProblem, relatedCaseIds, initialFiles, onClose }: {
   actor: Actor, conversationId: string, customerId: string, initialProblem: string,
-  relatedCaseIds: string[], onClose: () => void,
+  relatedCaseIds: string[], initialFiles?: File[], onClose: () => void,
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const locked = useRef(false)
@@ -62,10 +62,11 @@ export function ConversationAttachments({ actor, conversationId, customerId, ini
     <header><h2 id="attachment-title">上传问题图片</h2><button type="button" onClick={onClose} aria-label="关闭图片上传"><X size={18} /></button></header>
     <p>图片保存在你的服务案例中，后续人工客服也能查看。仅支持 JPEG、PNG、WebP；用于 AI 看图时请选不超过 2 MiB 的清晰照片。</p>
     {attached ? <>
-      <p className="attachment-hint">已关联案例：{attached.problem_text}。上传并通过检查后，返回对话发送“请帮我看看这张图片”。</p>
-      <CaseEvidencePanel actor={actor} serviceCase={currentCase.data ?? attached} />
+      <p className="attachment-hint">已关联案例：{attached.problem_text}。上传并通过检查后，返回对话发送"请帮我看看这张图片"。</p>
+      <CaseEvidencePanel actor={actor} serviceCase={currentCase.data ?? attached} initialFiles={initialFiles} />
       <button type="button" onClick={onClose}>返回对话</button>
     </> : <>
+      {initialFiles && initialFiles.length > 0 && <p className="attachment-hint">已携带 {initialFiles.length} 张图片：关联或创建案例后自动上传。</p>}
       <label>选择已有服务案例<select value={selectedId} disabled={busy} onChange={event => setSelectedId(event.target.value)}>
         <option value="">请选择案例</option>{options.map(item => <option key={item.id} value={item.id}>{item.problem_text.slice(0, 40)} · #{item.id.slice(0, 8)}</option>)}
       </select></label>

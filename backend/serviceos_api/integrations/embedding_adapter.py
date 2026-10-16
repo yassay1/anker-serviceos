@@ -9,6 +9,7 @@ the door open for future image-evidence retrieval; today only text is embedded.
 
 import httpx
 
+from serviceos_api.integrations.http_clients import post_json
 from serviceos_api.settings import Settings
 
 DASHSCOPE_MULTIMODAL_PATH = "/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding"
@@ -50,28 +51,31 @@ class EmbeddingAdapter:
             payload_input = texts
             url = f"{self.settings.embedding_base_url}/embeddings"
         try:
-            with httpx.Client(transport=self._transport, timeout=self.settings.embedding_timeout_seconds) as client:
-                if self.settings.embedding_provider == "dashscope_multimodal":
-                    response = client.post(
-                        url,
-                        headers={"Authorization": f"Bearer {self.settings.embedding_api_key}"},
-                        json={
-                            "model": self.settings.embedding_model,
-                            "input": payload_input,
-                            "parameters": {"dimension": self.settings.embedding_dimensions},
-                        },
-                    )
-                else:
-                    response = client.post(
-                        url,
-                        headers={"Authorization": f"Bearer {self.settings.embedding_api_key}"},
-                        json={
-                            "model": self.settings.embedding_model,
-                            "input": payload_input,
-                            "dimensions": self.settings.embedding_dimensions,
-                            "encoding_format": "float",
-                        },
-                    )
+            if self.settings.embedding_provider == "dashscope_multimodal":
+                response = post_json(
+                    url,
+                    headers={"Authorization": f"Bearer {self.settings.embedding_api_key}"},
+                    payload={
+                        "model": self.settings.embedding_model,
+                        "input": payload_input,
+                        "parameters": {"dimension": self.settings.embedding_dimensions},
+                    },
+                    timeout=self.settings.embedding_timeout_seconds,
+                    transport=self._transport,
+                )
+            else:
+                response = post_json(
+                    url,
+                    headers={"Authorization": f"Bearer {self.settings.embedding_api_key}"},
+                    payload={
+                        "model": self.settings.embedding_model,
+                        "input": payload_input,
+                        "dimensions": self.settings.embedding_dimensions,
+                        "encoding_format": "float",
+                    },
+                    timeout=self.settings.embedding_timeout_seconds,
+                    transport=self._transport,
+                )
             response.raise_for_status()
             payload = response.json()
         except (httpx.HTTPError, ValueError) as exc:

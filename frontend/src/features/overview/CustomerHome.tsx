@@ -1,13 +1,24 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowRight, ChevronRight, Power, Wifi, Box, Wrench, Truck, ClipboardList, Sparkles, Headphones, ShieldCheck, MonitorSmartphone } from 'lucide-react'
-import { type Actor, createConversation, listCases, listDevices, listConversations } from '../../api/client'
+import { ArrowRight, ChevronRight, Power, Wifi, Box, Wrench, Truck, ClipboardList, Sparkles, Headphones, ShieldCheck, MonitorSmartphone, ImagePlus, X, Mic, Square } from 'lucide-react'
+import { type Actor, createConversation, listCases, listDevices, listConversations, sendMessage } from '../../api/client'
 import { queryKeys } from '../../app/queryKeys'
 import { StatusBadge } from '../../shared/StatusBadge'
 import { DeviceIcon } from '../../shared/DeviceIcon'
 import { isDemoRecord } from '../../shared/servicePresentation'
 import { readableError } from '../../shared/errors'
+
+type Recognition = {
+  lang: string, continuous: boolean, interimResults: boolean,
+  onresult: ((event: { results: ArrayLike<{ 0?: { transcript: string } }> }) => void) | null,
+  onerror: ((event: { error: string }) => void) | null, onend: (() => void) | null,
+  start: () => void, stop: () => void, abort: () => void,
+}
+type RecognitionWindow = Window & {
+  SpeechRecognition?: new () => Recognition,
+  webkitSpeechRecognition?: new () => Recognition,
+}
 
 const categories = [
   { title: '无法开机', description: '没有反应 / 电源问题', icon: Power, prompt: '我的设备无法开机，' },
@@ -22,20 +33,84 @@ export function CustomerHome({ actor }: { actor: Actor }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState('')
+  const [files, setFiles] = useState<File[]>([])
+  const [fileError, setFileError] = useState('')
+  const fileInput = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const cases = useQuery({ queryKey: queryKeys.cases(actor.tenant_id, actor.actor_id), queryFn: listCases })
   const devices = useQuery({ queryKey: queryKeys.devices(actor.tenant_id, actor.actor_id), queryFn: listDevices })
   const conversations = useQuery({ queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id), queryFn: listConversations })
 
+  const allowed = ['image/jpeg', 'image/png', 'image/webp']
+  const recognition = useRef<Recognition | null>(null)
+  const [listening, setListening] = useState(false)
+  const [voiceError, setVoiceError] = useState('')
+  const nativeWindow = window as RecognitionWindow
+  const Speech = nativeWindow.SpeechRecognition ?? nativeWindow.webkitSpeechRecognition
+  useEffect(() => () => {
+    const current = recognition.current
+    if (current) {
+      current.onresult = null; current.onerror = null; current.onend = null
+      current.abort()
+    }
+  }, [])
+  function toggleVoice() {
+    if (recognition.current) { recognition.current.stop(); return }
+    if (!Speech) { setVoiceError('当前浏览器不支持语音识别，请直接输入文字。'); return }
+    const current = new Speech()
+    const before = draft.trimEnd()
+    current.lang = 'zh-CN'; current.continuous = true; current.interimResults = true
+    current.onresult = event => {
+      const text = Array.from(event.results).map(result => result[0]?.transcript ?? '').join('')
+      setDraft((before + (before ? '\n' : '') + text).slice(0, 8000))
+    }
+    current.onerror = event => {
+      if (event.error !== 'aborted') setVoiceError(event.error === 'not-allowed' || event.error === 'service-not-allowed'
+        ? '麦克风或语音服务未获授权，请在浏览器中允许后重试。'
+        : event.error === 'no-speech' ? '没有听清内容，请靠近麦克风重试。'
+          : '浏览器语音识别暂不可用，请直接输入文字。')
+    }
+    current.onend = () => { recognition.current = null; setListening(false) }
+    setVoiceError(''); recognition.current = current
+    try { current.start(); setListening(true) }
+    catch { recognition.current = null; setVoiceError('无法启动语音识别，请检查浏览器权限后重试。') }
+  }
+  function addFiles(list: FileList | null) {
+    setFileError('')
+    if (!list) return
+    const next = [...files]
+    for (const file of Array.from(list)) {
+      if (!allowed.includes(file.type) || file.size === 0 || file.size > 10 * 1024 * 1024) {
+        setFileError('仅支持不超过 10 MiB 的 JPEG、PNG 或 WebP 图片。')
+        continue
+      }
+      if (next.length >= 5) { setFileError('一次最多携带 5 张图片。'); break }
+      next.push(file)
+    }
+    setFiles(next)
+    if (fileInput.current) fileInput.current.value = ''
+  }
+
   async function start(event: FormEvent) {
     event.preventDefault()
     if (busy || !draft.trim()) return
+    recognition.current?.stop()
     setBusy(true); setError('')
     try {
       const conversation = await createConversation()
       await queryClient.invalidateQueries({ queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id) })
-      navigate(`/support?conversation=${conversation.id}`, { state: { draft: draft.trim() } })
+      let sent = true
+      try {
+        await sendMessage(conversation.id, { client_message_id: crypto.randomUUID(),
+          content: [{ type: 'text', text: draft.trim() }], visibility: 'PUBLIC' })
+      } catch {
+        sent = false
+      }
+      navigate(`/support?conversation=${conversation.id}`, {
+        state: sent ? { autoAttachFiles: files.length ? files : undefined }
+          : { draft: draft.trim(), autoAttachFiles: files.length ? files : undefined },
+      })
     } catch (failure) { setError(readableError(failure)); setBusy(false) }
   }
 
@@ -45,8 +120,26 @@ export function CustomerHome({ actor }: { actor: Actor }) {
         <form className="diagnosis-entry" onSubmit={event => void start(event)}>
           <label className="visually-hidden" htmlFor="home-problem">问题描述</label>
           <textarea id="home-problem" placeholder="请描述您遇到的问题，例如：设备无法开机、出现故障代码、噪音异常等…" value={draft} onChange={event => setDraft(event.target.value)} maxLength={8000} required aria-describedby="home-entry-hint" />
-          <p id="home-entry-hint" className="entry-hint">新问题将开启独立会话，您可确认后发送。</p>
-          <div className="diagnosis-entry-foot"><Link to="/support"><Headphones size={18} />继续上次会话／历史问答{conversations.data ? `（${conversations.data.length}）` : ''}</Link><button className="primary-button" type="submit" disabled={busy}><Sparkles size={19} />{busy ? '正在打开…' : '开始新的诊断'}<ArrowRight size={19} /></button></div>
+          <div className="home-attach-row">
+            <button type="button" className="ghost-button" onClick={() => fileInput.current?.click()} aria-label="添加图片">
+              <ImagePlus size={18} />添加图片
+            </button>
+            <button type="button" className="ghost-button" onClick={toggleVoice} aria-pressed={listening} aria-label="语音输入">
+              {listening ? <Square size={18} /> : <Mic size={18} />}{listening ? '聆听中·点击停止' : '语音输入'}
+            </button>
+            <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" multiple hidden
+              onChange={event => addFiles(event.target.files)} />
+            {files.map((file, index) => <span key={`${file.name}:${index}`} className="attach-chip">
+              {file.name}
+              <button type="button" aria-label={`移除 ${file.name}`}
+                onClick={() => setFiles(files.filter((_, i) => i !== index))}><X size={14} /></button>
+            </span>)}
+          </div>
+          {fileError && <p className="form-error" role="alert">{fileError}</p>}
+          {voiceError && <p className="form-error" role="alert">{voiceError}</p>}
+          {listening && <p className="entry-hint" role="status">正在聆听，识别结果会实时追加到问题描述中。</p>}
+          <p id="home-entry-hint" className="entry-hint">点击后将开启独立会话并立即发送；图片进入会话后自动归入服务案例证据。</p>
+          <div className="diagnosis-entry-foot"><Link to="/support"><Headphones size={18} />继续上次会话／历史问答{conversations.data ? `（${conversations.data.length}）` : ''}</Link><button className="primary-button" type="submit" disabled={busy}><Sparkles size={19} />{busy ? '正在发送…' : '开始新的诊断'}<ArrowRight size={19} /></button></div>
           {error && <p className="form-error" role="alert">{error}</p>}
         </form>
       </div>

@@ -52,7 +52,7 @@ def run_loop(role: str, operation) -> None:
                 stop.wait(5)
             else:
                 if not worked:
-                    stop.wait(1)
+                    stop.wait(0.3)
     finally:
         heartbeat_path(role).unlink(missing_ok=True)
         for sig, handler in previous.items():

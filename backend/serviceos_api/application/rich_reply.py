@@ -142,7 +142,7 @@ quick_replies 是客户的新问题，不是答案选项或执行动作；不要
 STATUS_LABELS = {'OPEN': '已建立', 'IN_PROGRESS': '处理中', 'WAITING_CUSTOMER': '等待客户补充',
                  'WAITING_EXTERNAL': '等待外部处理', 'RESOLVED': '已核验解决', 'CLOSED': '已关闭'}
 
-RISK = re.compile(r'(?<!没有)(?<!无)(?<!不)(鼓包|冒烟|漏液|烧焦|烫手|异味|异常发热|明显过热|过热)')
+RISK = re.compile(r'(?<!没有)(?<!无)(?<!不)(鼓包|冒烟|漏液|烧焦|烫手|异味|异常发热|明显过热|过热|爆炸|炸了|起火|着火)')
 
 
 def _safety_reply(reply: RichReply) -> RichReply:

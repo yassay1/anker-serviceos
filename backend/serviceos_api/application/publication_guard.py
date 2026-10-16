@@ -21,6 +21,8 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from serviceos_api.integrations.http_clients import post_json
+
 from serviceos_api.persistence.knowledge_models import KnowledgeSegment
 from serviceos_api.persistence.models import (
     AgentRun, CaseConversation, CaseDevice, CaseEvidence, DeviceFact,
@@ -38,13 +40,19 @@ VERIFIER_SYSTEM = (
     "You verify a customer-service reply against the customer's message. "
     "Output STRICT JSON only: {\"requests\": [{\"text\": str, \"addressed\": bool, "
     "\"reply_span\": str | null}], \"ungrounded_promises\": [str]}. "
-    "requests = every explicit request or question in the customer message. "
+    "requests = every explicit request or question in the customer message; ignore emotional "
+    "outbursts, threats or complaints that ask for no action (e.g. 'I will complain!'). "
     "addressed=true when the reply: answers it; OR asks for the specific missing information "
-    "needed to proceed (e.g. order number, model); OR explicitly explains it is out of scope and "
-    "offers an alternative; OR defers it to a human with a next step. addressed=false only when the "
+    "needed to proceed (e.g. which product model, order number); OR explains it is out of scope "
+    "with an alternative; OR defers it to a human with a next step. addressed=false only when the "
     "reply silently ignores the request. "
     "ungrounded_promises = promised outcomes, deadlines, refunds, repairs or warranties that the "
-    "reply does not tie to a stated evidence source."
+    "reply does not tie to a stated evidence source. "
+    "Example 1: customer 'Which battery for my S1 Pro? Also where is my parcel?' reply 'Please "
+    "confirm: robot vacuum or breast pump? And send the order number for the parcel.' -> both "
+    "addressed=true (clarification and specific missing info). "
+    "Example 2: customer 'Fix my vacuum and refund me!' reply 'Please confirm the model.' -> "
+    "refund request addressed=false (silently ignored)."
 )
 
 
@@ -107,21 +115,22 @@ class CoverageVerifier:
     def verify(self, customer_text: str, reply: str) -> dict | None:
         for attempt in range(2):
             try:
-                with httpx.Client(transport=self._transport, timeout=self.settings.llm_timeout_seconds) as client:
-                    response = client.post(
-                        f"{self.settings.llm_base_url}/chat/completions",
-                        headers={"Authorization": f"Bearer {self.settings.llm_api_key}"},
-                        json={
-                            "model": self.settings.llm_model,
-                            "temperature": 0,
-                            "max_completion_tokens": 400,
-                            "messages": [
-                                {"role": "system", "content": VERIFIER_SYSTEM},
-                                {"role": "user", "content":
-                                    f"CUSTOMER MESSAGE:\n{customer_text[:2000]}\n\nREPLY:\n{reply[:4000]}"},
-                            ],
-                        },
-                    )
+                response = post_json(
+                    f"{self.settings.llm_base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {self.settings.llm_api_key}"},
+                    payload={
+                        "model": self.settings.llm_model,
+                        "temperature": 0,
+                        "max_completion_tokens": 400,
+                        "messages": [
+                            {"role": "system", "content": VERIFIER_SYSTEM},
+                            {"role": "user", "content":
+                                f"CUSTOMER MESSAGE:\n{customer_text[:2000]}\n\nREPLY:\n{reply[:4000]}"},
+                        ],
+                    },
+                    timeout=self.settings.llm_timeout_seconds,
+                    transport=self._transport,
+                )
                 response.raise_for_status()
                 payload = response.json()
                 content = (payload.get("choices") or [{}])[0].get("message", {}).get("content") or ""

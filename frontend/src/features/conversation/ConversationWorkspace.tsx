@@ -67,6 +67,14 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
   }, [selected?.id, selectionKey, selectedId, setSearchParams])
   const draft = selected ? drafts[selected.id]?.text ?? '' : ''
   const internal = selected ? drafts[selected.id]?.internal ?? false : false
+  const [autoFiles, setAutoFiles] = useState<File[] | null>(null)
+  useEffect(() => {
+    const entry = location.state as { autoAttachFiles?: unknown } | null
+    const incoming = Array.isArray(entry?.autoAttachFiles) ? entry.autoAttachFiles as File[] : []
+    if (desk || !selected || selected.status !== 'ACTIVE' || incoming.length === 0 || autoFiles) return
+    setAutoFiles(incoming)
+    setAttachmentsFor(selected.id)
+  }, [desk, selected?.id, selected?.status, location.state, autoFiles])
   useEffect(() => {
     const entry = location.state as { draft?: unknown } | null
     if (desk || !selected || typeof entry?.draft !== 'string') return
@@ -277,6 +285,7 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
             onDraft={setDraft} onInternal={setInternal} onSubmit={submitMessage} onAttach={() => setAttachmentsFor(selected.id)} />
           {attachmentsFor === selected.id && selected.status === 'ACTIVE' && <ConversationAttachments key={`attachments:${selected.id}`}
             actor={actor} conversationId={selected.id} customerId={selected.customer_id} relatedCaseIds={relatedCaseIds}
+            initialFiles={autoFiles ?? undefined}
             initialProblem={recorded.find(message => message.author_kind === 'CUSTOMER' && message.visibility === 'PUBLIC')?.content.map(part => part.text).join('\n') ?? draft}
             onClose={() => setAttachmentsFor(null)} />}
           {!desk && relatedCaseIds.length > 0 && <div className="conversation-evidence-links">{relatedCaseIds.map(id =>
