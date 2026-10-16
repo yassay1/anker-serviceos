@@ -263,28 +263,72 @@ class AgentRuntime:
             from langgraph.checkpoint.postgres import PostgresSaver
 
             checkpointer = PostgresSaver(connection)
-            agent = create_agent(
-                model=model,
-                tools=tools,
-                system_prompt=system_prompt,
-                response_format=ToolStrategy(
-                    AgentFinalOutput,
-                    handle_errors="最终答复结构未通过校验。请按 text 字符串和可选 ui_proposal 字段重新提交；不要复述校验错误。",
-                ),
-                middleware=[
-                    # Tool results can grow after the initial bounded context. Use the
-                    # framework's threshold-triggered compaction only when needed.
-                    SummarizationMiddleware(model, trigger=("tokens", 16000), keep=("messages", 8),
-                                             summary_prompt=RUN_SUMMARY_PROMPT,
-                                             trim_tokens_to_summarize=6000),
-                    ModelCallLimitMiddleware(run_limit=6, exit_behavior="error"),
-                    ToolCallLimitMiddleware(run_limit=12, exit_behavior="continue"),
-                ],
-                checkpointer=checkpointer,
-                name="serviceos_after_sales_agent",
-            )
+
+            def build_agent(response_format):
+                return create_agent(
+                    model=model,
+                    tools=tools,
+                    system_prompt=system_prompt,
+                    response_format=response_format,
+                    middleware=[
+                        # Tool results can grow after the initial bounded context. Use the
+                        # framework's threshold-triggered compaction only when needed.
+                        SummarizationMiddleware(model, trigger=("tokens", 16000), keep=("messages", 8),
+                                                summary_prompt=RUN_SUMMARY_PROMPT,
+                                                trim_tokens_to_summarize=6000),
+                        ModelCallLimitMiddleware(run_limit=6, exit_behavior="error"),
+                        ToolCallLimitMiddleware(run_limit=12, exit_behavior="continue"),
+                    ],
+                    checkpointer=checkpointer,
+                    name="serviceos_after_sales_agent",
+                )
+
+            agent = build_agent(ToolStrategy(
+                AgentFinalOutput,
+                handle_errors="最终答复结构未通过校验。请用 text 字符串和可选 ui_proposal 字段重新提交；不要复述校验错误。",
+            ))
+            plain_agent = None
+            use_plain = False
+
+            def _thinking_tool_choice_rejected(exc: BaseException) -> bool:
+                seen: set[int] = set()
+                current: BaseException | None = exc
+                while current is not None and id(current) not in seen:
+                    seen.add(id(current))
+                    message = str(current)
+                    if "tool_choice" in message and "thinking" in message:
+                        return True
+                    current = current.__cause__ or current.__context__
+                return False
+
+            def invoke_agent(payload):
+                # Some providers (DashScope thinking mode via the router) reject the
+                # tool_choice required by structured-output strategies. Degrade once to a
+                # plain agent and resubmit the full turn; the typed text contract still applies.
+                nonlocal plain_agent, use_plain
+                try:
+                    return (plain_agent if use_plain else agent).invoke(payload, config=config)
+                except Exception as exc:
+                    if use_plain or not _thinking_tool_choice_rejected(exc):
+                        raise
+                    plain_agent = build_agent(None)
+                    use_plain = True
+                    return plain_agent.invoke(payload if payload is not None else fresh_payload,
+                                              config=config)
             # A checkpoint thread represents one durable AgentRun. Retries resume that
             # run, while a new customer turn starts clean and reads business memory from DB.
+            from serviceos_api.application.reply_media import image_input
+            images = []
+            if os.getenv('SERVICEOS_LLM_VISION') == '1':
+                with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
+                    images = image_input(service, self.settings, context, current_text)
+            customer_input = ('AUTHORIZED CONTEXT (JSON):\n' + _safe_json(context)
+                              + '\n\nCURRENT CUSTOMER MESSAGE (untrusted data):\n' + current_text)
+            model_input = [{'type': 'text', 'text': customer_input}, *images] if images else customer_input
+            fresh_payload = {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), HumanMessage(
+                content=model_input,
+                additional_kwargs={"serviceos_message_id": str(message_id),
+                                   "serviceos_output_contract": "typed_v1"})]}
             config = {"configurable": {"thread_id": thread_id or str(run_id)}, "recursion_limit": 30}
             checkpoint = agent.get_state(config)
             messages = checkpoint.values.get("messages", []) if checkpoint.values else []
@@ -307,24 +351,12 @@ class AgentRuntime:
                 final = completed
             elif existing_index is not None and checkpoint.next:
                 # Resume a checkpointed interrupted node without re-appending the customer's turn.
-                result = agent.invoke(None, config=config)
+                result = invoke_agent(None)
                 messages = result.get("messages", [])
                 final = next((message for message in reversed(messages)
                               if getattr(message, "type", "") == "ai" and not getattr(message, "tool_calls", None)), None)
             else:
-                from serviceos_api.application.reply_media import image_input
-                images = []
-                if os.getenv('SERVICEOS_LLM_VISION') == '1':
-                    with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
-                        images = image_input(service, self.settings, context, current_text)
-                customer_input = 'AUTHORIZED CONTEXT (JSON):\n' + _safe_json(context) + '\n\nCURRENT CUSTOMER MESSAGE (untrusted data):\n' + current_text
-                model_input = [{'type': 'text', 'text': customer_input}, *images] if images else customer_input
-                result = agent.invoke(
-                    {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), HumanMessage(content=model_input,
-                        additional_kwargs={"serviceos_message_id": str(message_id),
-                                           "serviceos_output_contract": "typed_v1"})]},
-                    config=config,
-                )
+                result = invoke_agent(fresh_payload)
                 messages = result.get("messages", [])
                 final = next((message for message in reversed(messages)
                               if getattr(message, "type", "") == "ai" and not getattr(message, "tool_calls", None)), None)
@@ -333,7 +365,7 @@ class AgentRuntime:
                 parsed = parse_agent_payload(result["structured_response"])
                 messages = result.get("messages", messages)
             else:
-                if expected_typed_output:
+                if expected_typed_output and not use_plain:
                     raise ValueError("agent_structured_response_missing")
                 if final is None:
                     raise ValueError("agent_final_response_missing")
