@@ -46,7 +46,7 @@ x-worker-health: &worker-health
 
 services:
   postgres:
-    image: ${POSTGRES_IMAGE:-postgres:17}
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg17}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-serviceos_dev}
       POSTGRES_USER: ${POSTGRES_USER:-serviceos_local}
@@ -100,6 +100,15 @@ services:
       <<: *worker-health
       test: [CMD, python, -m, serviceos_api.worker.health, --role, inspection]
 
+  knowledge:
+    <<: *backend
+    command: [python, -m, serviceos_api.worker.knowledge]
+    volumes:
+      - evidence-data:/data/evidence
+    healthcheck:
+      <<: *worker-health
+      test: [CMD, python, -m, serviceos_api.worker.health, --role, knowledge]
+
   actions:
     <<: *backend
     command: [python, -m, serviceos_api.worker.actions]
@@ -139,6 +148,9 @@ services:
       SERVICEOS_LLM_MODEL: ${SERVICEOS_LLM_MODEL:-}
       SERVICEOS_LLM_BASE_URL: ${SERVICEOS_LLM_BASE_URL:-}
       SERVICEOS_LLM_API_KEY: ${SERVICEOS_LLM_API_KEY:-}
+      SERVICEOS_EMBEDDING_MODEL: ${SERVICEOS_EMBEDDING_MODEL:-}
+      SERVICEOS_EMBEDDING_BASE_URL: ${SERVICEOS_EMBEDDING_BASE_URL:-}
+      SERVICEOS_EMBEDDING_API_KEY: ${SERVICEOS_EMBEDDING_API_KEY:-}
     volumes:
       - evidence-data:/data/evidence
     depends_on:

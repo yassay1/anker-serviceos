@@ -2,7 +2,7 @@
 name: serviceos-test
 services:
   postgres:
-    image: ${POSTGRES_IMAGE:-postgres:17}
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg17}
     environment:
       POSTGRES_DB: serviceos_test
       POSTGRES_USER: serviceos_test

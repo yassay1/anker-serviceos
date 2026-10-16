@@ -9,7 +9,7 @@ from pathlib import Path
 
 from serviceos_api.observability import configure_logging
 
-ROLES = ("inspection", "actions", "followups", "outbox", "agent")
+ROLES = ("inspection", "actions", "followups", "outbox", "agent", "knowledge")
 
 
 def heartbeat_path(role: str) -> Path:

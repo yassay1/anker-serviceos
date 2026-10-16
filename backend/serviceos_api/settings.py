@@ -38,6 +38,12 @@ class Settings:
     llm_api_key: str = field(default="", repr=False)
     llm_base_url: str = ""
     llm_timeout_seconds: int = 60
+    embedding_model: str = ""
+    embedding_api_key: str = field(default="", repr=False)
+    embedding_base_url: str = ""
+    embedding_provider: str = "openai_compatible"
+    embedding_dimensions: int = 1024
+    embedding_timeout_seconds: int = 30
     worker_lease_seconds: int = 90
     worker_heartbeat_seconds: int = 20
     worker_max_attempts: int = 5
@@ -72,6 +78,12 @@ class Settings:
             raise ValueError("Unsupported evidence storage backend.")
         if self.worker_heartbeat_seconds >= self.worker_lease_seconds:
             raise ValueError("Worker heartbeat must be shorter than its lease.")
+        if self.embedding_dimensions != 1024:
+            raise ValueError("Embedding dimensions must be 1024; migration 0017 fixes the vector column width.")
+        if self.embedding_provider not in ("openai_compatible", "dashscope_multimodal"):
+            raise ValueError("Unsupported embedding provider adapter.")
+        if not 5 <= self.embedding_timeout_seconds <= 120:
+            raise ValueError("Embedding timeout must stay between 5 and 120 seconds.")
 
     @property
     def local_auth_enabled(self) -> bool:
@@ -80,6 +92,10 @@ class Settings:
     @property
     def llm_configured(self) -> bool:
         return bool(self.llm_model and self.llm_api_key and self.llm_base_url)
+
+    @property
+    def embedding_configured(self) -> bool:
+        return bool(self.embedding_model and self.embedding_api_key and self.embedding_base_url)
 
     @classmethod
     def from_environment(cls):
@@ -92,6 +108,12 @@ class Settings:
             llm_api_key=environment_secret("SERVICEOS_LLM_API_KEY"),
             llm_base_url=os.getenv("SERVICEOS_LLM_BASE_URL", "").rstrip("/"),
             llm_timeout_seconds=max(10, min(int(os.getenv("SERVICEOS_LLM_TIMEOUT_SECONDS", "60")), 180)),
+            embedding_model=os.getenv("SERVICEOS_EMBEDDING_MODEL", ""),
+            embedding_api_key=environment_secret("SERVICEOS_EMBEDDING_API_KEY"),
+            embedding_base_url=os.getenv("SERVICEOS_EMBEDDING_BASE_URL", "").rstrip("/"),
+            embedding_provider=os.getenv("SERVICEOS_EMBEDDING_PROVIDER", "openai_compatible"),
+            embedding_dimensions=int(os.getenv("SERVICEOS_EMBEDDING_DIMENSIONS", "1024")),
+            embedding_timeout_seconds=max(5, min(int(os.getenv("SERVICEOS_EMBEDDING_TIMEOUT_SECONDS", "30")), 120)),
             worker_lease_seconds=max(30, min(int(os.getenv("SERVICEOS_WORKER_LEASE_SECONDS", "90")), 600)),
             worker_heartbeat_seconds=max(5, min(int(os.getenv("SERVICEOS_WORKER_HEARTBEAT_SECONDS", "20")), 120)),
             worker_max_attempts=max(1, min(int(os.getenv("SERVICEOS_WORKER_MAX_ATTEMPTS", "5")), 10)),

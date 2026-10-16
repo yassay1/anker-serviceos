@@ -6,6 +6,7 @@ import { type Actor, listCases, listConversations, listDevices } from '../../api
 import { queryKeys } from '../../app/queryKeys'
 import { readableError } from '../../shared/errors'
 import { StatusBadge } from '../../shared/StatusBadge'
+import { KnowledgePanel } from './KnowledgePanel'
 
 export function DeskOverview({ actor }: { actor: Actor }) {
   const [filter, setFilter] = useState('open')
@@ -40,5 +41,6 @@ export function DeskOverview({ actor }: { actor: Actor }) {
       {devices.isError && <p className="form-error" role="alert">设备档案：{readableError(devices.error)} <button onClick={() => void devices.refetch()}>重试</button></p>}
       <div className="assistant-note"><ShieldCheck size={18} /><p>诊断与建议以实际会话记录为准，内部草稿经审阅后才能公开。</p></div>
     </aside></div>
+    <KnowledgePanel actor={actor} />
   </div>
 }

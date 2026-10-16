@@ -6,7 +6,7 @@
 
 | 环境 | Compose / 配置 | 边界 |
 |---|---|---|
-| 开发 | 根 `compose.yaml`、`deploy/local/.env.example` | PostgreSQL 17 持久卷；独立 API、inspection、actions（明确 Mock）、followups、outbox；仅 `127.0.0.1:8080` 对宿主开放 |
+| 开发 | 根 `compose.yaml`、`deploy/local/.env.example` | PostgreSQL 17 持久卷；独立 API、inspection、actions（明确 Mock）、followups、outbox、knowledge；仅 `127.0.0.1:8080` 对宿主开放 |
 | 测试 | `deploy/compose.test.yaml`、`deploy/test/.env.example` | 独立项目 `serviceos-test`；仅测试 PG，回环 55433；数据库位于 tmpfs，停止后不承诺保留；pytest 创建/删除独立临时数据库 |
 | 生产准备 | 根 `compose.production.yaml`、`deploy/production/.env.example` | 独立文件，**不与开发 Compose 合并**；外部 TLS PostgreSQL、私有 S3、HTTPS；无数据库容器、种子服务、开发身份或 Mock action Worker |
 
@@ -81,7 +81,7 @@ tc down
 | `/nginx-health` | 仅网关进程；不代表 API、证书链或业务可用 |
 | `/api/v1/health` | API liveness；生产 Compose 用它做基础进程探测，不用 readiness 阻断离线预检 |
 | `/api/v1/readiness` | DB/schema、已启用认证等真实前提；生产身份缺失为 503，Provider/S3 配置不等于外部验收 |
-| `python -m serviceos_api.worker.health --role inspection` | 读取 `/tmp/serviceos-inspection.heartbeat`；同样支持 `actions`、`followups`、`outbox`、`agent` |
+| `python -m serviceos_api.worker.health --role inspection` | 读取 `/tmp/serviceos-inspection.heartbeat`；同样支持 `actions`、`followups`、`outbox`、`agent`、`knowledge` |
 
 心跳由 Worker 实际循环维护，不由健康探针伪造。健康容器不代表每个业务任务成功；需同时检查持久任务状态、租约过期、队列等待与错误码。Docker `unhealthy` 本身不会触发自动重启；`unless-stopped` 只负责进程退出/宿主重启后的恢复。告警、积压阈值和监控外送还需运维接入。
 
@@ -90,9 +90,9 @@ Nginx `/api/` 使用 HTTP/1.1，关闭响应/请求缓冲、缓存、gzip 和 up
 ## 4. 重启、升级与日志
 
 ```sh
-dc restart api inspection actions followups outbox web
+dc restart api inspection actions followups outbox knowledge web
 dc up -d --no-build --wait --wait-timeout 180
-dc logs --since 10m --tail 100 api inspection actions followups outbox
+dc logs --since 10m --tail 100 api inspection actions followups outbox knowledge
 ```
 
 不要把原始日志当公开工单附件。Nginx access log 只记录时间、方法、状态、字节数、耗时和关联编号，不记录 IP/URL/query/cookie。API proxy 的 Nginx error log 关闭，避免 Nginx 把原始请求带进错误记录；排障使用脱敏 API 日志与元数据 access log。Docker 日志每容器轮转 3 × 10 MiB；这不是长期审计备份。长期保留/告警需单独配置，禁止把聊天内容、内部备注、凭据或原始推理送进日志。
@@ -112,7 +112,7 @@ BACKUP="$REPO/.runtime/backups/$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$BACKUP"
 chmod 700 "$BACKUP"
 umask 077
-dc --profile agent stop web api inspection actions followups outbox agent
+dc --profile agent stop web api inspection actions followups outbox knowledge agent
 # 确认不再有其他写入者后执行；dump 包含业务、public 迁移版本及已存在的 checkpoint schema。
 dc exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom --no-owner --no-privileges' > "$BACKUP/database.dump"
 dc run --rm --no-deps -T api python -c 'import sys,tarfile; t=tarfile.open(fileobj=sys.stdout.buffer,mode="w|"); t.add("/data/evidence",arcname="."); t.close()' > "$BACKUP/evidence.tar"
@@ -150,7 +150,7 @@ rc up -d --no-build --wait api web
 1. **身份门槛**：先实现并验收生产身份/会话/租户授权、HTTPS Cookie/CSRF 策略；目前配置固定 disabled，不能对真实用户开放。预检只检查传输配置，不调用 readiness，也不登录 AWS/Provider。
 2. **EC2 网络**：审批后才创建资源。主机最小权限、补丁、磁盘加密、SSM 管理优先；SSH 如保留，仅固定管理员 CIDR。EC2 SG 只向允许的业务来源开放 443，80 仅重定向；不开放 8000/5432。维护阶段先保持外部流量关闭。
 3. **RDS**：PostgreSQL 17 私有子网、Public access 关闭；RDS SG 的 5432 只接受应用 EC2 SG，不用 `0.0.0.0/0`。DB 子网/出站/DNS 连通分别验证；开启静态加密、自动备份/PITR，按业务批准保留期、维护窗口、删除保护，恢复演练使用新实例。
-4. **数据库权限/TLS**：运行账号仅必要 DML/sequence 权限；迁移/Checkpoint 初始化账号另给有限 DDL，发布时单独注入迁移 URL，不长期让 API 持有高权限账号。完整 `SERVICEOS_DATABASE_URL` 必须含 `sslmode=verify-full&sslrootcert=/etc/serviceos/rds/global-bundle.pem`；从受信 AWS 来源获取并校验 RDS CA bundle，宿主绝对文件只读挂载。预检拒绝 TLS 降级、query host/service 覆盖、不可读 CA，不替代真实 TLS 握手。
+4. **数据库权限/TLS**：运行账号仅必要 DML/sequence 权限；迁移/Checkpoint 初始化账号另给有限 DDL，发布时单独注入迁移 URL，不长期让 API 持有高权限账号。迁移 0015 需在业务库执行 `CREATE EXTENSION vector`（pgvector）：RDS 迁移账号须具备 `rds_superuser` 角色成员资格，或由运维在目标库预先创建该扩展；应用运行账号不授予此权限。完整 `SERVICEOS_DATABASE_URL` 必须含 `sslmode=verify-full&sslrootcert=/etc/serviceos/rds/global-bundle.pem`；从受信 AWS 来源获取并校验 RDS CA bundle，宿主绝对文件只读挂载。预检拒绝 TLS 降级、query host/service 覆盖、不可读 CA，不替代真实 TLS 握手。
 5. **S3/IAM**：独立私有 bucket 与环境 prefix，Block Public Access 全开、Object Ownership bucket-owner-enforced、禁用 ACL、默认加密、版本控制和经批准的保留/生命周期。`iam-evidence-policy.json` 是实例角色对象级最小权限模板，替换 bucket/prefix；`s3-bucket-policy.json` 只拒绝明文传输，不负责授予访问。API/inspection 使用 SDK 默认凭据链和实例角色，不嵌入长期 AWS Key；模板不传 `AWS_ACCESS_KEY_ID` 等变量。使用 SSE-KMS 时另行评审指定 key 的 `GenerateDataKey`/`Decrypt` 权限。应用角色不给 bucket 管理、跨 prefix 或删除历史版本权限；备份角色另行隔离。
 6. **容器角色访问**：实例角色是同宿主共享权限边界，不宣称这里实现了逐容器 IAM 隔离；限制宿主与 Docker socket 权限。IMDSv2 必须启用，容器桥接确需时评审 token response hop limit=2，不关闭 IMDSv2。按 VPC 策略配置 S3 endpoint/出站；只有 Agent 的获准 Provider 需要额外模型出站。
 7. **HTTPS**：DNS 与受信证书由获授权运维准备，目录内有 `fullchain.pem`、`privkey.pem`，只读挂载给 Nginx。私钥限制到实际 Nginx UID/GID（官方 Alpine 通常为 101）可读的 0640/ACL，不设 world-readable；CA 可公开读取。证书目录用真实文件，不放指向挂载外的失效 symlink。80 对指定域名 308 到 HTTPS；未知 Host 拒绝、未知 SNI 拒绝握手；TLS 1.2/1.3、HSTS，不使用未确认的 preload/includeSubDomains。

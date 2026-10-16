@@ -80,6 +80,13 @@ services:
       <<: *worker-health
       test: [CMD, python, -m, serviceos_api.worker.health, --role, inspection]
 
+  knowledge:
+    <<: *backend
+    command: [python, -m, serviceos_api.worker.knowledge]
+    healthcheck:
+      <<: *worker-health
+      test: [CMD, python, -m, serviceos_api.worker.health, --role, knowledge]
+
   followups:
     <<: *backend
     command: [python, -m, serviceos_api.worker.followups]
@@ -109,6 +116,9 @@ services:
       SERVICEOS_LLM_MODEL: ${SERVICEOS_LLM_MODEL:-}
       SERVICEOS_LLM_BASE_URL: ${SERVICEOS_LLM_BASE_URL:-}
       SERVICEOS_LLM_API_KEY: ${SERVICEOS_LLM_API_KEY:-}
+      SERVICEOS_EMBEDDING_MODEL: ${SERVICEOS_EMBEDDING_MODEL:-}
+      SERVICEOS_EMBEDDING_BASE_URL: ${SERVICEOS_EMBEDDING_BASE_URL:-}
+      SERVICEOS_EMBEDDING_API_KEY: ${SERVICEOS_EMBEDDING_API_KEY:-}
     depends_on:
       migrate:
         condition: service_completed_successfully

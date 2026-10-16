@@ -47,9 +47,9 @@ def test_skill_load_is_internal_bounded_idempotent_and_has_authorized_source(db_
     run.result_payload = {"preserved": "audit"}
     service = tool_service(db_session, tenant, conversation, run)
     first = service.load_skill("diagnose-no-charge", "1.0.0")
-    assert service.load_skill("diagnose-no-charge", "1.0.0") == first
-    assert first["status"] == "LOADED" and len(first["instructions"]) <= 2000
-    assert first["allowed_tools"] == ["lookup_manual"]
+    assert service.load_skill("diagnose-no-charge", "1.0.0").payload == first.payload
+    assert first.status == "LOADED" and len(first.payload["instructions"]) <= 2000
+    assert first.payload["allowed_tools"] == ["lookup_manual"]
     db_session.refresh(run)
     entries = run.result_payload["skill_executions"]
     assert run.result_payload["preserved"] == "audit"
