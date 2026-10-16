@@ -110,7 +110,7 @@ def validate_components(components: list[dict], audience: str,
         if kind == "CaseProcessFlow":
             if audience != "STAFF":
                 raise ServiceError(403, "流程图仅供客服查看。")
-            _validate_flow(flow, allowed_refs)
+            flow = _validate_flow(flow, allowed_refs)
         elif flow is not None:
             raise ServiceError(422, "此组件不能携带流程数据。")
         props = item["props"]
@@ -185,7 +185,7 @@ def _validate_chart(chart: object) -> None:
         raise ServiceError(422, "图表来源版本无效。")
 
 
-def _validate_flow(flow: object, allowed_refs: dict[tuple[str, UUID], int]) -> None:
+def _validate_flow(flow: object, allowed_refs: dict[tuple[str, UUID], int]) -> dict:
     if not isinstance(flow, dict) or set(flow) != {"nodes", "edges"}:
         raise ServiceError(422, "流程图数据结构无效。")
     nodes, edges = flow["nodes"], flow["edges"]
@@ -239,3 +239,4 @@ def _validate_flow(flow: object, allowed_refs: dict[tuple[str, UUID], int]) -> N
         visited.add(node_id)
     for node_id in ids:
         visit(node_id)
+    return {"nodes": normalized, "edges": edges}
