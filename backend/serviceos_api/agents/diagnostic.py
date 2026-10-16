@@ -13,6 +13,7 @@ from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
 from serviceos_api.agents.runtime import _tool_service, checkpoint_connection
+from serviceos_api.agents.model_compat import model_provider_options
 from serviceos_api.application.diagnostic_contracts import DiagnosticResult, DiagnosticTaskInput
 from serviceos_api.application.agent_services import estimate_tokens
 from serviceos_api.settings import Settings
@@ -65,6 +66,7 @@ class DiagnosticAgentRuntime:
             temperature=0,
             max_completion_tokens=700,
             stream_usage=True,
+            **model_provider_options(self.settings),
         )
         with checkpoint_connection() as connection:
             from langgraph.checkpoint.postgres import PostgresSaver

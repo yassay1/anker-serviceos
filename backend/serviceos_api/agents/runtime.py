@@ -4,10 +4,10 @@ import os
 from collections import Counter
 from contextlib import contextmanager
 from uuid import UUID
-from urllib.parse import urlsplit
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelCallLimitMiddleware, SummarizationMiddleware, ToolCallLimitMiddleware
+from langchain.agents.structured_output import StructuredOutputError, ToolStrategy
 from langchain_core.messages import HumanMessage, RemoveMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
@@ -18,7 +18,10 @@ from sqlalchemy.engine import make_url
 
 from serviceos_api.application.agent_services import AgentToolService, estimate_tokens
 from serviceos_api.application.skills import SERVICE_EXPRESSION_RESPONSE_GUIDANCE, needs_service_expression_guidance
-from serviceos_api.agents.result import AgentResult, parse_agent_result
+from serviceos_api.agents.result import (
+    AgentFinalOutput, AgentOutputInvalidError, AgentResult, parse_agent_payload, parse_agent_result,
+)
+from serviceos_api.agents.model_compat import model_provider_options
 from serviceos_api.persistence.database import configured_database_url
 from serviceos_api.settings import Settings
 from serviceos_api.application.rich_reply import reply_guidance
@@ -37,7 +40,8 @@ approved experience examples 是经审核的其他案例参考，不是设备事
 request_missing_evidence 与 propose_action 只会创建内部草稿，不会通知客户或执行动作。不要暴露内部备注、原始推理、密钥或其他客户信息。
 如果授权上下文含 resumed_diagnostic_result，这是受控回答后同一诊断任务的结构化结果；直接综合回复，不要再次委派。只有现有资料/Skill 无法覆盖、需要多步核对证据或用户明确要求深入排查时，才调用 delegate_diagnostic；简单解释、问候或已有证据充分的问题直接处理。每个用户轮次最多委派一次。专家返回的是待核验假设和建议，不是设备事实或已解决结论。专家不能代替你向用户发布结果，你仍负责核对上下文、回复策略与最终答复。
 请用简洁、自然的中文回复客户；如果当前会话不是 AI 自动回复模式，最终回复只会保存为内部草稿供人工查看。
-最终回答优先输出 JSON 对象，字段为 text 和可选 ui_proposal。ui_proposal 仅用于内部建议，格式为
+最终答复使用受控结果结构：text 是客户答复，ui_proposal 是可选的内部界面建议。不要把界面建议、字段名或选项元数据写进 text；未通过应用校验的界面建议会被丢弃。
+ui_proposal 的内容格式为
 {"purpose":"简短目的","audience":"CUSTOMER 或 STAFF","fallback_text":"无卡片时的简短说明","component_hints":["QuestionForm"],"options":[{"label":"客户可直接点击的回答","value":"stable-slug"}]}。
 options 可选：当你要客户在几个明确回答里选一个（例如"指示灯是否亮起"），给出 2 到 5 项；每项 label 不超过 40 字且就是客户点下去会发出的话，value 是稳定的小写标签（字母、数字、连字符）。label 与 value 都不能重复，不能含标签、URL 或代码。
 允许的 component_hints 仅有 QuestionForm、ChoiceGroup、DiagnosticSteps、RiskNotice、HandoffSummary、KnowledgeMetricChart、CaseProcessFlow；不包含 props、URL、HTML 或执行动作。
@@ -89,15 +93,6 @@ def setup_checkpoint_schema() -> None:
 
     with checkpoint_connection() as conn:
         PostgresSaver(conn).setup()
-
-
-def _provider_request_options(settings: Settings) -> dict:
-    # MiMo enables reasoning by default. Interactive support keeps the same tools
-    # while reserving the completion budget for the customer-visible reply.
-    if (urlsplit(settings.llm_base_url).hostname == "api.xiaomimimo.com"
-            and settings.llm_model.startswith("mimo-")):
-        return {"extra_body": {"thinking": {"type": "disabled"}}}
-    return {}
 
 
 class AgentRuntime:
@@ -228,7 +223,7 @@ class AgentRuntime:
             temperature=0,
             max_completion_tokens=2400,
             stream_usage=True,
-            **_provider_request_options(self.settings),
+            **model_provider_options(self.settings),
         )
         tools = [lookup_manual, load_skill, request_missing_evidence, propose_action, delegate_diagnostic, get_service_progress]
         with checkpoint_connection() as connection:
@@ -239,6 +234,10 @@ class AgentRuntime:
                 model=model,
                 tools=tools,
                 system_prompt=system_prompt,
+                response_format=ToolStrategy(
+                    AgentFinalOutput,
+                    handle_errors="最终答复结构未通过校验。请按 text 字符串和可选 ui_proposal 字段重新提交；不要复述校验错误。",
+                ),
                 middleware=[
                     # Tool results can grow after the initial bounded context. Use the
                     # framework's threshold-triggered compaction only when needed.
@@ -256,14 +255,22 @@ class AgentRuntime:
             config = {"configurable": {"thread_id": thread_id or str(run_id)}, "recursion_limit": 30}
             checkpoint = agent.get_state(config)
             messages = checkpoint.values.get("messages", []) if checkpoint.values else []
+            structured = (checkpoint.values or {}).get("structured_response")
             existing_index = next((index for index, message in enumerate(messages)
                                    if getattr(message, "additional_kwargs", {}).get("serviceos_message_id") == str(message_id)), None)
+            existing_user = messages[existing_index] if existing_index is not None else None
+            expected_typed_output = (
+                existing_user is None
+                or getattr(existing_user, "additional_kwargs", {}).get("serviceos_output_contract") == "typed_v1"
+            )
             completed = None
             if existing_index is not None:
                 completed = next((message for message in reversed(messages[existing_index + 1:])
                                   if getattr(message, "type", "") == "ai"
                                   and not getattr(message, "tool_calls", None)), None)
-            if completed is not None:
+            if structured is not None and not checkpoint.next:
+                result = {"structured_response": structured, "messages": messages}
+            elif completed is not None:
                 final = completed
             elif existing_index is not None and checkpoint.next:
                 # Resume a checkpointed interrupted node without re-appending the customer's turn.
@@ -281,20 +288,31 @@ class AgentRuntime:
                 model_input = [{'type': 'text', 'text': customer_input}, *images] if images else customer_input
                 result = agent.invoke(
                     {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), HumanMessage(content=model_input,
-                        additional_kwargs={"serviceos_message_id": str(message_id)})]},
+                        additional_kwargs={"serviceos_message_id": str(message_id),
+                                           "serviceos_output_contract": "typed_v1"})]},
                     config=config,
                 )
                 messages = result.get("messages", [])
                 final = next((message for message in reversed(messages)
                               if getattr(message, "type", "") == "ai" and not getattr(message, "tool_calls", None)), None)
-        if final is None:
-            raise RuntimeError("agent_final_response_missing")
-        content = final.content
-        if isinstance(content, str):
-            answer = content.strip()
-        else:
-            answer = "\n".join(str(part.get("text", "")) for part in content if isinstance(part, dict)).strip()
-        parsed = parse_agent_result(answer)
+        try:
+            if "result" in locals() and result.get("structured_response") is not None:
+                parsed = parse_agent_payload(result["structured_response"])
+                messages = result.get("messages", messages)
+            else:
+                if expected_typed_output:
+                    raise ValueError("agent_structured_response_missing")
+                if final is None:
+                    raise ValueError("agent_final_response_missing")
+                content = final.content
+                if isinstance(content, str):
+                    answer = content.strip()
+                else:
+                    answer = "\n".join(str(part.get("text", "")) for part in content if isinstance(part, dict)).strip()
+                # A legacy checkpoint is accepted only if its already-saved text is valid.
+                parsed = parse_agent_result(answer)
+        except (ValueError, StructuredOutputError) as error:
+            raise AgentOutputInvalidError("agent_output_invalid") from error
         usage_messages = [message for message in messages if getattr(message, "usage_metadata", None)]
         input_tokens = sum((getattr(message, "usage_metadata", None) or {}).get("input_tokens", 0)
                            for message in usage_messages)

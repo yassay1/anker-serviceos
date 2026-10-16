@@ -42,7 +42,7 @@
 
 ### Edge Cases
 
-- 结构化结果缺少有效文本：运行失败并按现有重试/终态规则处理。
+- 结构化结果缺少有效文本或模型在有界结构校验修正后仍无法返回结果：运行以稳定错误码终态失败，不对同一已完成的坏 checkpoint 做 Job 层重试。
 - UI 提案包含未知字段、任意 URL/HTML/脚本、过长文本或错误 audience：丢弃提案并保留文本。
 - Provider 不支持结构化输出：普通文本可用；真实兼容性待凭据验证。
 - 已保存结果后 Worker 崩溃：恢复时复用已保存结果并重新检查当前公开策略。
@@ -57,6 +57,8 @@
 - **FR-004**: 动作提案 MUST 只引用已有受控工具创建的同租户、同 Run、内部草稿；不得执行外部动作或创造业务成功状态。
 - **FR-005**: 结构化结果 MUST 在 AgentRun 中持久化，并受租约令牌保护；重试 MUST 复用已保存结果。
 - **FR-006**: 关键成功、权限拒绝、失败与恢复场景 MUST 经 PostgreSQL 测试；真实 Provider 多轮及杀进程验收独立标注。
+- **FR-007**: Agent final output MUST use a typed structured-output contract; invalid legacy checkpoint output MUST never be published, and deterministic output-format exhaustion MUST terminate the Job without replaying the same completed checkpoint.
+- **FR-008**: The Agent MUST remain configurable for OpenAI-compatible model endpoints through model, base URL, API key, timeout, and optional provider request extras; provider-specific compatibility behavior MUST be scoped to the configured endpoint and MUST NOT broaden business tool permissions.
 
 ### Key Entities
 
@@ -73,6 +75,7 @@
 - **SC-002**: 同一 AgentRun 重试只产生一条结果消息及每个逻辑动作至多一份内部草稿。
 - **SC-003**: HUMAN_LEAD 下没有本切片产生的公开 Agent 消息或公开 UI。
 - **SC-004**: PostgreSQL 测试、OpenAPI 漂移与前端生成类型检查通过；真实 Provider 待验项明确记录。
+- **SC-005**: Deterministic malformed final output produces one terminal `agent_output_invalid` failure and no customer-visible model text.
 
 ## Assumptions
 

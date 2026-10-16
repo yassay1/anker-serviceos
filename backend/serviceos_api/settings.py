@@ -1,3 +1,4 @@
+import json
 import os
 from dataclasses import dataclass, field
 from ipaddress import ip_network
@@ -37,6 +38,7 @@ class Settings:
     llm_model: str = ""
     llm_api_key: str = field(default="", repr=False)
     llm_base_url: str = ""
+    llm_extra_body: dict = field(default_factory=dict, repr=False)
     llm_timeout_seconds: int = 60
     worker_lease_seconds: int = 90
     worker_heartbeat_seconds: int = 20
@@ -91,6 +93,7 @@ class Settings:
             llm_model=os.getenv("SERVICEOS_LLM_MODEL", ""),
             llm_api_key=environment_secret("SERVICEOS_LLM_API_KEY"),
             llm_base_url=os.getenv("SERVICEOS_LLM_BASE_URL", "").rstrip("/"),
+            llm_extra_body=_llm_extra_body(os.getenv("SERVICEOS_LLM_EXTRA_BODY_JSON", "")),
             llm_timeout_seconds=max(10, min(int(os.getenv("SERVICEOS_LLM_TIMEOUT_SECONDS", "60")), 180)),
             worker_lease_seconds=max(30, min(int(os.getenv("SERVICEOS_WORKER_LEASE_SECONDS", "90")), 600)),
             worker_heartbeat_seconds=max(5, min(int(os.getenv("SERVICEOS_WORKER_HEARTBEAT_SECONDS", "20")), 120)),
@@ -105,3 +108,15 @@ class Settings:
             local_auth_networks=_values("SERVICEOS_LOCAL_AUTH_NETWORKS", cls.local_auth_networks),
             allowed_origins=_values("SERVICEOS_ALLOWED_ORIGINS", cls.allowed_origins),
         )
+
+
+def _llm_extra_body(raw: str) -> dict:
+    if not raw.strip():
+        return {}
+    try:
+        value = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        raise ValueError("SERVICEOS_LLM_EXTRA_BODY_JSON must be a JSON object.") from None
+    if not isinstance(value, dict):
+        raise ValueError("SERVICEOS_LLM_EXTRA_BODY_JSON must be a JSON object.")
+    return value

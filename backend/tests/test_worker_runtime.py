@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from serviceos_api.application.agent_services import AgentContextBuilder
 from serviceos_api.application.agent_services import AgentToolService
-from serviceos_api.agents.result import AgentResult
+from serviceos_api.agents.result import AgentOutputInvalidError, AgentResult
 from serviceos_api.application.auth import Principal
 from serviceos_api.application.contracts import ProposalDecision
 from serviceos_api.application.errors import ServiceError
@@ -865,6 +865,35 @@ def test_failure_progress_is_fixed_and_retry_creates_fenced_new_attempt(database
             OutboxEvent.conversation_id == conversation_id, OutboxEvent.type == "agent.progress")).all()
         assert sorted(row.data["stage"] for row in events) == ["FAILED", "FAILED", "RUNNING", "RUNNING"]
         assert all("SECRET" not in str(row.data) for row in events)
+
+
+def test_agent_output_format_failure_is_terminal_without_job_retry(database_engine):
+    class InvalidOutputRuntime:
+        configured = True
+
+        def invoke(self, **_):
+            raise AgentOutputInvalidError("agent_output_invalid")
+
+    with Session(database_engine) as session:
+        _, _, conversation, _, job, _ = seed_message(session)
+        session.commit()
+        conversation_id, job_id = conversation.id, job.id
+    worker = MessageWorker(database_engine, Settings(environment="test"), runtime=InvalidOutputRuntime())
+    lease = worker.claim_one()
+    worker.process(lease)
+
+    with Session(database_engine) as session:
+        job = session.get(MessageJob, job_id)
+        run = session.scalar(select(AgentRun).where(AgentRun.job_id == job_id))
+        event = session.scalar(select(OutboxEvent).where(
+            OutboxEvent.conversation_id == conversation_id, OutboxEvent.type == "agent.progress",
+            OutboxEvent.data["stage"].as_string() == "FAILED",
+        ))
+        assert job.status == "FAILED" and job.attempt_count == 1
+        assert job.last_error_code == "agent_output_invalid"
+        assert run.status == "FAILED" and run.error_code == "agent_output_invalid"
+        assert event is not None
+        assert worker.claim_one() is None
 
 
 def test_customer_projection_renders_agent_options_as_a_choice_group(database_engine):

@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal, NotRequired, TypedDict, cast
 
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
 
 ALLOWED_HINTS = frozenset({"QuestionForm", "ChoiceGroup", "DiagnosticSteps", "RiskNotice", "HandoffSummary",
                            "KnowledgeMetricChart", "CaseProcessFlow"})
@@ -34,6 +36,26 @@ class AgentResult:
     ui_proposal: UIProposal | None = None
     ui_fallback_code: str | None = None
     rich_reply: dict | None = None
+
+
+class AgentFinalOutput(BaseModel):
+    """Typed LangChain final output; UI metadata remains untrusted until app validation."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    text: str = Field(min_length=1, max_length=8000)
+    ui_proposal: Any | None = None
+
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        return _text(value)
+
+
+class AgentOutputInvalidError(RuntimeError):
+    """A deterministic final-output failure safe to expose only as an allowlisted code."""
+
+    error_code = "agent_output_invalid"
 
 
 # Models routinely fence their structured result. The fence must be removed before deciding,
@@ -87,6 +109,23 @@ def parse_agent_result(content: str) -> AgentResult:
     except ValueError:
         return AgentResult(answer, ui_fallback_code="ui_proposal_invalid", rich_reply=rich)
     return AgentResult(answer, ui_proposal=proposal, ui_fallback_code=rich_error, rich_reply=rich)
+
+
+def parse_agent_payload(payload: Any) -> AgentResult:
+    """Convert a validated structured result while retaining the legacy UI fallback rules."""
+    if isinstance(payload, BaseModel):
+        payload = payload.model_dump(mode="python")
+    if not isinstance(payload, dict) or set(payload) - {"text", "ui_proposal"}:
+        raise ValueError("agent_result_invalid_shape")
+    answer = _text(payload.get("text"))
+    candidate = payload.get("ui_proposal")
+    if candidate is None:
+        return AgentResult(answer)
+    try:
+        proposal = _ui_proposal(candidate)
+    except ValueError:
+        return AgentResult(answer, ui_fallback_code="ui_proposal_invalid")
+    return AgentResult(answer, ui_proposal=proposal)
 
 
 # Internal keys that must never reach a customer, whatever the model does with formatting.

@@ -18,7 +18,7 @@ uv run --project backend --locked uvicorn serviceos_api.main:app --host 127.0.0.
 
 ## Agent Worker
 
-API 不会自动执行数据库迁移、初始化 LangGraph Checkpointer 或启动 Worker。需要运行 Agent 时，先显式配置 `SERVICEOS_LLM_MODEL`、`SERVICEOS_LLM_BASE_URL` 和 `SERVICEOS_LLM_API_KEY`，确认模型目的地已经获准使用，再从仓库根目录执行：
+API 不会自动执行数据库迁移、初始化 LangGraph Checkpointer 或启动 Worker。主 Agent 与诊断专家共用 `SERVICEOS_LLM_MODEL`、`SERVICEOS_LLM_BASE_URL`、`SERVICEOS_LLM_API_KEY` 和超时配置。确认模型目的地已经获准使用；OpenAI-compatible Provider 若有额外请求参数，可用 `SERVICEOS_LLM_EXTRA_BODY_JSON` 设置 JSON 对象。DeepSeek 官方 Chat Completions 在未显式配置 thinking 参数时会自动关闭 thinking，以兼容结构化 Agent 输出所需的强制工具调用。再从仓库根目录执行：
 
 ```powershell
 uv run --project backend --locked python -m serviceos_api.checkpoints
