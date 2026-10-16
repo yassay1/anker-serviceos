@@ -4,12 +4,14 @@
   color: #10213c; background: #f8f6f3;
   --surface: #fff; --ink: #10213c; --muted: #59677d;
   --accent: #2860ff; --accent-hover: #214ed0; --accent-soft: #edf2ff;
-  --border: #e9ecf2; --canvas: #f8f6f3; --warm: #fff0e3;
+  --border: #e4e8ef; --canvas: #f8f6f3; --warm: #fff0e3;
+  --warning: #825520; --success-soft: #e8f3eb; --warning-soft: #fff1d9;
+  --danger-soft: #fcece9; --radius-lg: 16px; --page-width: 1480px;
   --danger: #a7332b; --success: #24634b;
   --radius: 12px; --shadow: 0 6px 24px rgb(30 43 67 / 3%);
 }
 * { box-sizing: border-box; }
-body { margin: 0; font-size: 14px; line-height: 1.6; -webkit-font-smoothing: antialiased; font-variant-numeric: tabular-nums; }
+body { margin: 0; font-size: 15px; line-height: 1.65; -webkit-font-smoothing: antialiased; font-variant-numeric: tabular-nums; }
 body:has(.desk-view) { background: #f3f5f9; }
 button, input, select, textarea { font: inherit; }
 button, .button-link { cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; border-radius: 8px; padding: 8px 12px; border: 1px solid #ccd6e5; background: var(--surface); color: var(--ink); font-weight: 600; text-decoration: none; transition: background-color 150ms, border-color 150ms, color 150ms; }
@@ -48,7 +50,7 @@ footer { max-width: 1680px; margin: auto; padding: 18px 28px; color: var(--muted
 .account-strip small { margin-left: 8px; color: var(--muted); }
 .account-avatar { width: 36px; height: 36px; border-radius: 50%; background: #fff0e3; color: #654b34; display: grid; place-items: center; font-weight: 700; flex-shrink: 0; }
 .account-strip button { min-height: 34px; padding: 4px 9px; font-size: 12px; border-color: transparent; color: var(--muted); }
-.primary-button { color: white; background: linear-gradient(115deg, #3d74ff, #2455f4); border-color: #2860ff; box-shadow: 0 4px 10px rgb(40 96 255 / 10%); }
+.primary-button { color: white; background: var(--accent); border-color: var(--accent); box-shadow: 0 3px 8px rgb(40 96 255 / 10%); }
 .primary-button:hover:not(:disabled) { color: white; background: var(--accent-hover); border-color: var(--accent-hover); }
 .form-error { color: var(--danger) !important; font-size: 13px; margin: 7px 0; overflow-wrap: anywhere; }
 .form-hint, .muted { font-size: 13px; color: var(--muted); }

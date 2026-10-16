@@ -108,13 +108,13 @@ export function FollowUpPanel({ actor, serviceCase }: { actor: Actor, serviceCas
       {item.status === 'DUE' ? '已生成客服待办' : item.status === 'SCHEDULED' ? '等待到期' : '已取消'}
       {actor.kind === 'STAFF' && item.task_id && <small>待办 #{item.task_id.slice(0, 8)}</small>}
     </li>)}</ul>
-    {actor.kind === 'CUSTOMER' && serviceCase.status !== 'CLOSED' && <>
-      <h3>同意一次回访</h3>
+    {actor.kind === 'CUSTOMER' && serviceCase.status !== 'CLOSED' && <details className="secondary-form">
+      <summary>同意一次回访</summary>
       <label>回访目的 <input value={purpose} maxLength={1000} disabled={busy || Boolean(pending)}
         onChange={event => setPurpose(event.target.value)} /></label>
       <button type="button" disabled={busy || Boolean(pending) || purpose.trim().length < 3}
         onClick={startConsent}>同意此目的的回访</button>
-    </>}
+    </details>}
     {actor.kind === 'STAFF' && serviceCase.status !== 'CLOSED' && <>
       <h3>预约客服回访</h3>
       <label>客户已同意的目的 <select value={consentId} disabled={busy || Boolean(pending)}

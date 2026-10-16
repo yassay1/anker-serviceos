@@ -221,6 +221,18 @@ export async function readCase(id: string): Promise<ServiceCase> {
   return requireData(data, error, response, '案例不存在或当前账号无权访问。')
 }
 
+export async function createServiceCase(body: components['schemas']['CreateCase']): Promise<ServiceCase> {
+  const { data, error, response } = await api.POST('/api/v1/cases', { body })
+  return requireData(data, error, response, '创建服务案例失败，请核对案例列表后重试。')
+}
+
+export async function attachCaseConversation(id: string, conversationId: string, expectedVersion: number): Promise<ServiceCase> {
+  const { data, error, response } = await api.POST('/api/v1/cases/{id}/conversations', {
+    params: { path: { id } }, body: { conversation_id: conversationId, expected_version: expectedVersion },
+  })
+  return requireData(data, error, response, '关联服务会话失败，请刷新案例后重试。')
+}
+
 export async function readResolutionContract(caseId: string): Promise<ResolutionContract> {
   const { data, error, response } = await api.GET('/api/v1/cases/{id}/resolution-contract', {
     params: { path: { id: caseId } },

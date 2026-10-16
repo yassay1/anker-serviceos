@@ -5,6 +5,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+from serviceos_api.application.rich_reply import RichReply
 
 
 class Schema(BaseModel):
@@ -30,6 +31,7 @@ class CreateConversation(Schema):
 
 class ConversationRead(Schema):
     id: UUID
+    title: str = Field(default="新会话", max_length=24)
     customer_id: UUID
     status: str
     collaboration_mode: str
@@ -345,9 +347,15 @@ class TextPart(Schema):
 
 class SendMessage(Schema):
     client_message_id: UUID
+    reply_to_message_id: UUID | None = None
     content: list[TextPart] = Field(min_length=1, max_length=10)
     related_case_id: UUID | None = None
     visibility: Literal["PUBLIC", "INTERNAL"] = "PUBLIC"
+
+
+class ReplyPart(TextPart):
+    # Read-only extension. SendMessage intentionally still accepts only TextPart.
+    rich: RichReply | None = None
 
 
 class MessageRead(Schema):
@@ -355,7 +363,7 @@ class MessageRead(Schema):
     conversation_id: UUID
     author_kind: str
     visibility: str
-    content: list[TextPart]
+    content: list[ReplyPart]
     client_message_id: UUID | None
     related_case_id: UUID | None
     created_at: datetime

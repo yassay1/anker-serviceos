@@ -17,7 +17,7 @@ async function openDesk(page: Page) {
   const state = {
     conversation: {
       id: conversationId, customer_id: '00000000-0000-4000-8000-000000000006',
-      status: 'ACTIVE', collaboration_mode: 'AI_LEAD', reply_policy: 'AI_AUTO',
+      title: '充电设备协作会话', status: 'ACTIVE', collaboration_mode: 'AI_LEAD', reply_policy: 'AI_AUTO',
       version: 1, created_at: createdAt,
     } satisfies Schemas['ConversationRead'],
     task: {

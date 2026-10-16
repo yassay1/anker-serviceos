@@ -102,10 +102,10 @@ export function CaseEvidencePanel({ actor, serviceCase }: { actor: Actor, servic
   }
 
   const rows = evidence.data?.pages.flatMap(page => page.items) ?? []
-  return <section className="case-evidence" aria-label="案例图片证据">
+  return <section id="case-evidence" className="case-evidence" aria-label="案例图片证据">
     <h2>图片证据</h2>
     <p>图片受理后由服务端检查结构。检查通过仅表示文件可安全展示，不代表设备事实或问题已核验。</p>
-    <label>选择图片 <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" disabled={busy}
+    <label className="upload-field">选择图片 <small>JPEG、PNG 或 WebP，单张不超过 10 MiB</small><input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" disabled={busy}
       onChange={event => setFile(event.target.files?.[0] ?? null)} /></label>
     {actor.kind === 'STAFF' && <label>可见范围 <select value={visibility} disabled={busy || Boolean(pending)}
       onChange={event => setVisibility(event.target.value as 'PUBLIC' | 'INTERNAL')}>

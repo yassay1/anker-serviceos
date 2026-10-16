@@ -1127,6 +1127,11 @@ export interface components {
             reply_policy: string;
             /** Status */
             status: string;
+            /**
+             * Title
+             * @default 新会话
+             */
+            title: string;
             /** Version */
             version: number;
         };
@@ -1586,6 +1591,17 @@ export interface components {
             /** Version */
             version: string;
         };
+        /** ImageFocus */
+        ImageFocus: {
+            /** Height */
+            height: number;
+            /** Width */
+            width: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
         /** LocalLogin */
         LocalLogin: {
             /**
@@ -1610,7 +1626,7 @@ export interface components {
             /** Client Message Id */
             client_message_id: string | null;
             /** Content */
-            content: components["schemas"]["TextPart"][];
+            content: components["schemas"]["ReplyPart"][];
             /**
              * Conversation Id
              * Format: uuid
@@ -1740,6 +1756,15 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** QuickReply */
+        QuickReply: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Message */
+            message: string;
+        };
         /** ReadinessResponse */
         ReadinessResponse: {
             /** Components */
@@ -1753,6 +1778,85 @@ export interface components {
              * @enum {string}
              */
             status: "ready" | "not_ready";
+        };
+        /** ReplyBlock */
+        ReplyBlock: {
+            /** Action */
+            action?: ("upload_evidence" | "request_assistance" | "view_case") | null;
+            /** Case Id */
+            case_id?: string | null;
+            /** Columns */
+            columns?: string[];
+            /** Entries */
+            entries?: components["schemas"]["ReplyEvent"][];
+            /** Evidence Id */
+            evidence_id?: string | null;
+            focus?: components["schemas"]["ImageFocus"] | null;
+            /** Items */
+            items?: components["schemas"]["ReplyStep"][];
+            /** Rows */
+            rows?: string[][];
+            /**
+             * Severity
+             * @default info
+             * @enum {string}
+             */
+            severity: "info" | "warning" | "danger";
+            /** Source Id */
+            source_id?: string | null;
+            /** Source Url */
+            source_url?: string | null;
+            /** Status Code */
+            status_code?: string | null;
+            /**
+             * Text
+             * @default
+             */
+            text: string;
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "summary" | "steps" | "table" | "image" | "image_focus" | "alert" | "timeline" | "status" | "reference" | "actions";
+        };
+        /** ReplyEvent */
+        ReplyEvent: {
+            /** Description */
+            description: string;
+            /** Label */
+            label: string;
+            /**
+             * State
+             * @default recorded
+             * @enum {string}
+             */
+            state: "recorded" | "pending" | "current" | "completed" | "failed";
+            /** Time */
+            time: string;
+        };
+        /** ReplyPart */
+        ReplyPart: {
+            rich?: components["schemas"]["RichReply"] | null;
+            /** Text */
+            text: string;
+            /**
+             * Type
+             * @default text
+             * @constant
+             */
+            type: "text";
+        };
+        /** ReplyStep */
+        ReplyStep: {
+            /** Description */
+            description: string;
+            /** Title */
+            title: string;
         };
         /** ResolutionContractRead */
         ResolutionContractRead: {
@@ -1781,6 +1885,19 @@ export interface components {
             /** Version */
             version: number;
         };
+        /** RichReply */
+        RichReply: {
+            /** Blocks */
+            blocks?: components["schemas"]["ReplyBlock"][];
+            /** Quick Replies */
+            quick_replies?: components["schemas"]["QuickReply"][];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
         /** SendMessage */
         SendMessage: {
             /**
@@ -1792,6 +1909,8 @@ export interface components {
             content: components["schemas"]["TextPart"][];
             /** Related Case Id */
             related_case_id?: string | null;
+            /** Reply To Message Id */
+            reply_to_message_id?: string | null;
             /**
              * Visibility
              * @default PUBLIC

@@ -10,8 +10,8 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
-from sqlalchemy import and_, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy.orm import Session, aliased
 
 from serviceos_api.application.skills import (
     SKILL_INSTRUCTIONS, SKILL_REGISTRY, SkillExecutionRead, SkillInput, SkillLoadResult, eligible_skills,
@@ -54,7 +54,29 @@ def _bounded_text(value: str | None, limit: int) -> str | None:
 
 
 def _text_from_message(row: Message) -> str:
-    return " ".join(part.get("text", "") for part in row.content if part.get("type") == "text").strip()
+    values = []
+    for part in row.content:
+        if part.get('type') != 'text':
+            continue
+        values.append(part.get('text', ''))
+        rich = part.get('rich')
+        if not isinstance(rich, dict) or row.author_kind != 'AGENT':
+            continue
+        details = []
+        for block in rich.get('blocks', [])[:8]:
+            if not isinstance(block, dict):
+                continue
+            if block.get('type') == 'steps':
+                details.extend(str(item.get('title', '')) + '：' + str(item.get('description', ''))
+                               for item in block.get('items', [])[:6] if isinstance(item, dict))
+            elif block.get('type') == 'table':
+                details.extend(' / '.join(str(cell) for cell in row[:5]) for row in block.get('rows', [])[:3] if isinstance(row, list))
+        if details:
+            values.append('历史助手给出的建议（不等于已执行或核验）：' + '；'.join(details)[:1200])
+        questions = [str(item.get('label', '')) for item in rich.get('quick_replies', [])[:4] if isinstance(item, dict)]
+        if questions:
+            values.append('此前已展示的追问（避免重复）：' + '；'.join(questions))
+    return ' '.join(values).strip()
 
 
 def _public_diagnostic_summary(assessment: str) -> str:
@@ -251,13 +273,28 @@ class AgentContextBuilder:
             FollowUpJob.status != "CANCELLED",
         ).order_by(FollowUpJob.due_at, FollowUpJob.id).limit(10)).all()
 
-        prior_rows = self.session.scalars(select(Message).where(
+        source_message = aliased(Message)
+        reply_run = aliased(AgentRun)
+        # A queued question can predate the preceding turn's published answer.
+        # Include that answer by its actual run/source link, never future turns.
+        prior_rows = self.session.scalars(select(Message).outerjoin(reply_run, and_(
+            Message.author_kind == "AGENT", Message.client_message_id == reply_run.id,
+            Message.tenant_id == reply_run.tenant_id, Message.conversation_id == reply_run.conversation_id,
+        )).outerjoin(source_message, and_(
+            source_message.id == reply_run.message_id, source_message.tenant_id == self.tenant_id,
+            source_message.conversation_id == conversation.id,
+        )).where(
             Message.tenant_id == self.tenant_id,
             Message.conversation_id == conversation.id,
             Message.visibility == "PUBLIC",
             or_(Message.created_at < message.created_at,
-                and_(Message.created_at == message.created_at, Message.id < message.id)),
-        ).order_by(Message.created_at.desc(), Message.id.desc()).limit(HISTORY_SCAN_LIMIT)).all()
+                and_(Message.created_at == message.created_at, Message.id < message.id),
+                source_message.created_at < message.created_at,
+                and_(source_message.created_at == message.created_at, source_message.id < message.id)),
+        ).order_by(func.coalesce(source_message.created_at, Message.created_at).desc(),
+                   func.coalesce(source_message.id, Message.id).desc(),
+                   case((Message.author_kind == "AGENT", 1), else_=0).desc(),
+                   Message.created_at.desc(), Message.id.desc()).limit(HISTORY_SCAN_LIMIT)).all()
         prior_rows.reverse()
         history = [{"message_id": str(row.id), "author": row.author_kind,
                     "created_at": row.created_at.isoformat(),
@@ -561,6 +598,14 @@ class AgentToolService:
             ranked.append((sum(score for score, _ in scored), filename,
                            hashlib.sha256(raw_bytes).hexdigest()[:16], "\n".join(selected)))
         ranked.sort(key=lambda item: (-item[0], item[1]))
+        run, _, _, _ = self._active_execution()
+        sources = {item['source_id']: item for item in (run.result_payload or {}).get('retrieved_sources', [])}
+        for _, filename, version, _ in ranked[:3]:
+            raw = (knowledge / filename).read_text(encoding='utf-8')
+            link = re.search(r'https://(?:service\.anker\.com|support\.eufy\.com)/[^\s)>]+', raw)
+            sources[filename] = {'source_id': filename, 'title': raw.splitlines()[0].lstrip('# '),
+                                 'version': 'sha256:' + version, 'url': link.group(0) if link else None}
+        run.result_payload = {**(run.result_payload or {}), 'retrieved_sources': list(sources.values())[:3]}
         content = [f"SOURCE: {name} | VERSION: sha256:{version} | APPLICABILITY: "
                    f"{'VERIFIED_MODEL_A1229' if name == 'a1229-ports.md' else 'VERIFIED_MODEL_T8D04' if name == 'eufy-s1-pro-heating-metric.md' else 'generic_no_charge'}\n{excerpt}"
                    for _, name, version, excerpt in ranked[:3]]

@@ -27,6 +27,8 @@ uv run --project backend --locked python -m serviceos_api.worker.main
 
 Worker 使用独立的 `serviceos_checkpoint` schema 保存执行检查点；业务数据仍以 PostgreSQL 业务 schema 为准。缺少 Provider 配置时 Worker 不领取任务。真实模型多轮和进程强制中断恢复的验收状态见[阶段 2 验收记录](../docs/phase2-validation.md)。
 
+富内容是原消息 `content[].rich` 的可选只读扩展；旧文本仍保留，快捷追问仍调用原消息 API，并通过 `reply_to_message_id` 拒绝过期追问。只在已选择支持图像输入的 Provider 后设置 `SERVICEOS_LLM_VISION=1`：同一 Agent 可读取一张已授权、检查通过且不超过 2 MiB 的图片。未开启、图片不可读或定位不可靠时保留文本/原图，不声称已完成视觉诊断；当前不自动裁切未经核验的区域。
+
 图片证据的结构检查使用另一个进程，不读取模型配置，也不代表病毒扫描或真实 Anker 接口：
 
 ```powershell

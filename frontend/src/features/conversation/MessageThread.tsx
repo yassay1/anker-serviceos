@@ -1,6 +1,7 @@
 import { type Actor, type Message, type SendBody } from '../../api/client'
 import { MessageSquareText } from 'lucide-react'
 import { type ReactNode, useLayoutEffect, useRef } from 'react'
+import { MessageText, RichMessage } from './RichMessage'
 
 type PendingMessage = {
   conversationId: string
@@ -11,7 +12,10 @@ type PendingMessage = {
 
 const clock = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' })
 
-function MessageItem({ message, actor }: { message: Message, actor: Actor }) {
+function MessageItem({ message, actor, quickActive, onQuickReply }: {
+  message: Message, actor: Actor, quickActive: boolean,
+  onQuickReply?: (value: string, sourceMessageId: string, caseId: string | null) => Promise<boolean>
+}) {
   const mine = message.author_kind === actor.kind
   return <li className={`message ${mine ? 'own-message' : ''} ${message.visibility === 'INTERNAL' ? 'internal-message' : ''}`}>
     <div className="message-meta">
@@ -19,11 +23,14 @@ function MessageItem({ message, actor }: { message: Message, actor: Actor }) {
       {message.visibility === 'INTERNAL' && <span className="private-tag">内部备注</span>}
       <time dateTime={message.created_at}>{clock.format(new Date(message.created_at))}</time>
     </div>
-    {message.content.map((part, index) => <p key={index}>{part.text}</p>)}
+    {message.content.map((part, index) => message.author_kind === 'AGENT'
+      ? <RichMessage key={index} fallback={part.text} rich={part.rich} allowQuickReplies={quickActive && index === message.content.length - 1}
+        onQuickReply={onQuickReply ? value => onQuickReply(value, message.id, message.related_case_id) : undefined} />
+      : <MessageText key={index} value={part.text} />)}
   </li>
 }
 
-export function MessageThread({ actor, desk, messages, pending, loading, error, hasMore, loadingMore, onMore, onRetry, children }: {
+export function MessageThread({ actor, desk, messages, pending, loading, error, hasMore, loadingMore, onMore, onRetry, children, quickReplyMessageId, onQuickReply }: {
   actor: Actor
   desk: boolean
   children?: ReactNode
@@ -35,6 +42,8 @@ export function MessageThread({ actor, desk, messages, pending, loading, error, 
   loadingMore: boolean
   onMore: () => void
   onRetry: (item: PendingMessage) => void
+  quickReplyMessageId?: string
+  onQuickReply?: (value: string, sourceMessageId: string, caseId: string | null) => Promise<boolean>
 }) {
   const thread = useRef<HTMLDivElement>(null)
   const messageList = useRef<HTMLOListElement>(null)
@@ -58,7 +67,8 @@ export function MessageThread({ actor, desk, messages, pending, loading, error, 
     {!loading && messages.length === 0 && pending.length === 0 && <div className="message-empty"><span className="empty-symbol"><MessageSquareText size={28} aria-hidden="true" /></span><h3>{desk ? '等待这段对话开始' : '你的服务，从这里开始'}</h3>
       <p>{desk ? '客户发送的消息会显示在这里。' : '描述遇到的问题；客服可以在同一会话继续处理。'}</p></div>}
     <ol className="message-list" ref={messageList} aria-live="polite">
-      {messages.map((message) => <MessageItem key={message.id} message={message} actor={actor} />)}
+      {messages.map((message) => <MessageItem key={message.id} message={message} actor={actor}
+        quickActive={!desk && message.id === quickReplyMessageId} onQuickReply={onQuickReply} />)}
       {pending.map((item) => <li className={`message own-message pending-message ${item.body.visibility === 'INTERNAL' ? 'internal-message' : ''}`}
         key={item.body.client_message_id}>
         <div className="message-meta"><strong>{desk ? '客服' : '客户'}</strong>

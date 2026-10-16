@@ -33,6 +33,7 @@ class AgentResult:
     text: str
     ui_proposal: UIProposal | None = None
     ui_fallback_code: str | None = None
+    rich_reply: dict | None = None
 
 
 # Models routinely fence their structured result. The fence must be removed before deciding,
@@ -61,18 +62,31 @@ def parse_agent_result(content: str) -> AgentResult:
     try:
         value = json.loads(raw)
     except (ValueError, TypeError) as error:
+        recovered = re.search(r'"text"\s*:\s*("(?:\\.|[^"\\])*")', raw)
+        if recovered:
+            try:
+                return AgentResult(_text(json.loads(recovered.group(1))), ui_fallback_code='rich_result_truncated')
+            except (ValueError, TypeError):
+                pass
         raise ValueError("agent_result_invalid_json") from error
     if not isinstance(value, dict):
         raise ValueError("agent_result_invalid_shape")
     answer = _text(value.get("text"))
+    rich, rich_error = None, None
+    if value.get('rich') is not None:
+        from serviceos_api.application.rich_reply import RichReply
+        try:
+            rich = RichReply.model_validate(value['rich']).model_dump(mode='json')
+        except (ValueError, TypeError):
+            rich_error = 'rich_reply_invalid'
     candidate = value.get("ui_proposal")
     if candidate is None:
-        return AgentResult(answer)
+        return AgentResult(answer, ui_fallback_code=rich_error, rich_reply=rich)
     try:
         proposal = _ui_proposal(candidate)
     except ValueError:
-        return AgentResult(answer, ui_fallback_code="ui_proposal_invalid")
-    return AgentResult(answer, ui_proposal=proposal)
+        return AgentResult(answer, ui_fallback_code="ui_proposal_invalid", rich_reply=rich)
+    return AgentResult(answer, ui_proposal=proposal, ui_fallback_code=rich_error, rich_reply=rich)
 
 
 # Internal keys that must never reach a customer, whatever the model does with formatting.
