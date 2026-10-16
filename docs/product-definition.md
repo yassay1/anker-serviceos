@@ -128,3 +128,18 @@
 - A2UI：借鉴声明式数据、受信组件 Catalog、结构与数据分离、增量更新；因协议仍在演进，V1 先定义 ServiceOS 自有最小协议，不直接绑定外部标准。
 
 具体工程映射与参考链接见 [系统架构](architecture.md)、[领域与接口契约](domain-and-contracts.md) 和 [设计来源说明](references.md)。
+
+## Agent 协作架构增量（2026-10-16；阶段 A–D 已实现，生产验收仍有边界）
+
+目标是在保留单一服务入口的前提下，允许 Service Agent 按需委派一名 Diagnostic Agent。Service Agent 仍负责用户入口、任务规划和公开回复收口；专家独立推理但只接收窄化任务和只读能力。实现边界、证据和方案比较见[011 研究](../specs/011-visible-specialist-orchestration/research.md)。
+
+| 用户价值 | 设计方案 | 当前实现状态 |
+|---|---|---|
+| 复杂售后获得专业分析 | Service Agent 仅在当前检索/固定 Skill/规则不足时调用 Diagnostic Agent；简单请求不增加模型调用 | 已实现受限 Diagnostic Agent 工具委派、结构化结果和持久任务；真实 Provider 效果待验 |
+| 感知专家参与 | 客户或客服看到“诊断专家”的真实启动、阶段、提问、结果和失败活动 | 已复用 Outbox/SSE 历史与现有界面活动卡；公开/内部可见性由服务端按当前策略复核 |
+| 补充专家所需信息 | 专家可提交受控问题卡；客户回答幂等绑定同一 `DiagnosticTask` 并恢复 | 已复用 `DIAGNOSTIC_TASK_VIEW` 与现有 UI Action/MessageJob；无独立诊断 API。Question/Answer 有持久化与版本/期限校验 |
+| 保持安全与可核验 | 专家工具只读；诊断输出为假设和证据引用；设备事实/Case 解决继续走既有核验 | 已实现来源复核、经验候选约束、安全/转人工出口和 ConversationService 发布保护；尚无客服专属来源审查面板或真实 Provider 验收 |
+
+当前实现状态以代码和 `specs/011-visible-specialist-orchestration/progress.md` 的验收记录为准。A–D 代表代码路径已实现，不表示真实模型质量/延迟、强制进程中断恢复或客服来源审查界面已完成验收。
+
+预期不建设多 Agent 群聊、通用 Agent Registry、独立 Specialist 微服务、额外 Agent SDK 或完整 AG-UI 客户端迁移。诊断任务不重用真人 `ServiceTask`；Device Passport、Service Case、Conversation、AgentRun 仍是独立对象。

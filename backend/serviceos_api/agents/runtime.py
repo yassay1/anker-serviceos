@@ -33,6 +33,7 @@ approved experience examples 是经审核的其他案例参考，不是设备事
 只有实际可见且适用的来源支持时才陈述型号规格；型号不确定时先澄清。优先给出安全、可逆的下一步和明确停止/人工求助条件。
 回复客户时只依据当前用户明确表达调整服务语气；证据不足时保持中性，不替用户断言情绪。该线索只影响措辞和解释顺序，不影响业务事实、紧急度、工具权限、审批、协作模式或发布资格。
 request_missing_evidence 与 propose_action 只会创建内部草稿，不会通知客户或执行动作。不要暴露内部备注、原始推理、密钥或其他客户信息。
+如果授权上下文含 resumed_diagnostic_result，这是受控回答后同一诊断任务的结构化结果；直接综合回复，不要再次委派。只有现有资料/Skill 无法覆盖、需要多步核对证据或用户明确要求深入排查时，才调用 delegate_diagnostic；简单解释、问候或已有证据充分的问题直接处理。每个用户轮次最多委派一次。专家返回的是待核验假设和建议，不是设备事实或已解决结论。专家不能代替你向用户发布结果，你仍负责核对上下文、回复策略与最终答复。
 请用简洁、自然的中文回复客户；如果当前会话不是 AI 自动回复模式，最终回复只会保存为内部草稿供人工查看。
 最终回答优先输出 JSON 对象，字段为 text 和可选 ui_proposal。ui_proposal 仅用于内部建议，格式为
 {"purpose":"简短目的","audience":"CUSTOMER 或 STAFF","fallback_text":"无卡片时的简短说明","component_hints":["QuestionForm"],"options":[{"label":"客户可直接点击的回答","value":"stable-slug"}]}。
@@ -129,6 +130,68 @@ class AgentRuntime:
             with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
                 return service.record_proposal("ACTION", summary)
 
+        @tool
+        def delegate_diagnostic(goal: str) -> dict:
+            """委派复杂售后问题给受限只读诊断专家；Service Agent 仍负责最终回复。"""
+            from serviceos_api.agents.diagnostic import DiagnosticAgentRuntime
+
+            with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
+                task, specialist_run, task_input, cached = service.start_diagnostic(goal, context, current_text)
+                task_id = task.id
+                specialist_run_id = specialist_run.id
+                specialist_thread_id = specialist_run.checkpoint_thread_id
+                if cached is not None:
+                    return {"task_id": str(task_id), "status": "COMPLETED",
+                            "diagnostic_result": cached.model_dump(mode="json")}
+            try:
+                result, stats = DiagnosticAgentRuntime(self.settings).invoke(
+                    task=task_input, tenant_id=tenant_id, conversation_id=conversation_id,
+                    parent_run_id=run_id, lease_token=lease_token, message_id=message_id,
+                    checkpoint_thread_id=specialist_thread_id, specialist_run_id=specialist_run_id,
+                )
+                with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
+                    payload = service.complete_diagnostic(
+                        task_id, specialist_run_id, result, stats, task_input,
+                        set(stats.get("manual_source_refs", [])),
+                    )
+            except Exception as error:
+                # Persist only a bounded error code if this parent execution still owns its lease.
+                with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
+                    service.fail_diagnostic(task_id, specialist_run_id, "diagnostic_execution_failed")
+                raise RuntimeError("diagnostic_execution_failed") from error
+            return {"task_id": str(task_id), "status": "COMPLETED", "diagnostic_result": payload}
+
+        # A controlled customer answer resumes its persisted DiagnosticTask
+        # deterministically; the manager does not need to infer which task to resume.
+        resume = context.pop("diagnostic_resume", None)
+        if isinstance(resume, dict):
+            from serviceos_api.agents.diagnostic import DiagnosticAgentRuntime
+
+            task_id = UUID(resume["task_id"])
+            answer_id = UUID(resume["answer_id"])
+            with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
+                task, specialist_run, task_input, answer, cached = service.resume_diagnostic(task_id, answer_id)
+            if cached is not None:
+                context["resumed_diagnostic_result"] = cached.model_dump(mode="json")
+            else:
+                try:
+                    result, diagnostic_stats = DiagnosticAgentRuntime(self.settings).invoke(
+                        task=task_input, tenant_id=tenant_id, conversation_id=conversation_id,
+                        parent_run_id=run_id, lease_token=lease_token, message_id=message_id,
+                        checkpoint_thread_id=specialist_run.checkpoint_thread_id,
+                        specialist_run_id=specialist_run.id, answer_text=answer.answer,
+                    )
+                    with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
+                        payload = service.complete_diagnostic(
+                            task_id, specialist_run.id, result, diagnostic_stats, task_input,
+                            set(diagnostic_stats.get("manual_source_refs", [])),
+                        )
+                    context["resumed_diagnostic_result"] = payload
+                except Exception as error:
+                    with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
+                        service.fail_diagnostic(task_id, specialist_run.id, "diagnostic_resume_failed")
+                    raise RuntimeError("diagnostic_resume_failed") from error
+
         model = ChatOpenAI(
             model=self.settings.llm_model,
             api_key=self.settings.llm_api_key,
@@ -139,7 +202,7 @@ class AgentRuntime:
             max_completion_tokens=1000,
             stream_usage=True,
         )
-        tools = [lookup_manual, load_skill, request_missing_evidence, propose_action]
+        tools = [lookup_manual, load_skill, request_missing_evidence, propose_action, delegate_diagnostic]
         with checkpoint_connection() as connection:
             from langgraph.checkpoint.postgres import PostgresSaver
 

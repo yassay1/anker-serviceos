@@ -1967,17 +1967,17 @@ export interface components {
             input_schema_ref: string;
             /**
              * Intent
-             * @constant
+             * @enum {string}
              */
-            intent: "REQUEST_ASSISTANCE";
+            intent: "REQUEST_ASSISTANCE" | "SUBMIT_DIAGNOSTIC_ANSWER";
         };
         /** UIActionRequest */
         UIActionRequest: {
             /**
              * Action Id
-             * @constant
+             * @enum {string}
              */
-            action_id: "request-human-assistance";
+            action_id: "request-human-assistance" | "submit-diagnostic-answer";
             /**
              * Client Action Id
              * Format: uuid
@@ -2004,6 +2004,8 @@ export interface components {
              * Format: uuid
              */
             client_action_id: string;
+            /** Diagnostic Task Id */
+            diagnostic_task_id?: string | null;
             /** Replayed */
             replayed: boolean;
             /**
@@ -2011,11 +2013,8 @@ export interface components {
              * @constant
              */
             status: "ACCEPTED";
-            /**
-             * Task Id
-             * Format: uuid
-             */
-            task_id: string;
+            /** Task Id */
+            task_id?: string | null;
         };
         /** UIChartData */
         UIChartData: {
@@ -2076,7 +2075,9 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "CONVERSATION_VIEW" | "CASE_VIEW" | "TASK_VIEW" | "AGENT_RUN_VIEW";
+            kind: "CONVERSATION_VIEW" | "CASE_VIEW" | "TASK_VIEW" | "AGENT_RUN_VIEW" | "DIAGNOSTIC_TASK_VIEW";
+            /** Question Revision */
+            question_revision?: number | null;
             /**
              * Resource Id
              * Format: uuid

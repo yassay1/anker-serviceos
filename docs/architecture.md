@@ -163,3 +163,120 @@ UI 文档本身不复制业务状态机。`ProgressTimeline` 等组件从 Servic
 ## 9. 主要设计依据
 
 参见 [设计来源说明](references.md)。FastAPI 原生 `APIRouter` 支持模块化；Dify/Onyx 是前后端+Worker 的组织参考；Chatwoot 是会话与接管的业务参考。
+
+## Service Agent → Diagnostic Agent 委派（阶段 A–D 已实现；生产验收仍有边界）
+
+当前实现范围：Service Agent `AgentRuntime` 提供可选 `delegate_diagnostic` 工具；应用服务创建/复用 DiagnosticTask 与 SpecialistRun，受限 Diagnostic Agent 返回 schema 化假设。专家活动通过现有 Outbox/SSE 和活动卡展示；问题/回答经受控 UI Action 持久化并由既有 MessageWorker 异步恢复；安全出口、审核经验候选和来源复核接入既有业务服务。真实 Provider 行为、强制进程中断恢复及客服专属来源审查界面仍未验收/实现。
+
+### 当前执行架构（A–D 代码路径）
+
+```mermaid
+sequenceDiagram
+  participant C as Customer/Staff
+  participant API as FastAPI
+  participant DB as PostgreSQL serviceos
+  participant W as MessageWorker
+  participant S as Service Agent create_agent
+  participant D as Diagnostic Agent
+  participant CP as PostgreSQL serviceos_checkpoint
+  participant CS as ConversationService
+  participant O as Outbox/SSE
+  C->>API: POST message (client_message_id)
+  API->>DB: persist Message + MessageJob + Outbox
+  API-->>C: receipt (async; no model wait)
+  W->>DB: claim lease; create/reuse AgentRun
+  W->>S: authorized context + current message
+  S->>CP: checkpoint by AgentRun thread_id
+  opt Service Agent selects diagnostic delegation
+    S->>DB: create/reuse DiagnosticTask + SpecialistRun under parent lease
+    S->>D: bounded typed task input
+    D->>CP: task-specific specialist checkpoint
+    D-->>S: schema-validated DiagnosticResult hypothesis
+    S->>DB: persist task/run result after source/version revalidation
+  end
+  S-->>W: AgentResult(text, ui_proposal, action refs)
+  W->>DB: persist result under lease
+  W->>CS: publish_agent_response
+  CS->>DB: recheck latest policy; persist Message + Outbox
+  O->>DB: ConversationEvent with sequence/visibility
+  O-->>C: SSE event; client refreshes authoritative snapshot
+```
+
+### 跨轮恢复执行架构（已有实现；真实 Provider 与进程中断验收待做）
+
+```mermaid
+sequenceDiagram
+  participant C as Customer/Staff
+  participant API as FastAPI
+  participant DB as Business PostgreSQL
+  participant W as Worker
+  participant S as Service Agent / coordinator
+  participant D as Diagnostic Agent / typed tool
+  participant CP as LangGraph PostgreSQL checkpoint
+  participant CS as ConversationService + Outbox
+  participant UI as Existing SSE + controlled Renderer
+  C->>API: message / typed diagnostic answer
+  API->>DB: persist command + Job + outbox atomically
+  API-->>C: fast receipt
+  W->>DB: lease/fence current Job and AgentRun
+  W->>S: authorized message + Case/Device/Evidence view
+  S->>DB: create/reuse DiagnosticTask (idempotent)
+  S->>D: typed task DTO; narrow read-only tools
+  D->>CS: append allowlisted specialist.activity at real lifecycle stages
+  CS->>DB: Outbox with current-policy checks on dispatch
+  DB-->>UI: sequenced PUBLIC or INTERNAL ConversationEvent
+  D->>CP: task-scoped specialist checkpoint (execution state only)
+  D-->>S: validated DiagnosticResult v1
+  S->>DB: persist result/task state; no fact promotion
+  S->>CS: publish permitted Service Agent message/UI after reauthorization
+  CS->>DB: write authorized message/UI + event
+  CS-->>UI: authoritative event and snapshot
+  UI-->>C: named specialist activity/result, not raw reasoning
+  opt Task waits for customer
+    UI->>API: SUBMIT_DIAGNOSTIC_ANSWER with task/question/version/idempotency
+    API->>DB: validate owner and current task; persist answer + resume job
+    API-->>UI: 202 receipt
+    W->>D: retry same SpecialistRun thread or rebuild from task + persisted answer
+  end
+```
+
+### 核心职责和依赖方向
+
+```text
+HTTP/API → Application services + authorization → Domain/persistence
+                                            ↘ typed Jobs/Outbox → Workers
+Service Agent → typed DiagnosticTask service/tool → Diagnostic Agent
+Diagnostic Agent → read-only retrieval / eligible Skill → application query service
+Service/Diagnostic Agent → validated proposal/result → ConversationService (only publishing path)
+ConversationService → Outbox → Dispatcher → sequenced ConversationEvent → SSE → React Renderer
+```
+
+- **Service Agent**：委派门控、选择适用 Capability、生成任务目标、收到专家结构化结果后面向用户综合；不得凭模型自述声明发布授权。
+- **Diagnostic Agent**：专业分析、Evidence 来源引用、未知项、风险和下一步/受控问题。用独立 system prompt 和较低模型/工具预算；不直接对话写 Message、不执行售后动作。
+- **DiagnosticTask**：跨 AgentRun 和用户消息的业务工作状态、问题/答案版本、期限与结果；权威状态在业务数据库。
+- **SpecialistRun**：每次专家调用的身份/尝试，与稳定专家类型 `DIAGNOSTIC` 分开；可在租约重领时复用同一个 checkpoint thread。
+- **AgentRun**：每条输入消息的一次协调执行；不取代长期诊断 Task。
+- **Checkpoint**：LangGraph 每个诊断线程的可恢复执行状态；不权威表示客户回答已保存、Case 事实已核验或消息已发出。
+- **ConversationService**：公开消息、UI 和事件唯一发布与可见性复核点；所有 publish 时重新检查最新 `collaboration_mode`、`reply_policy`、tenant/resource/task version。
+- **Outbox/SSE**：提供真实、可补取的已提交状态变化，不充当任务数据库、不保持 Worker 长连接。现有 SSE 从 PUBLIC/INTERNAL 过滤后的持久事件读取。
+- **Retrieval / RAG / Jev**：现状是只读 handbooks + 经审核经验候选的有限检索；没有 vector RAG 或 Jev 客户端。未来检索 adapter 只返回来源/版本/适用范围，不决定授权。
+- **Skill**：受限版本化方法；声明输入、证据、风险、允许工具和失败出口。加载 Skill 不等于已完成 SOP。
+- **SOP Workflow**：由确定性应用服务/Job/Case transition 持有流程阶段、期限、审批和结果核验；Agent 只给建议，不能变成流程状态机。
+
+### 执行策略
+
+首版专家只做一次受限咨询，由 Service Agent 决定是否调用；既有风险筛查优先。委派条件建议：问题需结合多个已授权 Evidence 或型号码已核验的资料，现有固定 Skill 未覆盖/出现明确证据冲突，或当前 Skill 明确要求专业分析。普通 FAQ、缺少基础照片/型号、危险征兆和应转人工的场景分别由检索/受控追问/安全规则/人工任务处理，不再给其增加 Agent 跳转。
+
+专家输入从服务器 DTO 构造：Task/Conversation IDs、Case/Device/Evidence refs 与资源版本、任务目标、允许工具、调用预算。上下文仅包含当前关联数据和通过权限/版本过滤的信息；历史消息/已核验事实保留来源。禁止传整个无筛选聊天历史、内部备注、跨客户记录、模型原始思维链或不必要序列号。输出用严格 Pydantic schema；无效 evidence ref、未知枚举、超限正文或不符合当前版本的结果拒绝或转安全 fallback。
+
+独立专家展示使用 `specialist.activity` 固定事件和活动卡。UI 活动标签描述真实工作阶段，不输出 reasoning、工具参数或原始 Tool Result。用户答案通过现有 UI Action 提交 task/question revision/task version；后端校验权限、幂等键、期限并原子保存答案、客户 Message、MessageJob 与 Outbox。用户普通文本不自动绑定等待中的诊断任务。跨一个新 AgentRun 的用户答案基于业务 task/answer 重建专家上下文；同一 Worker lease 重试复用 specialist checkpoint thread。
+
+### 取舍
+
+首选 Tool Subagent（Service Agent 控制权不转移、窄 DTO、主 Agent 收回结果）；不用 Handoff（专家接管用户回合会削弱统一服务入口）；暂不把完整 SOP 抽成 LangGraph workflow（现有 Case/审批/回执已有业务应用服务）；暂不迁 OpenAI Agents SDK、Microsoft Agent Framework 或 AG-UI（需新增运行时/API/状态 ownership）。如果 C 阶段出现多路并行、定时等待、人工中断与多分支，评估 LangGraph custom workflow/持久子图，不直接换框架。增加子 Agent 会增加至少一次模型调用/上下文 token，故必须按需门控并对真实 Provider 采集 P50/P95，不宣称无延迟。
+
+具体任务/事件/问答结构、权限拒绝、错误码和 A–D 验收见 [011 Spec](../specs/011-visible-specialist-orchestration/spec.md)、[研究](../specs/011-visible-specialist-orchestration/research.md)、[契约](../specs/011-visible-specialist-orchestration/contracts/feature-contract.md) 和 [计划](../specs/011-visible-specialist-orchestration/plan.md)。这些状态只反映当前实现代码路径；真实 Provider 输出质量/性能和进程终止恢复仍待专门验收。
+
+**SSE 发布细节**：`specialist.activity` 由 ConversationService 写入 Outbox，dispatcher 复核当前策略；PUBLIC/INTERNAL 事件沿用现有历史、序列和 SSE 授权过滤。事件不改变公开消息发布权限。
+
+**证据范围**：`agents/diagnostic.py` 仅开放只读本地手册和固定可调用 Skill；经审核经验仅作为参考候选输入，仍是只读。专家结果全程为 `HYPOTHESIS`，设备/案例/Evidence/审核经验引用须在结果持久化前复核。没有新增 Specialist HTTP API；问题卡和答案沿用现有受控 UI Action。

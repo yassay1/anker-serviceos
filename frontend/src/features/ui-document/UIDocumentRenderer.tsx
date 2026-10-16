@@ -121,9 +121,13 @@ function validComponents(value: unknown, conversationId: string, version: number
     if (Object.keys(props).length !== fields.length || fields.some(field => !isText(props[field]))) return false
     const source = item.data_source
     if (!isRecord(source) || typeof source.resource_id !== 'string' || !uuid.test(source.resource_id) ||
-      !positiveInteger(source.resource_version) || !['CONVERSATION_VIEW', 'CASE_VIEW', 'TASK_VIEW', 'AGENT_RUN_VIEW'].includes(String(source.kind)) ||
+      !positiveInteger(source.resource_version) || !['CONVERSATION_VIEW', 'CASE_VIEW', 'TASK_VIEW', 'AGENT_RUN_VIEW', 'DIAGNOSTIC_TASK_VIEW'].includes(String(source.kind)) ||
       (source.kind === 'CONVERSATION_VIEW' && (source.resource_id !== conversationId || source.resource_version !== version)) ||
-      (!desk && !['CONVERSATION_VIEW', 'AGENT_RUN_VIEW'].includes(String(source.kind)))) return false
+      (!desk && !['CONVERSATION_VIEW', 'AGENT_RUN_VIEW', 'DIAGNOSTIC_TASK_VIEW'].includes(String(source.kind)))) return false
+    if (source.kind === 'DIAGNOSTIC_TASK_VIEW') {
+      if (desk || item.type !== 'QuestionForm' && item.type !== 'ChoiceGroup' || source.binding !== 'question' ||
+        !positiveInteger(source.question_revision) || !Array.isArray(item.actions) || item.actions.length !== 1) return false
+    } else if (source.question_revision !== undefined && source.question_revision !== null) return false
     if (!Array.isArray(item.actions) || item.actions.length > 1 ||
       !Array.isArray(item.children) || item.children.length > 4 || item.children.some(child => typeof child !== 'string')) return false
     if (item.type === 'ActionBar') {
@@ -132,6 +136,11 @@ function validComponents(value: unknown, conversationId: string, version: number
         action.intent !== 'REQUEST_ASSISTANCE' || action.action_id !== 'request-human-assistance' ||
         action.input_schema_ref !== 'serviceos://ui-inputs/assistance-request/v1' ||
         Object.keys(action).length !== 3 || source.kind !== 'CONVERSATION_VIEW') return false
+    } else if (source.kind === 'DIAGNOSTIC_TASK_VIEW') {
+      const action = item.actions[0]
+      if (!isRecord(action) || action.intent !== 'SUBMIT_DIAGNOSTIC_ANSWER' ||
+        action.action_id !== 'submit-diagnostic-answer' || action.input_schema_ref !== 'serviceos://ui-inputs/diagnostic-answer/v1' ||
+        Object.keys(action).length !== 3) return false
     } else if (item.actions.length) return false
     const options = (item as { options?: unknown }).options ?? []
     if (!validOptions(options, item.type)) return false
@@ -171,12 +180,16 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
 }) {
   const [reason, setReason] = useState('需要真人协助处理当前问题')
   const [pending, setPending] = useState<UIActionBody | null>(() => readPendingAction(recoveryKey))
+  const diagnosticRecoveryKey = `${recoveryKey}:diagnostic`
+  const [diagnosticPending, setDiagnosticPending] = useState<UIActionBody | null>(() => readPendingAction(diagnosticRecoveryKey))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState('')
   // Choice feedback is kept apart from the assistance result: sending a choice must not
   // hide the assistance action, which stays available for the rest of the conversation.
   const [choiceSubmission, setChoiceSubmission] = useState<{ uiId: string, revision: number, status: string } | null>(null)
+  const [diagnosticSubmission, setDiagnosticSubmission] = useState<{ uiId: string, revision: number, status: string } | null>(null)
+  const [answerDraft, setAnswerDraft] = useState('')
   const [, tick] = useState(0)
   const latest = useRef<{ uiId: string, revision: number } | null>(null)
   const audienceMatches = isRecord(document) && document.audience === (desk ? 'STAFF' : 'CUSTOMER') &&
@@ -197,6 +210,8 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
     (desk ? document.surface === 'DESK_PANEL' : ['SUPPORT_INLINE', 'SUPPORT_PANEL'].includes(document.surface)) &&
     (expires === null || expires > Date.now()) && validComponents(document.components, conversationId, conversationVersion, desk)
   const choiceSubmitted = Boolean(document && choiceSubmission?.uiId === document.ui_id && choiceSubmission.revision === document.revision)
+  const diagnosticSubmitted = Boolean(document && diagnosticSubmission?.uiId === document.ui_id &&
+    diagnosticSubmission.revision === document.revision && diagnosticSubmission.status.startsWith('回答已保存'))
 
   function updatePending(body: UIActionBody) {
     savePendingAction(recoveryKey, body)
@@ -245,6 +260,63 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
       setBusy(false)
     }
   }
+  async function submitDiagnosticAnswer(component: UIDocument['components'][number], answer: string) {
+    if (busy || diagnosticPending || !active || !supported || !document ||
+      component.data_source.kind !== 'DIAGNOSTIC_TASK_VIEW' || !component.data_source.question_revision ||
+      !answer.trim() || answer.length > 1000) return
+    const body: UIActionBody = {
+      client_action_id: crypto.randomUUID(), ui_id: document.ui_id, revision: document.revision,
+      action_id: 'submit-diagnostic-answer',
+      input: { task_version: component.data_source.resource_version,
+        question_revision: component.data_source.question_revision, answer: answer.trim() },
+      expected_conversation_version: conversationVersion,
+    }
+    savePendingAction(diagnosticRecoveryKey, body)
+    setDiagnosticPending(body)
+    setBusy(true)
+    setError('')
+    setDiagnosticSubmission({ uiId: document.ui_id, revision: document.revision, status: '正在提交回答…' })
+    try {
+      await invokeUIAction(conversationId, body)
+      clearPendingAction(diagnosticRecoveryKey, body.client_action_id)
+      setDiagnosticPending(null)
+      setDiagnosticSubmission({ uiId: document.ui_id, revision: document.revision, status: '回答已保存，诊断专家将继续分析。' })
+      setAnswerDraft('')
+      onCompleted()
+    } catch (failure) {
+      setError(errorText(failure))
+      setDiagnosticSubmission({ uiId: document.ui_id, revision: document.revision, status: '回答状态尚未确认。' })
+      if (failure instanceof ApiFailure && failure.status >= 400 && failure.status < 500) {
+        clearPendingAction(diagnosticRecoveryKey, body.client_action_id)
+        setDiagnosticPending(null)
+      }
+      onRefresh()
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function retryDiagnosticAnswer() {
+    if (!diagnosticPending || busy) return
+    setBusy(true)
+    setError('')
+    try {
+      await invokeUIAction(conversationId, diagnosticPending)
+      clearPendingAction(diagnosticRecoveryKey, diagnosticPending.client_action_id)
+      setDiagnosticPending(null)
+      setDiagnosticSubmission({ uiId: diagnosticPending.ui_id, revision: diagnosticPending.revision,
+        status: '回答已保存，诊断专家将继续分析。' })
+      onCompleted()
+    } catch (failure) {
+      setError(errorText(failure))
+      if (failure instanceof ApiFailure && failure.status >= 400 && failure.status < 500) {
+        clearPendingAction(diagnosticRecoveryKey, diagnosticPending.client_action_id)
+        setDiagnosticPending(null)
+      }
+      onRefresh()
+    } finally {
+      setBusy(false)
+    }
+  }
   function requestHuman() {
     if (busy || !active || !supported || !document || (expires !== null && expires <= Date.now()) || reason.trim().length < 3 || reason.length > 1000) return
     const body: UIActionBody = pending ?? {
@@ -261,7 +333,13 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
     <input id="pending-assistance-reason" value={String(pending.input.reason)} disabled />
     <button type="button" disabled={busy} onClick={() => void submit(pending)}>{busy ? '正在查询…' : '用原请求重试'}</button>
   </div>
-  const feedback = <>{recovery}{result && <p role="status">{result}</p>}{choiceSubmitted && <p role="status">{choiceSubmission?.status}</p>}{error && <p className="form-error" role="alert">{error}</p>}</>
+  const diagnosticRecovery = diagnosticPending && <div className="ui-action ui-recovery">
+    <p>上次诊断回答结果未确认，请先查询原请求结果。</p>
+    <label htmlFor="pending-diagnostic-answer">原回答</label>
+    <input id="pending-diagnostic-answer" value={String(diagnosticPending.input.answer ?? '')} disabled />
+    <button type="button" disabled={busy} onClick={() => void retryDiagnosticAnswer()}>{busy ? '正在查询…' : '用原回答重试'}</button>
+  </div>
+  const feedback = <>{recovery}{diagnosticRecovery}{result && <p role="status">{result}</p>}{choiceSubmitted && <p role="status">{choiceSubmission?.status}</p>}{diagnosticSubmission && document && diagnosticSubmission.uiId === document.ui_id && <p role="status">{diagnosticSubmission.status}</p>}{error && <p className="form-error" role="alert">{error}</p>}</>
 
   if (!supported || !document) return <section className="ui-document" aria-label={desk ? '客服交互卡' : '服务交互卡'}>
     <p className="ui-fallback">{loading ? '正在加载交互卡…' : audienceMatches && isText(document?.fallback_text) ? document.fallback_text : '暂无可用交互卡；可继续使用文字消息。'}</p>
@@ -335,12 +413,22 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
         {(component.type === 'CaseSummaryCard' || component.type === 'HandoffSummary') && <p><StatusBadge value={component.props.status} label={component.props.status === 'FAILED' ? '处理失败' : undefined} /></p>}
         {'source' in component.props && <dl className="ui-evidence-meta"><div><dt>来源</dt><dd>{component.props.source}</dd></div>
           <div><dt>核验</dt><dd><StatusBadge value={component.props.verification} /></dd></div></dl>}
-        {component.type === 'QuestionForm' && !desk && <div className="ui-question-reply"><small>直接用文字回答；不便操作也可以说明。</small>{onReply && <button type="button" disabled={!active} onClick={onReply}>填写回复</button>}</div>}
+        {component.type === 'QuestionForm' && !desk && component.data_source.kind === 'DIAGNOSTIC_TASK_VIEW' && <form className="ui-question-reply" onSubmit={(event) => {
+          event.preventDefault(); void submitDiagnosticAnswer(component, answerDraft)
+        }}>
+          <label htmlFor="diagnostic-answer">你的回答</label>
+          <textarea id="diagnostic-answer" value={answerDraft} maxLength={1000} disabled={busy || diagnosticSubmitted || Boolean(diagnosticPending) || !active}
+            onChange={(event) => setAnswerDraft(event.target.value)} />
+          <button type="submit" disabled={busy || diagnosticSubmitted || Boolean(diagnosticPending) || !active || !answerDraft.trim()}>{busy ? '正在提交…' : '提交给诊断专家'}</button>
+        </form>}
+        {component.type === 'QuestionForm' && !desk && component.data_source.kind !== 'DIAGNOSTIC_TASK_VIEW' && <div className="ui-question-reply"><small>直接用文字回答；不便操作也可以说明。</small>{onReply && <button type="button" disabled={!active} onClick={onReply}>填写回复</button>}</div>}
         {component.type === 'ChoiceGroup' && !desk && <div className="ui-choices">
-          <small>选一个最接近的情况，也可以直接用文字回答。</small>
+          <small>{component.data_source.kind === 'DIAGNOSTIC_TASK_VIEW' ? '选择一项回答诊断专家。' : '选一个最接近的情况，也可以直接用文字回答。'}</small>
           <div role="group" aria-label={component.props.title}>
-            {(component.options ?? []).map(option => <button type="button" key={option.value} disabled={busy || choiceSubmitted || !active || !onChoose}
-              onClick={() => void choose(option.label)}>{option.label}</button>)}
+            {(component.options ?? []).map(option => <button type="button" key={option.value}
+              disabled={busy || (component.data_source.kind === 'DIAGNOSTIC_TASK_VIEW' ? diagnosticSubmitted || Boolean(diagnosticPending) : choiceSubmitted || !onChoose) || !active}
+              onClick={() => component.data_source.kind === 'DIAGNOSTIC_TASK_VIEW'
+                ? void submitDiagnosticAnswer(component, option.label) : void choose(option.label)}>{option.label}</button>)}
           </div>
         </div>}
         {desk && component.data_source.kind === 'CASE_VIEW' && <Link className="ui-case-link" to={`/cases/${component.data_source.resource_id}`}>查看案例与证据</Link>}
