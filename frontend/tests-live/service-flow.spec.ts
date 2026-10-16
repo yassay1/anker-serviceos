@@ -60,6 +60,7 @@ test('real API: persisted conversation, human handoff and PUBLIC/INTERNAL separa
     await staff.getByLabel('原因', { exact: true }).fill('真实联调人工接续处理')
     await staff.getByRole('button', { name: '切换策略', exact: true }).click()
     await expect(staff.getByText(/当前：真人主导 · 发言策略：仅人工回复/)).toBeVisible()
+    await customer.reload()
     await expect(customer.getByRole('region', { name: '人机协作' }).getByText('真人主导 · 仅人工回复')).toBeVisible()
 
     const internal = `仅内部审阅的联调备注 ${Date.now()}`
