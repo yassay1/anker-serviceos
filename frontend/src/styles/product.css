@@ -89,6 +89,7 @@ input:disabled, textarea:disabled, select:disabled { background: #f3f5f8; color:
 .support-view .page-heading { min-height: 0; padding: 0; margin: 0 0 24px; background: none; }
 .support-view .page-heading h1 { font-size: 30px; margin-bottom: 8px; }
 .support-view .page-heading p { font-size: 14px; }
+.customer-new-conversation { min-width: 166px; padding-inline: 20px; }
 .diagnosis-steps { margin: 0 0 20px; padding: 18px 24px; border: 1px solid var(--border); gap: 28px; background: #fff; }
 .diagnosis-steps li { color: var(--muted); gap: 12px; }
 .diagnosis-steps li:not(:last-child)::after { right: 0; width: 16%; }
@@ -128,6 +129,56 @@ input:disabled, textarea:disabled, select:disabled { background: #f3f5f8; color:
 .support-view .message-empty { padding: 45px 20px; }
 .message-empty > button { margin-top: 20px; }
 .support-view .conversation-selector summary { font-size: 13px; padding-block: 9px; }
+/* When the customer opens history on desktop, keep the list beside the active chat. */
+@media (min-width: 1001px) {
+  .support-view .conversation-selector summary { display: none; }
+  .support-view .chat-layout:has(.conversation-selector details[open]) {
+    grid-template-columns: 250px minmax(0, 1fr) 306px;
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .support-view .chat-layout.no-context:has(.conversation-selector details[open]) {
+    grid-template-columns: 250px minmax(0, 1fr);
+  }
+  .support-view .chat-layout:has(.conversation-selector details[open]) .chat-panel {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .support-view .chat-layout:has(.conversation-selector details[open]) .context-panel {
+    grid-column: 3;
+    grid-row: 1;
+    margin-top: 0;
+  }
+  .support-view .chat-layout:has(.conversation-selector details[open]) .conversation-selector,
+  .support-view .chat-layout:has(.conversation-selector details[open]) .conversation-selector details {
+    height: 100%;
+    min-height: 0;
+  }
+  .support-view .chat-layout:has(.conversation-selector details[open]) .conversation-selector details[open] {
+    display: flex;
+    flex-direction: column;
+  }
+  .support-view .chat-layout:has(.conversation-selector details[open]) .conversation-selector details[open] .conversation-list {
+    position: static;
+    width: auto;
+    height: auto;
+    max-height: none;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    box-shadow: none;
+  }
+  .support-view .chat-layout.no-context:has(.conversation-selector details[open]) .chat-panel {
+    grid-column: 2;
+  }
+}
+@media (min-width: 1001px) and (max-width: 1200px) {
+  .support-view .chat-layout:has(.conversation-selector details[open]) {
+    grid-template-columns: 220px minmax(0, 1fr) 250px;
+  }
+  .support-view .chat-layout.no-context:has(.conversation-selector details[open]) {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+}
 .context-ui.conversation-ui { margin-top: 20px; }
 .ui-ActionBar { background: #fffcf8; border-color: #eaddcc; padding: 0; }
 .ui-ActionBar > summary { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 14px 16px; font-size: 14px; font-weight: 600; cursor: pointer; list-style: none; }
@@ -137,6 +188,9 @@ input:disabled, textarea:disabled, select:disabled { background: #f3f5f8; color:
 .ui-ActionBar[open] .assistance-expand { font-size: 0; }
 .ui-ActionBar[open] .assistance-expand::after { content: '收起'; font-size: 12px; }
 .ui-ActionBar > p, .ui-ActionBar > .ui-action { margin: 0 16px 16px; }
+.customer-assistance .ui-ActionBar { margin: 0; padding: 0; border: 0; background: transparent; }
+.customer-assistance .ui-ActionBar > .ui-action { margin: 0; }
+.customer-assistance .ui-ActionBar .ui-action > button:first-child { width: 100%; min-height: 46px; justify-content: center; color: var(--accent-hover); background: #f4f7ff; border-color: #b9cdfc; font-weight: 650; }
 .ui-action { gap: 9px; }
 .ui-action button { color: var(--accent-hover); border-color: #c3d1f5; }
 .ui-version { font-size: 12px; }
@@ -176,6 +230,16 @@ input:disabled, textarea:disabled, select:disabled { background: #f3f5f8; color:
 .case-verification label { display: grid; gap: 7px; font-size: 13px; }
 .case-verification input, .case-verification textarea, .case-verification select { margin: 0; }
 .case-evidence label.upload-field { border: 1px dashed #b9c7dc; padding: 16px; border-radius: 10px; background: #fafbfe; font-size: 14px; }
+.evidence-photo-guide { margin: 14px 0; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: #f8f6f3; }
+.evidence-photo-guide img { display: block; width: 100%; aspect-ratio: 4 / 2.3; object-fit: cover; }
+.evidence-photo-guide figcaption { padding: 9px 12px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.evidence-photo-examples { margin: 0 0 14px; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+.evidence-photo-examples > summary { padding: 10px 12px; color: var(--accent-hover); font-size: 12px; font-weight: 600; cursor: pointer; }
+.evidence-photo-example-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 0 10px; }
+.evidence-photo-example-grid figure { min-width: 0; margin: 0; overflow: hidden; border-radius: 8px; background: #f8f6f3; }
+.evidence-photo-example-grid img { display: block; width: 100%; aspect-ratio: 4 / 2.3; object-fit: cover; }
+.evidence-photo-example-grid figcaption { padding: 5px 8px; color: var(--muted); font-size: 11px; }
+.evidence-photo-examples > p { margin: 7px 12px 10px; color: var(--muted); font-size: 11px; }
 .upload-field > small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; margin: 4px 0 10px; }
 input[type="file"] { background: white; padding: 8px; font-size: 12px; }
 input[type="file"]::file-selector-button { background: var(--accent-soft); color: var(--accent-hover); border: 0; border-radius: 6px; padding: 9px 12px; margin-right: 10px; cursor: pointer; font: inherit; font-weight: 600; }
@@ -322,6 +386,7 @@ input[type="file"]::file-selector-button { background: var(--accent-soft); color
   .support-view .page-heading { margin: 0 4px 20px; padding: 0; min-height: 0; background: none; }
   .support-view .page-heading h1 { font-size: 27px; }
   .support-view .page-heading p { font-size: 13px; max-width: 36ch; }
+  .support-view .customer-new-conversation { margin-top: 14px; }
   .diagnosis-steps { padding: 16px 12px; margin: 0 0 14px; gap: 5px; }
   .diagnosis-steps li { gap: 7px; align-items: center; }
   .diagnosis-steps li > span { width: 26px; height: 26px; font-size: 12px; }

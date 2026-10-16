@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { FileText, Headphones, Inbox, MessageSquare, ShieldCheck, Sparkles, ChevronDown } from 'lucide-react'
+import { FileText, Headphones, Inbox, MessageSquare, ShieldCheck, Sparkles, ChevronDown, Plus } from 'lucide-react'
 import {
   ApiFailure, type Actor, type SendBody, createConversation, listConversations,
   listDeskCaseSummaries, listMessages, readUIDocument, refreshUIDocument, sendMessage,
@@ -35,11 +35,19 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
   const [creating, setCreating] = useState(false)
   const [drafts, setDrafts] = useState<Record<string, { text: string, internal: boolean }>>({})
   const [mobilePanel, setMobilePanel] = useState<'list' | 'chat' | 'context'>('chat')
+  const [wideScreen, setWideScreen] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1001px)').matches)
   const [pending, setPending] = useState<Pending[]>([])
   const selectorRef = useRef<HTMLDetailsElement>(null)
   const quickReplyLocks = useRef(new Set<string>())
   const [quickReplyError, setQuickReplyError] = useState('')
   const [attachmentsFor, setAttachmentsFor] = useState<string | null>(null)
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 1001px)')
+    const update = () => setWideScreen(media.matches)
+    update()
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
   const conversations = useQuery({
     queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id), queryFn: listConversations,
     refetchInterval: 10_000,
@@ -130,7 +138,7 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
       const created = await createConversation()
       await queryClient.invalidateQueries({ queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id) })
       setSearchParams({ conversation: created.id })
-      if (!desk && selectorRef.current) selectorRef.current.open = false
+      if (!desk && !wideScreen && selectorRef.current) selectorRef.current.open = false
       setMobilePanel('chat')
     } catch (failure) {
       setCreateError(readableError(failure))
@@ -223,10 +231,13 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
   return <div className={`workspace-page ${desk ? 'desk-view' : 'support-view'} mobile-${mobilePanel}`}>
     <div className="page-heading">
       <div>
-        <h1>{desk ? '服务工作台' : 'AI 智能诊断'}</h1>
-        <p>{desk ? '沟通、证据与协作，在同一个服务现场。' : '通过简单的描述和图片，帮助定位设备问题，继续专业的售后服务。'}</p>
+        <h1>{desk ? '服务工作台' : '对话'}</h1>
+        <p>{desk ? '沟通、证据与协作，在同一个服务现场。' : '继续已有服务，或开始一个新问题。'}</p>
       </div>
-      <div className="scope-note"><ShieldCheck size={15} aria-hidden="true" />服务记录来自当前账号</div>
+      {desk ? <div className="scope-note"><ShieldCheck size={15} aria-hidden="true" />服务记录来自当前账号</div> :
+        <button type="button" className="primary-button customer-new-conversation" disabled={creating} onClick={() => void startConversation()}>
+          <Plus size={18} aria-hidden="true" />{creating ? '正在建立会话…' : '开始新对话'}
+        </button>}
     </div>
     {!desk && <ol className="diagnosis-steps" aria-label="服务使用指引">{[
       ['问题确认', '描述设备与遇到的问题'], ['补充信息', '按提示提供实际资料'], ['查看处理', '跟进关联工单与结果'],
@@ -237,10 +248,10 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
       <button type="button" aria-pressed={mobilePanel === 'context'} disabled={!selected} onClick={() => setMobilePanel('context')}><FileText size={17} aria-hidden="true" />{desk ? '资料' : '资料与协助'}</button>
     </div>
     <div className={`chat-layout ${selected ? 'has-context' : 'no-context'}`}>
-      <div className="conversation-selector"><details ref={selectorRef} open={desk || mobilePanel === 'list'}><summary><Inbox size={16} />{desk ? '我的服务会话' : '历史问答 · 点击切换会话'}<span>{conversations.data?.length ?? 0}</span><ChevronDown size={15} /></summary><ConversationSidebar desk={desk} items={conversations.data} selectedId={selected?.id}
+      <div className="conversation-selector"><details ref={selectorRef} open={desk || mobilePanel === 'list' || (!desk && wideScreen)}><summary><Inbox size={16} />{desk ? '我的服务会话' : '历史问答 · 点击切换会话'}<span>{conversations.data?.length ?? 0}</span><ChevronDown size={15} /></summary><ConversationSidebar desk={desk} items={conversations.data} selectedId={selected?.id}
         loading={conversations.isPending} error={conversations.isError ? readableError(conversations.error) : undefined}
-        creating={creating} createError={createError} onCreate={() => void startConversation()}
-        onSelect={(id) => { if (!desk && selectorRef.current) selectorRef.current.open = false; setSearchParams({ conversation: id }); setMobilePanel('chat') }} /></details></div>
+        creating={creating} createError={createError} onCreate={() => void startConversation()} showCreate={false}
+        onSelect={(id) => { if (!desk && !wideScreen && selectorRef.current) selectorRef.current.open = false; setSearchParams({ conversation: id }); setMobilePanel('chat') }} /></details></div>
       <section className="chat-panel" aria-label="当前会话">
         {selected ? <>
           <div className="chat-heading">
@@ -256,9 +267,10 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
             {!desk && selected.status === 'ACTIVE' && selected.collaboration_mode === 'AI_LEAD' &&
               selected.reply_policy === 'AI_AUTO' && !messages.hasNextPage && !messages.isError &&
               lastPublic?.author_kind === 'CUSTOMER' && progress?.conversationId !== selected.id &&
-              <p className="agent-progress" role="status">消息已保存，正在等待服务助手回复。处理时间较长时，可以请求下方的人工协助。</p>}
-            {progress?.conversationId === selected.id && <AgentProgressNote progress={progress} connected={streamState === 'connected'} />}
-            {specialistActivity?.conversationId === selected.id && <SpecialistActivityNote activity={specialistActivity} connected={streamState === 'connected'} />}
+              <p className="agent-progress" role="status">消息已保存。</p>}
+            {progress?.conversationId === selected.id && (desk || ['WAITING_EVIDENCE', 'FAILED'].includes(progress.stage)) &&
+              <AgentProgressNote progress={progress} connected={streamState === 'connected'} />}
+            {desk && specialistActivity?.conversationId === selected.id && <SpecialistActivityNote activity={specialistActivity} connected={streamState === 'connected'} />}
             {!desk && interactionCards}
           </MessageThread>
           <MessageComposer key={`composer:${selected.id}`} desk={desk} active={selected.status === 'ACTIVE'} draft={draft} internal={internal}
@@ -290,20 +302,18 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
         </section>}
         {!desk && <RelatedCases key={selected.id} actor={actor} ids={relatedCaseIds} />}
         {desk ? <CollaborationPanel key={selected.id} conversation={selected} actor={actor} desk /> :
-          <section className="collaboration-panel" aria-label="人机协作">
-            <h3><Headphones size={18} aria-hidden="true" />服务有人接续</h3>
-            <p className="policy-summary">{statusLabel(selected.collaboration_mode)} · {statusLabel(selected.reply_policy)}</p>
-            <p>补充信息与人工协助在会话中的交互卡处理，服务记录会继续保留。</p>
-            <button type="button" onClick={() => {
-              setMobilePanel('chat')
-              requestAnimationFrame(() => {
-                const cards = document.getElementById('conversation-interactions')
-                const assistance = cards?.querySelector<HTMLDetailsElement>('details.ui-ActionBar')
-                if (assistance) assistance.open = true
-                cards?.focus()
-                cards?.scrollIntoView({ block: 'nearest' })
-              })
-            }}>查看协助与补充信息</button>
+          <section className="collaboration-panel customer-assistance" aria-label="服务协助">
+            <h3><Headphones size={18} aria-hidden="true" />需要进一步协助？</h3>
+            <p>如需人工协助，可提交请求；服务记录会保留在当前会话。</p>
+            <UIDocumentRenderer key={`assistance:${selected.id}`} document={uiDocument.isError ? null : uiDocument.data ?? null}
+              loading={uiDocument.isPending} active={selected.status === 'ACTIVE' && !uiDocument.isError}
+              recoveryKey={`serviceos:pending-ui:${actor.tenant_id}:${actor.actor_id}:${selected.id}`}
+              conversationId={selected.id} conversationVersion={selected.version} desk={false} placement="assistance"
+              onCompleted={() => {
+                void queryClient.invalidateQueries({ queryKey: queryKeys.tasks(actor.tenant_id, selected.id) })
+                void queryClient.invalidateQueries({ queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, selected.id) })
+              }}
+              onRefresh={() => { void queryClient.invalidateQueries({ queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, selected.id) }) }} />
           </section>}
         {desk && interactionCards}
       </aside>}
