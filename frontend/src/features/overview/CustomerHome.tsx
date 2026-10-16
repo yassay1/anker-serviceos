@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowRight, ChevronRight, Power, Wifi, Box, Wrench, Truck, ClipboardList, Sparkles, Headphones, ShieldCheck, MonitorSmartphone } from 'lucide-react'
-import { type Actor, createConversation, listCases, listDevices, listConversations } from '../../api/client'
+import { ArrowRight, ChevronRight, Power, Wifi, Box, Wrench, Truck, ClipboardList, Sparkles, Headphones, ShieldCheck, MonitorSmartphone, ImagePlus, X } from 'lucide-react'
+import { type Actor, createConversation, listCases, listDevices, listConversations, sendMessage } from '../../api/client'
 import { queryKeys } from '../../app/queryKeys'
 import { StatusBadge } from '../../shared/StatusBadge'
 import { DeviceIcon } from '../../shared/DeviceIcon'
@@ -22,11 +22,31 @@ export function CustomerHome({ actor }: { actor: Actor }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState('')
+  const [files, setFiles] = useState<File[]>([])
+  const [fileError, setFileError] = useState('')
+  const fileInput = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const cases = useQuery({ queryKey: queryKeys.cases(actor.tenant_id, actor.actor_id), queryFn: listCases })
   const devices = useQuery({ queryKey: queryKeys.devices(actor.tenant_id, actor.actor_id), queryFn: listDevices })
   const conversations = useQuery({ queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id), queryFn: listConversations })
+
+  const allowed = ['image/jpeg', 'image/png', 'image/webp']
+  function addFiles(list: FileList | null) {
+    setFileError('')
+    if (!list) return
+    const next = [...files]
+    for (const file of Array.from(list)) {
+      if (!allowed.includes(file.type) || file.size === 0 || file.size > 10 * 1024 * 1024) {
+        setFileError('仅支持不超过 10 MiB 的 JPEG、PNG 或 WebP 图片。')
+        continue
+      }
+      if (next.length >= 5) { setFileError('一次最多携带 5 张图片。'); break }
+      next.push(file)
+    }
+    setFiles(next)
+    if (fileInput.current) fileInput.current.value = ''
+  }
 
   async function start(event: FormEvent) {
     event.preventDefault()
@@ -35,7 +55,17 @@ export function CustomerHome({ actor }: { actor: Actor }) {
     try {
       const conversation = await createConversation()
       await queryClient.invalidateQueries({ queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id) })
-      navigate(`/support?conversation=${conversation.id}`, { state: { draft: draft.trim() } })
+      let sent = true
+      try {
+        await sendMessage(conversation.id, { client_message_id: crypto.randomUUID(),
+          content: [{ type: 'text', text: draft.trim() }], visibility: 'PUBLIC' })
+      } catch {
+        sent = false
+      }
+      navigate(`/support?conversation=${conversation.id}`, {
+        state: sent ? { autoAttachFiles: files.length ? files : undefined }
+          : { draft: draft.trim(), autoAttachFiles: files.length ? files : undefined },
+      })
     } catch (failure) { setError(readableError(failure)); setBusy(false) }
   }
 
@@ -45,8 +75,21 @@ export function CustomerHome({ actor }: { actor: Actor }) {
         <form className="diagnosis-entry" onSubmit={event => void start(event)}>
           <label className="visually-hidden" htmlFor="home-problem">问题描述</label>
           <textarea id="home-problem" placeholder="请描述您遇到的问题，例如：设备无法开机、出现故障代码、噪音异常等…" value={draft} onChange={event => setDraft(event.target.value)} maxLength={8000} required aria-describedby="home-entry-hint" />
-          <p id="home-entry-hint" className="entry-hint">新问题将开启独立会话，您可确认后发送。</p>
-          <div className="diagnosis-entry-foot"><Link to="/support"><Headphones size={18} />继续上次会话／历史问答{conversations.data ? `（${conversations.data.length}）` : ''}</Link><button className="primary-button" type="submit" disabled={busy}><Sparkles size={19} />{busy ? '正在打开…' : '开始新的诊断'}<ArrowRight size={19} /></button></div>
+          <div className="home-attach-row">
+            <button type="button" className="ghost-button" onClick={() => fileInput.current?.click()} aria-label="添加图片">
+              <ImagePlus size={18} />添加图片
+            </button>
+            <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" multiple hidden
+              onChange={event => addFiles(event.target.files)} />
+            {files.map((file, index) => <span key={`${file.name}:${index}`} className="attach-chip">
+              {file.name}
+              <button type="button" aria-label={`移除 ${file.name}`}
+                onClick={() => setFiles(files.filter((_, i) => i !== index))}><X size={14} /></button>
+            </span>)}
+          </div>
+          {fileError && <p className="form-error" role="alert">{fileError}</p>}
+          <p id="home-entry-hint" className="entry-hint">点击后将开启独立会话并立即发送；图片进入会话后自动归入服务案例证据。</p>
+          <div className="diagnosis-entry-foot"><Link to="/support"><Headphones size={18} />继续上次会话／历史问答{conversations.data ? `（${conversations.data.length}）` : ''}</Link><button className="primary-button" type="submit" disabled={busy}><Sparkles size={19} />{busy ? '正在发送…' : '开始新的诊断'}<ArrowRight size={19} /></button></div>
           {error && <p className="form-error" role="alert">{error}</p>}
         </form>
       </div>

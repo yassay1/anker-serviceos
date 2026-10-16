@@ -33,7 +33,7 @@ async function digestFile(file: File): Promise<string> {
   return Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
-export function CaseEvidencePanel({ actor, serviceCase }: { actor: Actor, serviceCase: ServiceCase }) {
+export function CaseEvidencePanel({ actor, serviceCase, initialFiles }: { actor: Actor, serviceCase: ServiceCase, initialFiles?: File[] }) {
   const caseId = serviceCase.id
   const queryClient = useQueryClient()
   const pendingKey = `serviceos:evidence:${actor.tenant_id}:${actor.actor_id}:${caseId}`
@@ -92,6 +92,36 @@ export function CaseEvidencePanel({ actor, serviceCase }: { actor: Actor, servic
       }
     } finally { setBusy(false) }
   }
+
+  async function uploadOne(target: File): Promise<void> {
+    setError(''); setNotice('')
+    if (!allowed.includes(target.type) || target.size === 0 || target.size > maxBytes) {
+      setError('请选择不超过 10 MiB 的 JPEG、PNG 或 WebP 图片。'); return
+    }
+    setBusy(true)
+    try {
+      const digest = await digestFile(target)
+      const attempt = { id: crypto.randomUUID(), digest, caseVersion: serviceCase.version, visibility }
+      await uploadCaseEvidence(caseId, target, attempt.id, attempt.caseVersion, attempt.visibility)
+      setNotice('图片已受理，等待服务端结构检查；通过前无法查看。')
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.caseEvidence(actor.tenant_id, actor.actor_id, caseId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.case(actor.tenant_id, actor.actor_id, caseId) }),
+      ])
+    } catch (failure) {
+      setError(readableError(failure))
+      if (failure instanceof ApiFailure && failure.status >= 400 && failure.status < 500) {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.case(actor.tenant_id, actor.actor_id, caseId) })
+      }
+    } finally { setBusy(false) }
+  }
+
+  const autoStarted = useRef(false)
+  useEffect(() => {
+    if (!initialFiles || initialFiles.length === 0 || autoStarted.current) return
+    autoStarted.current = true
+    void (async () => { for (const item of initialFiles) await uploadOne(item) })()
+  }, [initialFiles, serviceCase.id])
 
   async function show(id: string) {
     setError('')
