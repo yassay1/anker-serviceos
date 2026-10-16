@@ -30,11 +30,19 @@ AMBIGUOUS_PRODUCTS = {
     ),
 }
 
+# When the current request names a different product category, an ambiguous name in the
+# query almost always comes from conversation history, not from the current product.
+# Forcing the two-family choice card then answers the wrong question.
+CONTRADICTING_TERMS = ("充电宝", "移动电源", "power bank", "充电头", "充电器", "摄像头",
+                       "相机", "耳机", "音箱", "投影")
+
 
 def detect_ambiguity(query: str, verified_models: set[str]) -> list[tuple[str, str]]:
     """Return conflicting (label, model) candidates visible to the agent, else []."""
     folded = query.casefold()
     verified = {model.casefold() for model in verified_models}
+    if any(term in folded for term in CONTRADICTING_TERMS):
+        return []
     for name, candidates in AMBIGUOUS_PRODUCTS.items():
         if name in folded:
             unresolved = [candidate for candidate in candidates if candidate[1] not in verified]

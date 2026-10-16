@@ -31,3 +31,10 @@ def test_risk_filter_matches_overheating_but_respects_negation():
     assert RISK.search('设备过热')
     assert not RISK.search('设备不过热')
     assert not RISK.search('设备没有过热')
+
+
+def test_risk_filter_covers_explosion_and_fire_words():
+    assert RISK.search('我的充电宝炸了')
+    assert RISK.search('设备起火冒烟')
+    assert RISK.search('着火了')
+    assert not RISK.search('没有起火也没有鼓包')

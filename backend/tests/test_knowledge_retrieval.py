@@ -360,3 +360,10 @@ def test_rewrite_is_reactive_not_per_turn(db_session, monkeypatch):
     assert hit.status == "OK" and calls == []
     miss = service.lookup_manual("xyzzy plugh frobnicate", verified_models=set())
     assert miss.status == "NOT_FOUND" and len(calls) == 1
+
+
+def test_detect_ambiguity_suppressed_when_current_product_differs():
+    from serviceos_api.application.knowledge_retrieval import detect_ambiguity
+    assert detect_ambiguity("S1 Pro 充电宝 炸了", set()) == []
+    assert detect_ambiguity("移动电源 s1 pro 充电慢", set()) == []
+    assert len(detect_ambiguity("S1 Pro 吸力小", set())) == 2
