@@ -72,7 +72,7 @@ def case_process_flow(case, task=None, action=None, verification=None) -> dict:
         verify_state = {"VERIFIED_RESOLVED": "COMPLETED", "NOT_RESOLVED": "FAILED", "PENDING": "WAITING"}.get(
             verification.decision, "UNKNOWN")
         nodes.append({"id": "verification", "label": "结果核验", "status": verify_state,
-                      "detail": f"核验结论：{verification.decision}",
+                      "detail": f"客户观察：{verification.observed_result}；核验结论：{verification.decision}",
                       "resource_kind": "CASE_VIEW", "resource_id": case.id, "resource_version": case.version})
         if action is not None:
             edges.append({"source": "service-action", "target": "verification"})
