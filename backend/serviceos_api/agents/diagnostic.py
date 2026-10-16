@@ -55,7 +55,12 @@ class DiagnosticAgentRuntime:
         def load_skill(skill_id: str, version: str) -> dict:
             """加载服务端允许的固定 Skill 方法，不代表 Skill 已执行完成。"""
             with _tool_service(tenant_id, conversation_id, parent_run_id, lease_token) as service:
-                return service.load_skill(skill_id, version).to_model_value()
+                try:
+                    return service.load_skill(skill_id, version).to_model_value()
+                except ValueError as error:
+                    if str(error) in ("skill_unavailable", "skill_not_callable"):
+                        return {"error": str(error), "skill_id": skill_id, "version": version}
+                    raise
 
         model = ChatOpenAI(
             model=self.settings.llm_model,

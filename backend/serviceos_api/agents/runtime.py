@@ -144,7 +144,13 @@ class AgentRuntime:
         def load_skill(skill_id: str, version: str) -> dict:
             """Load an eligible fixed Skill version. LOADED is not completed; PREPARED is not callable."""
             with _tool_service(tenant_id, conversation_id, run_id, lease_token, self.settings) as service:
-                return service.load_skill(skill_id, version).to_model_value()
+                try:
+                    return service.load_skill(skill_id, version).to_model_value()
+                except ValueError as error:
+                    # Recoverable model mistake: let the agent adapt instead of killing the turn.
+                    if str(error) in ("skill_unavailable", "skill_not_callable"):
+                        return {"error": str(error), "skill_id": skill_id, "version": version}
+                    raise
 
         @tool
         def request_missing_evidence(summary: str) -> str:
@@ -186,7 +192,12 @@ class AgentRuntime:
                 # Persist only a bounded error code if this parent execution still owns its lease.
                 with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
                     service.fail_diagnostic(task_id, specialist_run_id, "diagnostic_execution_failed")
-                raise RuntimeError("diagnostic_execution_failed") from error
+                # Degrade instead of failing the whole turn: the manager answers with its
+                # own tools or escalates; the specialist failure stays audited on the task.
+                return {"task_id": str(task_id), "status": "FAILED",
+                        "error_code": "diagnostic_execution_failed",
+                        "diagnostic_result": None,
+                        "note": "诊断专家本次执行失败；请基于现有工具与资料直接回答，或建议人工协助。"}
             return {"task_id": str(task_id), "status": "COMPLETED", "diagnostic_result": payload}
 
         # A controlled customer answer resumes its persisted DiagnosticTask
