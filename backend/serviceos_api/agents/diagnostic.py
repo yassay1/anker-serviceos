@@ -46,7 +46,7 @@ class DiagnosticAgentRuntime:
             """只读检索适用的本地售后手册；不提供设备写入或外部动作。"""
             with _tool_service(tenant_id, conversation_id, parent_run_id, lease_token) as service:
                 result = service.lookup_manual(query, verified_models=verified_models,
-                                               specialist=(task.task_id, specialist_run_id))
+                                               specialist=(task.task_id, specialist_run_id)).to_prompt_text(5000)
             for name, version in re.findall(r"SOURCE: ([^\s|]+) \| VERSION: sha256:([0-9a-f]{16})", result):
                 manual_source_refs.add(f"manual:{name}:sha256:{version}")
             return result
@@ -55,7 +55,7 @@ class DiagnosticAgentRuntime:
         def load_skill(skill_id: str, version: str) -> dict:
             """加载服务端允许的固定 Skill 方法，不代表 Skill 已执行完成。"""
             with _tool_service(tenant_id, conversation_id, parent_run_id, lease_token) as service:
-                return service.load_skill(skill_id, version)
+                return service.load_skill(skill_id, version).to_model_value()
 
         model = ChatOpenAI(
             model=self.settings.llm_model,

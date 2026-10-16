@@ -63,7 +63,10 @@ async function openDesk(page: Page) {
   })
   await page.goto(`/desk?conversation=${conversationId}`)
   const contextButton = page.getByRole('button', { name: '资料', exact: true })
-  if (await contextButton.isVisible()) await contextButton.click()
+  if (await page.evaluate(() => window.matchMedia('(max-width: 760px)').matches)) {
+    await expect(contextButton).toBeVisible()
+    await contextButton.click()
+  } else if (await contextButton.isVisible()) await contextButton.click()
   await expect(page.getByRole('button', { name: '接管', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '批准', exact: true })).toBeVisible()
   return state

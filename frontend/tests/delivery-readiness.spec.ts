@@ -451,6 +451,7 @@ test('delivery UI: clicking a choice sends it as an ordinary customer message', 
   })
   expect(state.sent.at(-1)?.client_message_id).toMatch(/^[0-9a-f-]{36}$/)
   // The choice path must not touch the assistance action surface.
+  await expandAssistance(page)
   expect(await region.getByRole('button', { name: '请求人工协助' }).count()).toBe(1)
 })
 

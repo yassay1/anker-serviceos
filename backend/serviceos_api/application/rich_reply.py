@@ -143,6 +143,24 @@ STATUS_LABELS = {'OPEN': '已建立', 'IN_PROGRESS': '处理中', 'WAITING_CUSTO
                  'WAITING_EXTERNAL': '等待外部处理', 'RESOLVED': '已核验解决', 'CLOSED': '已关闭'}
 
 RISK = re.compile(r'(?<!没有)(?<!无)(?<!不)(鼓包|冒烟|漏液|烧焦|烫手|异味|异常发热)')
+
+
+def _safety_reply(reply: RichReply) -> RichReply:
+    """Keep only content that is replaced with server-owned facts or neutral copy."""
+    safe_types = {'image', 'image_focus', 'status', 'timeline', 'reference', 'actions'}
+    blocks = []
+    for item in reply.blocks:
+        if item.type not in safe_types:
+            continue
+        if item.type in ('image', 'image_focus'):
+            blocks.append(item.model_copy(update={
+                'type': 'image', 'title': '用户提供的图片',
+                'text': '已收到设备图片；无法据此确认故障原因。请先遵循安全提示。',
+                'focus': None,
+            }))
+        else:
+            blocks.append(item)
+    return reply.model_copy(update={'blocks': blocks, 'quick_replies': []})
 SAFETY_TEXT = '如果设备出现鼓包、冒烟、漏液、异味或明显过热，请停止使用和充电，保持安全距离，不要拆机、挤压或继续通电排查，并通过现有入口联系人工客服。单凭描述不能确认故障原因。'
 
 
@@ -166,6 +184,8 @@ def project_reply(session, conversation, run, draft, related_case_id=None):
     source_message = session.scalar(select(Message).where(Message.id == run.message_id,
         Message.tenant_id == conversation.tenant_id, Message.conversation_id == conversation.id))
     safety = bool(source_message and RISK.search(' '.join(part.get('text', '') for part in source_message.content)))
+    if safety:
+        reply = _safety_reply(reply)
     for item in reply.blocks:
         block = item.model_dump(mode='json')
         case_id = item.case_id or (str(related_case_id) if related_case_id else next(iter(by_id), None) if len(by_id) == 1 else None)
@@ -174,8 +194,6 @@ def project_reply(session, conversation, run, draft, related_case_id=None):
         block['source_url'] = None
         block['entries'] = []
         block['status_code'] = None
-        if safety and item.type in ('steps', 'table'):
-            continue
         if item.type in ('status', 'timeline'):
             if case is None:
                 continue

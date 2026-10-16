@@ -87,11 +87,16 @@ def test_bad_ui_falls_back_to_text(bad_ui):
     assert result.ui_proposal is None and result.ui_fallback_code == "ui_proposal_invalid"
 
 
-def test_malformed_structured_result_cannot_be_published_raw():
-    result = parse_agent_result('{"text": "x", "ui_proposal":')
-    assert result.text == "x"
-    assert result.ui_fallback_code == "rich_result_truncated"
-    assert "ui_proposal" not in result.text
+def test_malformed_structured_result_recovers_text_only_or_raises():
+    # Truncated payloads may recover the quoted text as a fallback reply, but never
+    # publish raw malformed JSON; unrecoverable input still fails closed.
+    recovered = parse_agent_result('{"text": "x", "ui_proposal":')
+    assert recovered.text == "x" and recovered.ui_proposal is None
+    assert recovered.ui_fallback_code == "rich_result_truncated"
+    with pytest.raises(ValueError, match="invalid_json"):
+        parse_agent_result('{"ui_proposal": null')
+    with pytest.raises(ValueError, match="invalid_json"):
+        parse_agent_result('{"text":')
 
 
 def proposal(**overrides):

@@ -53,7 +53,8 @@ def test_service_agent_keeps_diagnostic_as_an_optional_manager_tool(monkeypatch)
 
     assert result.text == "已有资料足够回答。"
     assert {tool.name for tool in captured["tools"]} == {
-        "lookup_manual", "load_skill", "request_missing_evidence", "propose_action", "delegate_diagnostic",
+        "lookup_manual", "query_order_warranty", "check_dealer_authorization", "get_case_stage",
+        "load_skill", "request_missing_evidence", "propose_action", "delegate_diagnostic",
         "get_service_progress",
     }
     assert captured["config"]["recursion_limit"] == 30
@@ -148,12 +149,18 @@ def test_legacy_checkpoint_output_is_accepted_only_when_valid(monkeypatch):
     assert result.text == "旧版已保存答复。"
 
     monkeypatch.setattr(runtime, "create_agent", lambda **_kwargs: FakeGraph('{"text":"旧版坏答复":'))
-    recovered, _ = runtime.AgentRuntime(settings).invoke(
+    result, _ = runtime.AgentRuntime(settings).invoke(
         tenant_id=uuid4(), conversation_id=uuid4(), run_id=uuid4(), lease_token=uuid4(),
         message_id=message_id, context={"context_budget": {}}, current_text="继续",
     )
-    assert recovered.text == "旧版坏答复"
-    assert recovered.ui_fallback_code == "rich_result_truncated"
+    assert result.text == "旧版坏答复" and result.ui_fallback_code == "rich_result_truncated"
+
+    monkeypatch.setattr(runtime, "create_agent", lambda **_kwargs: FakeGraph('{"text::'))
+    with pytest.raises(runtime.AgentOutputInvalidError):
+        runtime.AgentRuntime(settings).invoke(
+            tenant_id=uuid4(), conversation_id=uuid4(), run_id=uuid4(), lease_token=uuid4(),
+            message_id=message_id, context={"context_budget": {}}, current_text="继续",
+        )
 
 
 def test_diagnostic_agent_exposes_only_bounded_read_only_tools(monkeypatch):

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from conftest import migration_config
 from serviceos_api.persistence.database import build_engine
+from serviceos_api.persistence.knowledge_models import KNOWLEDGE_SCHEMA
 from serviceos_api.persistence.models import (
     BUSINESS_SCHEMA, Base, CaseConversation, CaseDevice, CaseEvidence, Conversation,
     Customer, DeviceFact, DevicePassport, Message, ServiceCase, StaffUser, Tenant, TenantMembership,
@@ -54,12 +55,19 @@ def test_no_implicit_sqlite_database():
 def test_real_postgres_migration_round_trip(database_engine):
     assert database_engine.dialect.name == "postgresql"
     config = migration_config(database_engine)
-    expected = {table.name for table in Base.metadata.sorted_tables}
+    expected = {table.name for table in Base.metadata.sorted_tables if table.schema == BUSINESS_SCHEMA}
+    expected_knowledge = {table.name for table in Base.metadata.sorted_tables
+                          if table.schema == KNOWLEDGE_SCHEMA}
+    assert expected_knowledge == {"knowledge_documents", "knowledge_document_versions",
+                                  "knowledge_segments", "knowledge_embeddings", "knowledge_jobs"}
     assert set(inspect(database_engine).get_table_names(schema=BUSINESS_SCHEMA)) == expected
+    assert set(inspect(database_engine).get_table_names(schema=KNOWLEDGE_SCHEMA)) == expected_knowledge
     command.downgrade(config, "base")
-    assert BUSINESS_SCHEMA not in inspect(database_engine).get_schema_names()
+    schemas = inspect(database_engine).get_schema_names()
+    assert BUSINESS_SCHEMA not in schemas and KNOWLEDGE_SCHEMA not in schemas
     command.upgrade(config, "head")
     assert set(inspect(database_engine).get_table_names(schema=BUSINESS_SCHEMA)) == expected
+    assert set(inspect(database_engine).get_table_names(schema=KNOWLEDGE_SCHEMA)) == expected_knowledge
     command.check(config)
 
 

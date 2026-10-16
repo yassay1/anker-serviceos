@@ -36,6 +36,7 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
   const [drafts, setDrafts] = useState<Record<string, { text: string, internal: boolean }>>({})
   const [mobilePanel, setMobilePanel] = useState<'list' | 'chat' | 'context'>('chat')
   const [pending, setPending] = useState<Pending[]>([])
+  const selectorRef = useRef<HTMLDetailsElement>(null)
   const quickReplyLocks = useRef(new Set<string>())
   const [quickReplyError, setQuickReplyError] = useState('')
   const [attachmentsFor, setAttachmentsFor] = useState<string | null>(null)
@@ -129,6 +130,7 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
       const created = await createConversation()
       await queryClient.invalidateQueries({ queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id) })
       setSearchParams({ conversation: created.id })
+      if (!desk && selectorRef.current) selectorRef.current.open = false
       setMobilePanel('chat')
     } catch (failure) {
       setCreateError(readableError(failure))
@@ -235,10 +237,10 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
       <button type="button" aria-pressed={mobilePanel === 'context'} disabled={!selected} onClick={() => setMobilePanel('context')}><FileText size={17} aria-hidden="true" />{desk ? '资料' : '资料与协助'}</button>
     </div>
     <div className={`chat-layout ${selected ? 'has-context' : 'no-context'}`}>
-      <div className="conversation-selector"><details open={desk || mobilePanel === 'list'}><summary><Inbox size={16} />{desk ? '我的服务会话' : '历史问答 · 点击切换会话'}<span>{conversations.data?.length ?? 0}</span><ChevronDown size={15} /></summary><ConversationSidebar desk={desk} items={conversations.data} selectedId={selected?.id}
+      <div className="conversation-selector"><details ref={selectorRef} open={desk || mobilePanel === 'list'}><summary><Inbox size={16} />{desk ? '我的服务会话' : '历史问答 · 点击切换会话'}<span>{conversations.data?.length ?? 0}</span><ChevronDown size={15} /></summary><ConversationSidebar desk={desk} items={conversations.data} selectedId={selected?.id}
         loading={conversations.isPending} error={conversations.isError ? readableError(conversations.error) : undefined}
         creating={creating} createError={createError} onCreate={() => void startConversation()}
-        onSelect={(id) => { setSearchParams({ conversation: id }); setMobilePanel('chat') }} /></details></div>
+        onSelect={(id) => { if (!desk && selectorRef.current) selectorRef.current.open = false; setSearchParams({ conversation: id }); setMobilePanel('chat') }} /></details></div>
       <section className="chat-panel" aria-label="当前会话">
         {selected ? <>
           <div className="chat-heading">

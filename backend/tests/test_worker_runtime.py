@@ -537,7 +537,8 @@ def test_worker_persists_separated_result_and_only_internal_action_reference(dat
         def invoke(self, **kwargs):
             with Session(database_engine) as session:
                 service = AgentToolService(session, kwargs["tenant_id"], kwargs["conversation_id"],
-                                           kwargs["run_id"], kwargs["lease_token"])
+                                           kwargs["run_id"], kwargs["lease_token"],
+                                           settings=Settings(environment="test"))
                 service.record_proposal("ACTION", "请客服审核模拟换货申请")
                 service.record_proposal("ACTION", "请客服审核模拟换货申请")
             return AgentResult("请先确认设备型号。", {
@@ -663,11 +664,12 @@ def test_worker_real_progress_and_skill_audit_survive_result_storage(database_en
         def invoke(self, **kwargs):
             with Session(database_engine) as session:
                 service = AgentToolService(session, kwargs["tenant_id"], kwargs["conversation_id"],
-                                           kwargs["run_id"], kwargs["lease_token"])
+                                           kwargs["run_id"], kwargs["lease_token"],
+                                           settings=Settings(environment="test"))
                 service.load_skill("diagnose-no-charge", "1.0.0")
                 # Retrieval returns verbatim manual paragraphs, so a matching query word does
                 # appear in the result. What must never come back is arbitrary caller text.
-                lookup = service.lookup_manual("不充电 SECRET TOOL ARGUMENT")
+                lookup = service.lookup_manual("不充电 SECRET TOOL ARGUMENT").to_prompt_text()
                 assert "SOURCE:" in lookup
                 assert "SECRET TOOL ARGUMENT" not in lookup
                 service.lookup_manual("unknown private query SECRET RETRY")
@@ -690,7 +692,7 @@ def test_worker_real_progress_and_skill_audit_survive_result_storage(database_en
         events = session.scalars(select(OutboxEvent).where(
             OutboxEvent.conversation_id == conversation_id, OutboxEvent.type == "agent.progress",
         ).order_by(OutboxEvent.created_at, OutboxEvent.id)).all()
-        assert sorted(row.data["stage"] for row in events) == ["COMPLETED", "LOOKUP", "RUNNING", "RUNNING"]
+        assert sorted(row.data["stage"] for row in events) == ["COMPLETED", "LOOKUP", "LOOKUP", "LOOKUP", "RUNNING", "RUNNING"]
         assert all(row.visibility == visibility for row in events)
         assert all(set(row.data) == {"run_id", "stage", "summary"} for row in events)
         assert all("SECRET" not in str(row.data) and "INTERNAL DRAFT" not in str(row.data) for row in events)
@@ -700,7 +702,7 @@ def test_worker_real_progress_and_skill_audit_survive_result_storage(database_en
         session.commit()
         customer = session.get(Conversation, conversation_id).customer_id
         public = ConversationService(session, Principal(run.tenant_id, customer, "CUSTOMER", "客户")).events(conversation_id)
-        assert len(public.items) == (4 if visibility == "PUBLIC" else 0)
+        assert len(public.items) == (6 if visibility == "PUBLIC" else 0)
 
 
 def test_progress_rechecks_mode_on_dispatch_and_rejects_unknown_fields(db_session):

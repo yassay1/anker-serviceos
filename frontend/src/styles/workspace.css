@@ -318,3 +318,10 @@
 .case-verification select, .case-verification textarea { display: block; width: 100%; max-width: 580px; margin-top: 6px; }
 .case-verification textarea { min-height: 88px; resize: vertical; }
 @media (max-width: 760px) { .cases-page { padding: 18px 14px 48px; } .cases-layout { grid-template-columns: 1fr; } }
+.knowledge-panel { margin-top: 22px; padding: 18px 20px 22px; }
+.knowledge-panel .table-toolbar small { color: var(--muted); }
+.knowledge-upload { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 6px 0 12px; }
+.knowledge-upload input[type='file'] { max-width: 260px; }
+.knowledge-upload button { border: 1px solid var(--border); background: #fff; border-radius: 8px; padding: 8px 14px; font-size: 13px; }
+.knowledge-upload button:disabled { opacity: 0.55; }
+.knowledge-panel .table-foot { color: var(--muted); font-size: 12px; }

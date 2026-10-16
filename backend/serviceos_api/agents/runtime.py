@@ -113,29 +113,49 @@ class AgentRuntime:
 
         @tool
         def lookup_manual(query: str) -> str:
-            """Search the project's approved local after-sales manual/SOP material."""
-            with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
+            """Search approved manuals + curated corpus + staff-uploaded knowledge;
+            model-gated by VERIFIED device identity; source-labelled excerpts only."""
+            with _tool_service(tenant_id, conversation_id, run_id, lease_token, self.settings) as service:
                 verified_models = {row.get("model", "").casefold() for row in context.get("linked_devices", [])
                                    if row.get("identity_status") == "VERIFIED" and row.get("model")}
-                return service.lookup_manual(query, verified_models=verified_models)
+                return service.lookup_manual(query, verified_models=verified_models).to_prompt_text(5000)
+
+        @tool
+        def query_order_warranty(order_no: str) -> str:
+            """Look up a de-identified reference order by order number (warranty evidence)."""
+            with _tool_service(tenant_id, conversation_id, run_id, lease_token, self.settings) as service:
+                return service.query_order_warranty(order_no).to_prompt_text()
+
+        @tool
+        def check_dealer_authorization(country: str, seller: str) -> str:
+            """Check the authorized-dealer directory: country exact (ISO codes; common
+            names like 德国/Germany are normalized) plus seller fuzzy match."""
+            with _tool_service(tenant_id, conversation_id, run_id, lease_token, self.settings) as service:
+                return service.check_dealer_authorization(country, seller).to_prompt_text()
+
+        @tool
+        def get_case_stage() -> str:
+            """Project the current Service Case stage and waiting party for SOP routing."""
+            with _tool_service(tenant_id, conversation_id, run_id, lease_token, self.settings) as service:
+                return service.case_stage().to_prompt_text()
 
         @tool
         def load_skill(skill_id: str, version: str) -> dict:
             """Load an eligible fixed Skill version. LOADED is not completed; PREPARED is not callable."""
-            with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
-                return service.load_skill(skill_id, version)
+            with _tool_service(tenant_id, conversation_id, run_id, lease_token, self.settings) as service:
+                return service.load_skill(skill_id, version).to_model_value()
 
         @tool
         def request_missing_evidence(summary: str) -> str:
             """Record an internal draft requesting evidence; does not send a message."""
-            with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
-                return service.record_proposal("MISSING_EVIDENCE", summary)
+            with _tool_service(tenant_id, conversation_id, run_id, lease_token, self.settings) as service:
+                return service.record_proposal("MISSING_EVIDENCE", summary).to_prompt_text()
 
         @tool
         def propose_action(summary: str) -> str:
             """Record an internal action proposal; never executes an external action."""
-            with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
-                return service.record_proposal("ACTION", summary)
+            with _tool_service(tenant_id, conversation_id, run_id, lease_token, self.settings) as service:
+                return service.record_proposal("ACTION", summary).to_prompt_text()
 
         @tool
         def delegate_diagnostic(goal: str) -> dict:
@@ -226,7 +246,9 @@ class AgentRuntime:
             stream_usage=True,
             **model_provider_options(self.settings),
         )
-        tools = [lookup_manual, load_skill, request_missing_evidence, propose_action, delegate_diagnostic, get_service_progress]
+        tools = [lookup_manual, query_order_warranty, check_dealer_authorization, get_case_stage,
+                 load_skill, request_missing_evidence, propose_action, delegate_diagnostic,
+                 get_service_progress]
         with checkpoint_connection() as connection:
             from langgraph.checkpoint.postgres import PostgresSaver
 
@@ -337,7 +359,7 @@ class AgentRuntime:
 
 
 @contextmanager
-def _tool_service(tenant_id: UUID, conversation_id: UUID, run_id: UUID, lease_token: UUID):
+def _tool_service(tenant_id: UUID, conversation_id: UUID, run_id: UUID, lease_token: UUID, settings=None):
     from sqlalchemy.orm import Session
 
     from serviceos_api.persistence.database import build_engine
@@ -345,7 +367,7 @@ def _tool_service(tenant_id: UUID, conversation_id: UUID, run_id: UUID, lease_to
     engine = build_engine()
     try:
         with Session(engine, expire_on_commit=False) as session:
-            yield AgentToolService(session, tenant_id, conversation_id, run_id, lease_token)
+            yield AgentToolService(session, tenant_id, conversation_id, run_id, lease_token, settings=settings)
     finally:
         engine.dispose()
 

@@ -44,7 +44,7 @@
 
 Agentic Interface / Generative UI 已完成产品与架构设计；阶段 2 新增 Agent 的内部 `ui_proposal` 元数据和失败时文本降级。阶段 3 已实现 UIDocument、组件 Catalog、Renderer 和低风险 UI action，并通过本地代码与契约检查；浏览器交互仍有上述待复验项。内部提案不等于用户可见界面，只有发布后的受信 UIDocument 才可渲染。
 
-本地 Agent 初始化（仅在已选择并获准使用模型 Provider 后）：先从仓库根目录执行 `uv run --project backend alembic -c backend/alembic.ini upgrade head`，再执行 `uv run --project backend python -m serviceos_api.checkpoints` 初始化独立的 `serviceos_checkpoint` schema；另开终端运行 `uv run --project backend python -m serviceos_api.worker.main`。API 启动不会自动迁移、创建 Checkpointer 表或启动 Worker。未配置 Provider 时，Worker 在领取任何 Job 前拒绝启动。
+本地 Agent 初始化（仅在已选择并获准使用模型 Provider 后）：先从仓库根目录执行 `uv run --project backend alembic -c backend/alembic.ini upgrade head`，再执行 `uv run --project backend python -m serviceos_api.checkpoints` 初始化独立的 `serviceos_checkpoint` schema；随后执行 `uv run --project backend python -m serviceos_api.knowledge_ingest` 将已 curation 的知识种子写入独立的 `serviceos_knowledge` schema（配置 `SERVICEOS_EMBEDDING_*` 后加 `--embed` 生成向量；未配置时混合检索自动降级为纯关键词，不伪造向量）；另开终端运行 `uv run --project backend python -m serviceos_api.worker.main`。API 启动不会自动迁移、创建 Checkpointer 表、导入知识或启动 Worker。未配置 Provider 时，Worker 在领取任何 Job 前拒绝启动。
 
 ## 目录
 
@@ -69,14 +69,14 @@ specs/                    按 V1 新建的活动功能切片
 
 支持 Python 3.12、Node 24；使用 uv 与 npm 锁文件。当前工程在 Python 3.12.14 / Node 24.16.0 下验证。
 
-先准备 PostgreSQL 17 和本地开发配置。若是本机首次运行，可创建一个仅回环开放的开发容器：
+先准备 PostgreSQL 17（含 pgvector 扩展）和本地开发配置。若是本机首次运行，可创建一个仅回环开放的开发容器：
 
 ```powershell
-docker run --name serviceos-postgres-local -e POSTGRES_DB=serviceos_dev -e POSTGRES_USER=serviceos_local -e POSTGRES_PASSWORD=serviceos_local_only -p 127.0.0.1:55432:5432 -v serviceos-postgres-local-data:/var/lib/postgresql/data -d postgres:17
+docker run --name serviceos-postgres-local -e POSTGRES_DB=serviceos_dev -e POSTGRES_USER=serviceos_local -e POSTGRES_PASSWORD=serviceos_local_only -p 127.0.0.1:55432:5432 -v serviceos-postgres-local-data:/var/lib/postgresql/data -d pgvector/pgvector:pg17
 Copy-Item backend/.env.example backend/.env
 ```
 
-若本机已有开发容器，使用现有容器并确认端口与 `backend/.env` 一致。`.env.example` 中的账号密码只是本地样例，不可用于生产。随后在项目根目录显式迁移并初始化本地测试身份：
+已有的 `postgres:17` 容器需按上述命令用 `pgvector/pgvector:pg17` 镜像重建（同名数据卷可直接复用），否则迁移 0015 的 `CREATE EXTENSION vector` 会失败。若本机已有开发容器，使用现有容器并确认端口与 `backend/.env` 一致。`.env.example` 中的账号密码只是本地样例，不可用于生产。随后在项目根目录显式迁移并初始化本地测试身份：
 
 ```powershell
 uv sync --project backend --locked
@@ -111,6 +111,7 @@ uv run --project backend --locked python -m serviceos_api.worker.inspection
 uv run --project backend --locked python -m serviceos_api.worker.actions
 uv run --project backend --locked python -m serviceos_api.worker.followups
 uv run --project backend --locked python -m serviceos_api.worker.outbox
+uv run --project backend --locked python -m serviceos_api.worker.knowledge
 ```
 
 这些进程会定期写入心跳文件，容器健康检查与本地排查使用同一条命令：
@@ -119,7 +120,9 @@ uv run --project backend --locked python -m serviceos_api.worker.outbox
 uv run --project backend --locked python -m serviceos_api.worker.health --role inspection
 ```
 
-`python -m serviceos_api.worker.main`（Agent 主 Worker）需要显式配置 `SERVICEOS_LLM_MODEL`、`SERVICEOS_LLM_BASE_URL` 和 `SERVICEOS_LLM_API_KEY`，未配置时立即退出，不领取任务也不生成回复。
+客服可在 `/desk` 知识面板上传 md/txt/xlsx/csv/jsonl/图片知识文档（≤10MB）；`worker.knowledge` 按租约推进转换→切片→向量化管道，终态 EMBEDDED（配置 Embedding 时）或 STORED（仅关键词检索）后进入 Agent 可检索范围，失败文档由 SUPERVISOR/ADMIN 重新入队。工作簿按 sheet 表头自动路由语义（订单/经销商/Q&A/通用），订单与经销商行同时产出结构化 facet 供 `query_order_warranty` / `check_dealer_authorization` 类型化工具精确查询；客服也可用 `GET /api/v1/knowledge/search` 与 `/knowledge/stats` 复用同一检索实现浏览语料（客户 403）。所有 Agent 工具返回统一 ToolResult 信封并审计进 AgentRun。
+
+`python -m serviceos_api.worker.main`（Agent 主 Worker）需要显式配置 `SERVICEOS_LLM_MODEL`、`SERVICEOS_LLM_BASE_URL` 和 `SERVICEOS_LLM_API_KEY`，未配置时立即退出，不领取任务也不生成回复。知识混合检索的向量路径另需 `SERVICEOS_EMBEDDING_MODEL/BASE_URL/API_KEY`（如百炼 DashScope 兼容模式 `text-embedding-v4`）；未配置或调用失败时该次检索降级为纯关键词，不伪造向量结果。
 
 需要可复现的容器化环境时，使用仓库根的 Compose 说明与运维手册，而不是手工拼装进程。
 

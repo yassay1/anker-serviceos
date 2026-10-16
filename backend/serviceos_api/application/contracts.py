@@ -599,3 +599,53 @@ class VerificationRead(Schema):
     note: str
     case_status: str
     created_at: datetime
+
+
+class KnowledgeDocumentRead(Schema):
+    document_id: UUID
+    title: str
+    filename: str | None
+    source_kind: Literal["seed_corpus", "manual", "upload"]
+    status: Literal["UPLOADED", "CONVERTED", "CHUNKED", "EMBEDDED", "STORED", "FAILED"]
+    error_code: str | None
+    current_version: int
+    split_type: Literal["ROW", "MARKDOWN_HEADER", "LENGTH", "IMAGE"]
+    uploaded_by_staff_id: UUID | None
+    created_at: datetime
+
+
+class KnowledgeSegmentCounts(Schema):
+    segments: int
+    embedded: int
+    parents: int
+
+
+class KnowledgeDocumentDetail(KnowledgeDocumentRead):
+    counts: KnowledgeSegmentCounts
+
+
+class KnowledgePage(Schema):
+    items: list[KnowledgeDocumentRead]
+    next_cursor: str | None
+
+
+class KnowledgeUploadResult(Schema):
+    document: KnowledgeDocumentRead
+    deduplicated: bool
+
+
+class KnowledgeSearchRead(Schema):
+    entry_key: str
+    source_ref: str
+    applicability: str
+    path: str
+    excerpt: str
+
+
+class KnowledgeStatsRead(Schema):
+    corpus_present: bool
+    documents: int
+    segments: int
+    embedded: int
+    vector_enabled: bool
+    provider: str

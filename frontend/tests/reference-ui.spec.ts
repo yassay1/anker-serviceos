@@ -70,10 +70,11 @@ test('overview query failure shows a retry and no invented case total', async ({
   await page.route('**/api/v1/cases', route => route.fulfill(failed
     ? { status: 503, json: { detail: '案例暂时不可用。' } } : { json: [] }))
   await page.goto('/desk?view=overview')
-  await expect(page.getByRole('alert')).toContainText('案例暂时不可用')
+  const casesPanel = page.locator('.case-table-panel')
+  await expect(casesPanel.getByRole('alert')).toContainText('案例暂时不可用')
   await expect(page.locator('.metric-card').first().locator('strong')).toHaveText('—')
   failed = false
-  await page.getByRole('button', { name: '重试', exact: true }).click()
+  await casesPanel.getByRole('button', { name: '重试', exact: true }).click()
   await expect(page.getByRole('heading', { name: '没有符合条件的案例' })).toBeVisible()
   await expect(page.locator('.metric-card').first().locator('strong')).toHaveText('0')
 })

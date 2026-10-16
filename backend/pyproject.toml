@@ -6,9 +6,11 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
   "alembic>=1.20,<1.21",
   "fastapi>=0.141,<0.142",
+  "httpx>=0.28,<1",
   "langchain>=1,<2",
   "langchain-openai>=1,<2",
   "langgraph-checkpoint-postgres>=3,<4",
+  "openpyxl>=3.1,<4",
   "psycopg[binary]>=3.2,<4",
   "python-multipart>=0.0.20,<1",
   "python-dotenv>=1,<2",
@@ -29,7 +31,7 @@ where = ["."]
 include = ["serviceos_api*"]
 
 [tool.setuptools.package-data]
-serviceos_api = ["knowledge/*.md"]
+serviceos_api = ["knowledge/*.md", "knowledge/corpus/*.jsonl"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

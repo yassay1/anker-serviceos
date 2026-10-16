@@ -3,7 +3,11 @@ from logging.config import fileConfig
 from alembic import context
 
 from serviceos_api.persistence.database import build_engine, configured_database_url
+from serviceos_api.persistence.knowledge_models import KNOWLEDGE_SCHEMA
 from serviceos_api.persistence.models import BUSINESS_SCHEMA, Base
+
+
+MANAGED_SCHEMAS = (BUSINESS_SCHEMA, KNOWLEDGE_SCHEMA)
 
 config = context.config
 if config.config_file_name:
@@ -12,7 +16,7 @@ if config.config_file_name:
 
 def include_name(name, type_, parent_names):
     if type_ == "schema":
-        return name == BUSINESS_SCHEMA
+        return name in MANAGED_SCHEMAS
     return True
 
 

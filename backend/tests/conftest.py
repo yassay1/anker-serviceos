@@ -44,6 +44,13 @@ def database_engine(request):
         created = True
         engine = build_engine(url.set(database=name).render_as_string(hide_password=False))
         command.upgrade(migration_config(engine), "head")
+        with Session(engine) as session:
+            # The knowledge corpus is a committed seed; tests always run with it present
+            # so the legacy file-scan fork no longer exists anywhere.
+            from serviceos_api.knowledge_ingest import ingest
+
+            ingest(session)
+            session.commit()
         yield engine
     finally:
         if engine is not None:
