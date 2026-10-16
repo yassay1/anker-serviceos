@@ -65,6 +65,26 @@ def test_metrics_ignore_raw_text_and_report_unmeasured(tmp_path):
     assert "secret" not in json.dumps(result)
 
 
+def test_metrics_summarize_safe_sse_poll_and_outbox_timings(tmp_path):
+    path = tmp_path / "sse-metrics.jsonl"
+    rows = [
+        {"event": "events.outbox_published", "event_type": "message.created", "outbox_delay_ms": 20},
+        {"event": "events.outbox_published", "event_type": "ui.document.published", "outbox_delay_ms": 40},
+        {"event": "events.stream_opened", "active_connections": 1},
+        {"event": "events.stream_opened", "active_connections": 3},
+        {"event": "events.stream_closed", "poll_count": 2, "empty_poll_count": 1,
+         "event_count": 1, "total_query_ms": 6, "max_event_age_ms": 15, "duration_ms": 4000},
+        {"event": "events.stream_closed", "poll_count": 2, "empty_poll_count": 2,
+         "event_count": 0, "total_query_ms": 20, "max_event_age_ms": 0, "duration_ms": 5000},
+    ]
+    path.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+    result = summarize_metrics(path)
+    assert result["metrics"]["outbox_to_event_ms"] == {"samples": 2, "p50": 20, "p95": 40}
+    assert result["metrics"]["sse_stream_avg_read_ms"] == {"samples": 2, "p50": 3, "p95": 10}
+    assert result["sse"] == {"streams": 2, "active_connections_peak": 3,
+                             "polls": 4, "empty_polls": 3, "events": 1, "empty_poll_rate": .75}
+
+
 def test_worker_health_requires_fresh_successful_poll(monkeypatch, tmp_path):
     monkeypatch.setattr("serviceos_api.worker.health.tempfile.gettempdir", lambda: str(tmp_path))
     assert not is_healthy("outbox")

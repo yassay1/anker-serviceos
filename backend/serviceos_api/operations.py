@@ -106,6 +106,12 @@ def cleanup_demo(source_engine, settings: Settings, name: str, confirmation: str
 def summarize_metrics(path: Path) -> dict:
     timings = defaultdict(list)
     requests = errors = 0
+    sse_streams = sse_polls = sse_empty_polls = sse_events = active_connections_peak = 0
+
+    def add_timing(name, value):
+        if isinstance(value, (float, int)) and math.isfinite(value) and 0 <= value and len(timings[name]) < 100000:
+            timings[name].append(value)
+
     with path.open(encoding="utf-8") as stream:
         for line in stream:
             try:
@@ -118,17 +124,45 @@ def summarize_metrics(path: Path) -> dict:
                 requests += 1
                 errors += int(isinstance(record.get("status_code"), int) and record["status_code"] >= 500)
                 duration = record.get("duration_ms")
-                if isinstance(duration, (float, int)) and math.isfinite(duration) and 0 <= duration and len(timings["http_request_ms"]) < 100000:
-                    timings["http_request_ms"].append(duration)
-                    if record.get("method") == "POST" and record.get("route", "").endswith("/messages"):
-                        timings["http_accept_ms"].append(duration)
+                add_timing("http_request_ms", duration)
+                if record.get("method") == "POST" and record.get("route", "").endswith("/messages"):
+                    add_timing("http_accept_ms", duration)
+            elif record.get("event") == "events.outbox_published":
+                add_timing("outbox_to_event_ms", record.get("outbox_delay_ms"))
+            elif record.get("event") == "events.stream_opened":
+                active = record.get("active_connections")
+                if isinstance(active, int) and active >= 0:
+                    active_connections_peak = max(active_connections_peak, active)
+            elif record.get("event") == "events.stream_closed":
+                sse_streams += 1
+                polls = record.get("poll_count")
+                empty = record.get("empty_poll_count")
+                events = record.get("event_count")
+                total_query_ms = record.get("total_query_ms")
+                if isinstance(polls, int) and polls >= 0:
+                    sse_polls += polls
+                    if polls > 0 and isinstance(total_query_ms, (float, int)):
+                        add_timing("sse_stream_avg_read_ms", total_query_ms / polls)
+                if isinstance(empty, int) and empty >= 0:
+                    sse_empty_polls += empty
+                if isinstance(events, int) and events >= 0:
+                    sse_events += events
+                    if events > 0:
+                        add_timing("sse_stream_max_event_age_ms", record.get("max_event_age_ms"))
+                add_timing("sse_stream_duration_ms", record.get("duration_ms"))
     result = {}
     for key, values in timings.items():
         values.sort()
         if values:
             result[key] = {"samples": len(values), "p50": values[math.ceil(len(values) * .5) - 1], "p95": values[math.ceil(len(values) * .95) - 1]}
     return {"metrics": result, "requests": requests, "error_rate": errors / requests if requests else None,
-            "unmeasured": ["queue_delay_ms", "agent_first_progress_ms", "model_ttft_ms", "tool_latency_ms", "ui_action_completion_ms"]}
+            "sse": {
+                "streams": sse_streams, "active_connections_peak": active_connections_peak,
+                "polls": sse_polls, "empty_polls": sse_empty_polls, "events": sse_events,
+                "empty_poll_rate": sse_empty_polls / sse_polls if sse_polls else None,
+            },
+            "unmeasured": ["queue_delay_ms", "agent_first_progress_ms", "model_ttft_ms", "tool_latency_ms",
+                           "browser_event_to_query_ms", "ui_action_completion_ms", "production_connection_capacity"]}
 
 
 def main():

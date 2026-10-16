@@ -23,6 +23,7 @@ from serviceos_api.persistence.models import (
 from serviceos_api.settings import Settings
 
 logger = logging.getLogger("serviceos.worker")
+events_logger = logging.getLogger("serviceos.events")
 
 # Single source of truth for the container healthcheck role of the combined agent worker.
 ROLE = "agent"
@@ -435,6 +436,12 @@ class OutboxDispatcher:
                 event.lease_expires_at = None
                 event.last_error_code = None
                 session.commit()
+                if event.created_at is not None:
+                    delay_ms = max(0, round((datetime.now(timezone.utc) - event.created_at).total_seconds() * 1000))
+                    events_logger.info("", extra={
+                        "event_code": "events.outbox_published", "event_type": event.type,
+                        "outbox_delay_ms": delay_ms,
+                    })
                 return True
             except Exception:
                 session.rollback()

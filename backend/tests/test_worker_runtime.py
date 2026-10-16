@@ -280,7 +280,7 @@ def test_context_memory_rolls_forward_with_public_source_ids(database_engine):
         assert context["context_budget"]["estimated_tokens"] <= context["context_budget"]["token_budget"] + 80
 
 
-def test_outbox_dispatch_is_transactional_and_idempotent(database_engine):
+def test_outbox_dispatch_is_transactional_and_idempotent(database_engine, caplog):
     with Session(database_engine) as session:
         tenant, _, conversation, _, _, _ = seed_message(session)
         event = OutboxEvent(tenant_id=tenant.id, conversation_id=conversation.id,
@@ -295,8 +295,14 @@ def test_outbox_dispatch_is_transactional_and_idempotent(database_engine):
     leases = dispatcher.claim_batch()
     assert len(leases) >= 1
     lease = next(item for item in leases if item.item_id == event_id)
-    assert dispatcher.dispatch(lease) is True
+    with caplog.at_level("INFO", logger="serviceos.events"):
+        assert dispatcher.dispatch(lease) is True
     assert dispatcher.dispatch(lease) is False
+    records = [record for record in caplog.records
+               if getattr(record, "event_code", None) == "events.outbox_published"]
+    assert len(records) == 1
+    assert records[0].event_type == "message.created"
+    assert records[0].outbox_delay_ms >= 0
     with Session(database_engine) as session:
         assert session.scalar(select(func.count()).select_from(ConversationEvent).where(
             ConversationEvent.tenant_id == tenant_id,

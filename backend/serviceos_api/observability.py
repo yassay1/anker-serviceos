@@ -16,7 +16,11 @@ class SafeJsonFormatter(logging.Formatter):
             "logger": record.name,
             "event": getattr(record, "event_code", "application.log"),
         }
-        for key in ("request_id", "method", "route", "status_code", "duration_ms", "error_code", "exception_type"):
+        for key in (
+            "request_id", "method", "route", "status_code", "duration_ms", "error_code", "exception_type",
+            "active_connections", "poll_count", "empty_poll_count", "event_count", "total_query_ms",
+            "max_event_age_ms", "close_reason", "event_type", "outbox_delay_ms",
+        ):
             value = getattr(record, key, None)
             if value is not None:
                 entry[key] = value

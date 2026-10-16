@@ -1,8 +1,13 @@
 """HTTP acceptance checks against a migrated, disposable PostgreSQL database."""
 
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from uuid import uuid4
+import logging
+import math
+from time import perf_counter, sleep
+from types import SimpleNamespace
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,15 +15,19 @@ from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
 
 from serviceos_api.bootstrap_local import seed_local_accounts
+from serviceos_api.application import auth
 from serviceos_api.application.auth import Principal
 from serviceos_api.application.contracts import ClaimTask
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.services import ConversationService
+from serviceos_api.api.business import _read_authorized_event_page, stream_events
+import serviceos_api.api.business as business_api
 from serviceos_api.main import create_app
 from serviceos_api.persistence.models import (
     AuthSession, CaseEvidence, DeviceFact, Message, MessageJob, OutboxEvent, StaffUser, TenantMembership,
 )
 from serviceos_api.settings import Settings
+from serviceos_api.observability import SafeJsonFormatter
 from serviceos_api.worker.runtime import OutboxDispatcher
 
 
@@ -303,6 +312,190 @@ def test_event_history_filters_internal_and_resumes_without_new_job(app, databas
             MessageJob.conversation_id == conv["id"],
         ))
     assert jobs_after == jobs_before == 1
+
+
+def test_sse_event_page_reader_revalidates_identity_and_filters_visibility(app, database_engine):
+    owner = login(app)
+    staff = login(app, "staff")
+    conv = conversation(owner)
+    url = f"/api/v1/conversations/{conv['id']}"
+    public = owner.post(f"{url}/messages", json=message_body(text="客户可见内容"))
+    internal = staff.post(f"{url}/messages", json=message_body(text="客服内部内容", visibility="INTERNAL"))
+    assert public.status_code == internal.status_code == 202
+    OutboxDispatcher(app.state.database_engine).dispatch_batch(100)
+    page, query_ms = _read_authorized_event_page(
+        database_engine, UUID(conv["id"]), owner.cookies.get("serviceos_session"), 0)
+    assert page.items
+    assert all(event.visibility == "PUBLIC" for event in page.items)
+    assert public.json()["message"]["id"] in [event.data.get("message_id") for event in page.items]
+    assert internal.json()["message"]["id"] not in [event.data.get("message_id") for event in page.items]
+    assert query_ms >= 0
+    owner.post("/api/v1/auth/logout")
+    with pytest.raises(ServiceError):
+        _read_authorized_event_page(database_engine, UUID(conv["id"]), "revoked-token", 0)
+
+
+def test_sse_stream_uses_last_event_id_and_skips_internal_sequence_holes(app, database_engine):
+    owner, staff = login(app), login(app, "staff")
+    conv = conversation(owner)
+    url = f"/api/v1/conversations/{conv['id']}"
+    first = owner.post(f"{url}/messages", json=message_body(text="first public"))
+    internal = staff.post(f"{url}/messages", json=message_body(text="PRIVATE_INTERNAL_SENTINEL", visibility="INTERNAL"))
+    latest = owner.post(f"{url}/messages", json=message_body(text="next public"))
+    assert first.status_code == internal.status_code == latest.status_code == 202
+    OutboxDispatcher(database_engine).dispatch_batch(100)
+    history = owner.get(f"{url}/event-history").json()["items"]
+    first_event = next(event for event in history
+                       if event["data"].get("message_id") == first.json()["message"]["id"])
+    latest_event = next(event for event in history
+                         if event["data"].get("message_id") == latest.json()["message"]["id"])
+    assert latest_event["sequence"] > first_event["sequence"]
+    with Session(database_engine) as session:
+        actor = auth.authenticated_principal(session, owner.cookies.get("serviceos_session"))
+
+    class QuietRequest:
+        app = SimpleNamespace(state=SimpleNamespace(database_engine=database_engine))
+        cookies = {"serviceos_session": owner.cookies.get("serviceos_session")}
+
+        async def is_disconnected(self):
+            return False
+
+    async def read_next_event():
+        response = await stream_events(UUID(conv["id"]), QuietRequest(), actor,
+                                       after=0, last_event_id=first_event["sequence"])
+        iterator = response.body_iterator
+        chunk = await anext(iterator)
+        await iterator.aclose()
+        return chunk
+
+    chunk = asyncio.run(read_next_event())
+    assert chunk.startswith(f"id: {latest_event['sequence']}\n")
+    assert latest.json()["message"]["id"] in chunk
+    assert internal.json()["message"]["id"] not in chunk
+
+
+def test_sse_stream_offloads_database_reads_and_logs_disconnect_without_business_ids(
+        app, database_engine, caplog):
+    owner = login(app)
+    conv = conversation(owner)
+    response = owner.post(
+        f"/api/v1/conversations/{conv['id']}/messages", json=message_body(text="PRIVATE_MESSAGE_BODY_SENTINEL"))
+    assert response.status_code == 202
+    OutboxDispatcher(database_engine).dispatch_batch(100)
+    with Session(database_engine) as session:
+        actor = auth.authenticated_principal(session, owner.cookies.get("serviceos_session"))
+
+    class DisconnectingRequest:
+        app = SimpleNamespace(state=SimpleNamespace(database_engine=database_engine))
+        cookies = {"serviceos_session": owner.cookies.get("serviceos_session")}
+
+        def __init__(self):
+            self.checks = 0
+
+        async def is_disconnected(self):
+            self.checks += 1
+            return self.checks > 1
+
+    async def read_one_chunk():
+        stream_response = await stream_events(UUID(conv["id"]), DisconnectingRequest(), actor, after=0,
+                                              last_event_id=None)
+        assert stream_response.headers["cache-control"] == "no-store"
+        iterator = stream_response.body_iterator
+        first = await anext(iterator)
+        await iterator.aclose()
+        return first
+
+    with caplog.at_level(logging.INFO, logger="serviceos.events"):
+        chunk = asyncio.run(read_one_chunk())
+
+    assert "data:" in chunk
+    record = next(record for record in reversed(caplog.records)
+                  if getattr(record, "event_code", None) == "events.stream_closed")
+    assert record.close_reason == "disconnected"
+    assert record.poll_count == 1
+    serialized = SafeJsonFormatter().format(record)
+    assert "PRIVATE_MESSAGE_BODY_SENTINEL" not in serialized
+    assert conv["id"] not in serialized
+
+
+def test_sse_poll_load_at_1_10_50_streams_keeps_event_loop_responsive(app, database_engine, monkeypatch, caplog):
+    owner = login(app)
+    conv = conversation(owner)
+    OutboxDispatcher(database_engine).dispatch_batch(100)
+    latest = owner.get(f"/api/v1/conversations/{conv['id']}/event-history").json()["next_after"]
+    with Session(database_engine) as session:
+        actor = auth.authenticated_principal(session, owner.cookies.get("serviceos_session"))
+    token = owner.cookies.get("serviceos_session")
+    engine = database_engine
+    samples: list[float] = []
+    original_reader = business_api._read_authorized_event_page
+    inject_delay = False
+
+    def measured_reader(*args):
+        # Simulate a slow synchronous DB read to verify that it cannot stall the ASGI loop.
+        if inject_delay:
+            sleep(0.05)
+        started = perf_counter()
+        result = original_reader(*args)
+        samples.append((perf_counter() - started) * 1000)
+        return result
+
+    monkeypatch.setattr(business_api, "_read_authorized_event_page", measured_reader)
+
+    class QuietRequest:
+        app = SimpleNamespace(state=SimpleNamespace(database_engine=engine))
+        cookies = {"serviceos_session": token}
+
+        async def is_disconnected(self):
+            return False
+
+    async def open_once():
+        response = await stream_events(UUID(conv["id"]), QuietRequest(), actor, after=latest,
+                                       last_event_id=latest)
+        iterator = response.body_iterator
+        first_chunk = await anext(iterator)
+        second_chunk = await anext(iterator)
+        await iterator.aclose()
+        assert ": keepalive" in first_chunk and ": keepalive" in second_chunk
+
+    async def exercise(count, check_loop_responsiveness=False):
+        nonlocal inject_delay
+        inject_delay = check_loop_responsiveness
+        samples.clear()
+        beats: list[float] = []
+        done = False
+
+        async def heartbeat():
+            while not done:
+                beats.append(perf_counter())
+                await asyncio.sleep(0.005)
+
+        ticker = asyncio.create_task(heartbeat())
+        started = perf_counter()
+        await asyncio.gather(*(open_once() for _ in range(count)))
+        elapsed_ms = (perf_counter() - started) * 1000
+        done = True
+        await ticker
+        gaps_ms = [(right - left) * 1000 for left, right in zip(beats, beats[1:])]
+        assert len(samples) == count * 2
+        assert gaps_ms and max(gaps_ms) < 500
+        ordered = sorted(samples)
+        p50 = ordered[(len(ordered) - 1) // 2]
+        p95 = ordered[math.ceil(len(ordered) * 0.95) - 1]
+        print(
+            f"SSE streams={count} read_ms_p50={p50:.2f} read_ms_p95={p95:.2f} "
+            f"max_loop_gap_ms={max(gaps_ms):.2f} wall_ms={elapsed_ms:.2f}")
+
+    with caplog.at_level(logging.INFO, logger="serviceos.events"):
+        asyncio.run(exercise(1))
+        asyncio.run(exercise(10))
+        asyncio.run(exercise(50))
+        asyncio.run(exercise(50, check_loop_responsiveness=True))
+    closed = [record for record in caplog.records
+              if getattr(record, "event_code", None) == "events.stream_closed"]
+    assert len(closed) == 111
+    assert all(record.poll_count == 2 and record.empty_poll_count == 2 for record in closed)
+    assert business_api._active_streams == 0
 
 
 def test_ui_revision_isolation_and_low_risk_intent(app, database_engine):

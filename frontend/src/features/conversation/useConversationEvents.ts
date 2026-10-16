@@ -58,24 +58,56 @@ export function useConversationEvents(actor: Actor, conversationId: string | und
     if (!conversationId) return
     let disposed = false
     let historyRequest: AbortController | undefined
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined
+    const pendingRefreshes = new Set<string>()
     let progressSequence = 0
     let specialistSequence = 0
     const sequenceKey = `serviceos:event-sequence:${actor.tenant_id}:${actor.actor_id}:${conversationId}`
     let after = 0
     try { after = cursor(localStorage.getItem(sequenceKey)) ?? 0 } catch { /* Storage is optional. */ }
     const updateState = (state: StreamState) => { if (!disposed) setConnection({ scope, state }) }
-    const refreshSnapshots = () => {
-      if (disposed) return
-      void queryClient.invalidateQueries({ queryKey: queryKeys.messages(actor.tenant_id, actor.actor_id, conversationId) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id) })
-      // Related cases use the same authorized case cache as the case detail page.
-      void queryClient.invalidateQueries({ queryKey: ['case', actor.tenant_id, actor.actor_id] })
-      if (desk) {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.tasks(actor.tenant_id, conversationId) })
-        void queryClient.invalidateQueries({ queryKey: queryKeys.proposals(actor.tenant_id, conversationId) })
-        void queryClient.invalidateQueries({ queryKey: queryKeys.summaries(actor.tenant_id, conversationId) })
+    const flushSnapshots = () => {
+      if (disposed || refreshTimer === undefined) return
+      clearTimeout(refreshTimer)
+      refreshTimer = undefined
+      const targets = new Set(pendingRefreshes)
+      pendingRefreshes.clear()
+      if (targets.has('messages')) void queryClient.invalidateQueries({ queryKey: queryKeys.messages(actor.tenant_id, actor.actor_id, conversationId) })
+      if (targets.has('conversations')) void queryClient.invalidateQueries({ queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id) })
+      if (targets.has('cases')) {
+        // Related cases use the same authorized case cache as the case detail page.
+        void queryClient.invalidateQueries({ queryKey: ['case', actor.tenant_id, actor.actor_id] })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.cases(actor.tenant_id, actor.actor_id) })
       }
-      void queryClient.invalidateQueries({ queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, conversationId) })
+      if (desk && targets.has('tasks')) void queryClient.invalidateQueries({ queryKey: queryKeys.tasks(actor.tenant_id, conversationId) })
+      if (desk && targets.has('proposals')) void queryClient.invalidateQueries({ queryKey: queryKeys.proposals(actor.tenant_id, conversationId) })
+      if (desk && targets.has('summaries')) void queryClient.invalidateQueries({ queryKey: queryKeys.summaries(actor.tenant_id, conversationId) })
+      if (targets.has('uiDocument')) void queryClient.invalidateQueries({ queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, conversationId) })
+    }
+    const queueSnapshots = (eventType?: string) => {
+      if (disposed) return
+      const matrix: Record<string, readonly string[]> = {
+        'agent.progress': [],
+        'specialist.activity': [],
+        'message.created': ['messages', 'conversations', 'uiDocument'],
+        'conversations.created': ['conversations'],
+        'collaboration.mode_changed': ['conversations', 'tasks', 'proposals', 'summaries', 'uiDocument'],
+        'assistance.requested': ['conversations', 'tasks', 'summaries', 'uiDocument'],
+        'assistance.assigned': ['conversations', 'tasks', 'uiDocument'],
+        'approval.decided': ['conversations', 'proposals', 'uiDocument'],
+        'ui.document.published': ['uiDocument'],
+        'ui.action.accepted': ['messages', 'uiDocument'],
+        'evidence.received': ['cases', 'summaries', 'uiDocument'],
+        'evidence.inspected': ['cases', 'summaries', 'uiDocument'],
+        'action.state_changed': ['cases', 'summaries', 'uiDocument'],
+        'verification.recorded': ['cases', 'summaries', 'uiDocument'],
+        'follow_up.consented': ['cases', 'summaries', 'uiDocument'],
+      }
+      const known = eventType !== undefined && Object.hasOwn(matrix, eventType)
+      const targets = known ? matrix[eventType] : ['messages', 'conversations', 'cases', 'tasks', 'proposals', 'summaries', 'uiDocument']
+      for (const target of targets) pendingRefreshes.add(target)
+      if (pendingRefreshes.size === 0) return
+      if (refreshTimer === undefined) refreshTimer = setTimeout(flushSnapshots, 50)
     }
     const acceptProgress = (event: NonNullable<ReturnType<typeof visibleEvent>>) => {
       if (disposed || event.type !== 'agent.progress' || event.sequence <= progressSequence) return
@@ -131,14 +163,16 @@ export function useConversationEvents(actor: Actor, conversationId: string | und
     stream.onopen = () => {
       if (disposed) return
       updateState('connected')
-      refreshSnapshots()
+      queueSnapshots()
+      flushSnapshots()
       void reconcileProgress()
     }
     stream.onerror = () => {
       if (disposed) return
       updateState('disconnected')
       // Do not recreate EventSource: native reconnect carries the server's Last-Event-ID.
-      refreshSnapshots()
+      queueSnapshots()
+      flushSnapshots()
     }
     stream.onmessage = (message) => {
       if (disposed) return
@@ -153,10 +187,13 @@ export function useConversationEvents(actor: Actor, conversationId: string | und
       try { localStorage.setItem(sequenceKey, String(after)) } catch { /* Keep the in-memory cursor. */ }
       acceptProgress(event)
       acceptSpecialist(event)
-      refreshSnapshots()
+      queueSnapshots(event.type)
     }
     return () => {
       disposed = true
+      if (refreshTimer !== undefined) clearTimeout(refreshTimer)
+      refreshTimer = undefined
+      pendingRefreshes.clear()
       historyRequest?.abort()
       stream.onopen = null
       stream.onerror = null

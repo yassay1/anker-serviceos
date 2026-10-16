@@ -1,9 +1,13 @@
 import asyncio
 import logging
+import threading
+import time
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from serviceos_api.api.dependencies import Business, ConversationBusiness, get_actor, get_session, local_login_allowed
@@ -20,6 +24,28 @@ from serviceos_api.persistence.models import Conversation
 
 router = APIRouter(prefix="/api/v1")
 logger = logging.getLogger("serviceos.events")
+_stream_counter_lock = threading.Lock()
+_active_streams = 0
+
+
+def _change_active_streams(delta: int) -> int:
+    global _active_streams
+    with _stream_counter_lock:
+        _active_streams = max(0, _active_streams + delta)
+        return _active_streams
+
+
+def _check_stream_access(engine, actor, conversation_id: UUID):
+    with Session(engine) as session:
+        ConversationService(session, actor).events(conversation_id, after=0, limit=1)
+
+
+def _read_authorized_event_page(engine, conversation_id: UUID, token: str | None, cursor: int):
+    started = time.perf_counter()
+    with Session(engine) as session:
+        actor = auth.authenticated_principal(session, token)
+        page = ConversationService(session, actor).events(conversation_id, cursor, 100)
+    return page, round((time.perf_counter() - started) * 1000, 2)
 
 
 @router.post("/local-auth/login", response_model=ActorRead, tags=["local-auth"],
@@ -144,32 +170,57 @@ async def stream_events(id: UUID, request: Request, actor=Depends(get_actor),
                         after: int = Query(default=0, ge=0),
                         last_event_id: int | None = Header(default=None, alias="Last-Event-ID", ge=0)):
     engine = request.app.state.database_engine
-    with Session(engine) as session:
-        ConversationService(session, actor).events(id, after=0, limit=1)
+    await run_in_threadpool(_check_stream_access, engine, actor, id)
     cursor = max(after, last_event_id or 0)
     token = request.cookies.get(auth.COOKIE_NAME)
 
     async def generate():
         nonlocal cursor
-        while not await request.is_disconnected():
-            with Session(engine) as session:
+        started = time.perf_counter()
+        active = _change_active_streams(1)
+        logger.info("", extra={
+            "event_code": "events.stream_opened", "active_connections": active,
+        })
+        poll_count = empty_poll_count = event_count = total_query_ms = max_event_age_ms = 0
+        close_reason = "disconnected"
+        try:
+            while not await request.is_disconnected():
                 try:
-                    current_actor = auth.authenticated_principal(session, token)
-                    page = ConversationService(session, current_actor).events(id, cursor, 100)
+                    page, query_ms = await run_in_threadpool(
+                        _read_authorized_event_page, engine, id, token, cursor)
                 except ServiceError:
+                    close_reason = "authorization_revoked"
                     return
                 except Exception as error:
+                    close_reason = "read_error"
                     logger.error("", extra={
                         "event_code": "events.stream_failed", "error_code": "event_stream_failed",
                         "exception_type": type(error).__name__,
                     })
                     return
+                poll_count += 1
+                total_query_ms += round(query_ms)
+                event_count += len(page.items)
+                if not page.items:
+                    empty_poll_count += 1
                 for event in page.items:
+                    age_ms = max(0, round((datetime.now(timezone.utc) - event.created_at).total_seconds() * 1000))
+                    max_event_age_ms = max(max_event_age_ms, age_ms)
                     yield f"id: {event.sequence}\ndata: {event.model_dump_json()}\n\n"
                 cursor = page.next_after
-            if not page.items:
-                yield ": keepalive\n\n"
-                await asyncio.sleep(2)
+                if not page.items:
+                    yield ": keepalive\n\n"
+                    await asyncio.sleep(2)
+        finally:
+            active = _change_active_streams(-1)
+            logger.info("", extra={
+                "event_code": "events.stream_closed", "active_connections": active,
+                "poll_count": poll_count, "empty_poll_count": empty_poll_count,
+                "event_count": event_count, "total_query_ms": total_query_ms,
+                "max_event_age_ms": max_event_age_ms,
+                "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                "close_reason": close_reason,
+            })
 
     return StreamingResponse(generate(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})

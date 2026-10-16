@@ -99,6 +99,43 @@ test('delivery SSE: duplicate, out-of-order and malformed events never regress o
   await expect(page.getByText(/丢失事件|漏事件/)).toHaveCount(0)
 })
 
+test('delivery SSE: bursts coalesce affected snapshots and progress-only events do not refetch', async ({ page }) => {
+  await controlledStream(page, '8')
+  await fixture(page, false)
+  const reads = { messages: 0, document: 0, conversations: 0 }
+  page.on('request', request => {
+    const url = request.url()
+    if (url.includes('/messages?')) reads.messages++
+    if (url.endsWith('/ui-document/refresh')) reads.document++
+    if (url.endsWith('/conversations')) reads.conversations++
+  })
+  await page.goto('/support')
+  await expect(page.getByText('实时更新已连接', { exact: true })).toBeVisible()
+  await settle(page)
+  const baseline = { ...reads }
+  await page.evaluate(events => {
+    const stream = window.testStreams.find(item => !item.closed)
+    for (const { value, id } of events) stream?.onmessage?.(new MessageEvent('message', { data: JSON.stringify(value), lastEventId: id }))
+  }, Array.from({ length: 5 }, (_, index) => {
+    const sequence = index + 9
+    return { value: { ...event(sequence), type: 'message.created' }, id: String(sequence) }
+  }))
+  await expect.poll(() => reads.messages).toBe(baseline.messages + 1)
+  await expect.poll(() => reads.document).toBe(baseline.document + 1)
+  await expect.poll(() => reads.conversations).toBe(baseline.conversations + 1)
+  await settle(page)
+  const afterMessages = { ...reads }
+  await page.evaluate(events => {
+    const stream = window.testStreams.find(item => !item.closed)
+    for (const { value, id } of events) stream?.onmessage?.(new MessageEvent('message', { data: JSON.stringify(value), lastEventId: id }))
+  }, Array.from({ length: 5 }, (_, index) => {
+    const sequence = index + 14
+    return { value: event(sequence), id: String(sequence) }
+  }))
+  await page.waitForTimeout(100)
+  expect(reads).toEqual(afterMessages)
+})
+
 test('delivery SSE: storage exceptions do not disable streaming or deduplication', async ({ page }) => {
   await controlledStream(page, undefined, true)
   const state = await fixture(page, false)
