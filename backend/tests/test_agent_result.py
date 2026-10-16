@@ -87,6 +87,24 @@ def test_bad_ui_falls_back_to_text(bad_ui):
     assert result.ui_proposal is None and result.ui_fallback_code == "ui_proposal_invalid"
 
 
+@pytest.mark.parametrize("hint", ["DiagnosticSteps", "RiskNotice", "HandoffSummary"])
+def test_proposal_rejects_hints_without_agent_projection(hint):
+    value = {"purpose": "排查设备", "audience": "CUSTOMER", "fallback_text": "可继续文字沟通。",
+             "component_hints": [hint]}
+    result = parse_agent_result(json.dumps({"text": "请继续描述情况。", "ui_proposal": value}, ensure_ascii=False))
+    assert result.text == "请继续描述情况。"
+    assert result.ui_proposal is None
+    assert result.ui_fallback_code == "ui_proposal_invalid"
+
+
+def test_agent_proposal_catalog_is_the_explicitly_supported_projection_subset():
+    from serviceos_api.agents.result import ALLOWED_HINTS
+    from serviceos_api.application.ui_catalog import CATALOG
+
+    assert set(ALLOWED_HINTS) == {"QuestionForm", "ChoiceGroup", "KnowledgeMetricChart", "CaseProcessFlow"}
+    assert set(ALLOWED_HINTS) <= set(CATALOG)
+
+
 def test_malformed_structured_result_recovers_text_only_or_raises():
     # Truncated payloads may recover the quoted text as a fallback reply, but never
     # publish raw malformed JSON; unrecoverable input still fails closed.

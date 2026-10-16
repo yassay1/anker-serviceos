@@ -4,7 +4,33 @@ import hashlib
 import re
 from pathlib import Path
 HEATING_SOURCE_ID = "eufy-s1-pro-heating-battery-v1"
+HEATING_METRIC_ID = "heating-extra-battery"
 HEATING_KNOWLEDGE_PATH = Path(__file__).resolve().parents[1] / "knowledge" / "eufy-s1-pro-heating-metric.md"
+
+
+def knowledge_source_used_in_run(source_id: str, result_payload: object) -> bool:
+    """Require an audited, same-run manual lookup for source-dependent UI proposals."""
+    if source_id != HEATING_SOURCE_ID or not isinstance(result_payload, dict):
+        return False
+    envelopes = result_payload.get("tool_envelopes")
+    if not isinstance(envelopes, list):
+        return False
+    for envelope in envelopes:
+        if (not isinstance(envelope, dict) or envelope.get("tool") != "lookup_manual"
+                or envelope.get("status") != "OK"):
+            continue
+        applicability = envelope.get("applicability")
+        if not isinstance(applicability, str) or "t8d04" not in applicability.casefold():
+            continue
+        references = envelope.get("references")
+        if not isinstance(references, list):
+            continue
+        if any(isinstance(reference, dict) and (
+            reference.get("entry_key") == HEATING_METRIC_ID or
+            reference.get("source_ref") == source_id
+        ) for reference in references):
+            return True
+    return False
 
 
 def knowledge_metric_chart(source_id: str, verified_models: set[str]) -> dict | None:
@@ -79,3 +105,31 @@ def case_process_flow(case, task=None, action=None, verification=None) -> dict:
         else:
             edges.append({"source": "case", "target": "verification"})
     return {"nodes": nodes, "edges": edges}
+
+
+def customer_case_progress(case, task=None, action=None, verification=None) -> dict[str, str]:
+    """Describe only customer-safe waiting/progress state from current linked records."""
+    status = case.status
+    if status == "WAITING_CUSTOMER":
+        body = "等待你补充所需信息或反馈当前结果。"
+    elif status == "WAITING_EXTERNAL":
+        body = "正在等待相关外部处理完成；有更新后会继续告知。"
+    elif status in ("RESOLVED", "CLOSED"):
+        body = "服务结果已通过现有核验流程确认。" if status == "RESOLVED" else "服务案例已关闭。"
+    elif verification is not None and verification.decision == "PENDING":
+        body = "售后处理已记录，正在等待你反馈设备当前结果。"
+    elif verification is not None and verification.decision == "NOT_RESOLVED":
+        body = "你反馈问题仍未解决，服务团队会继续跟进。"
+    elif action is not None and action.status == "UNKNOWN":
+        body = "售后动作结果尚未确认，正在核对原记录；请勿重复提交。"
+    elif action is not None and action.status == "SUCCEEDED":
+        body = "售后动作已取得模拟回执，仍需确认实际结果；问题尚未标记为解决。"
+    elif action is not None and action.status in ("FAILED", "REJECTED"):
+        body = "本次售后动作未完成，服务团队会继续确认可行的下一步。"
+    elif task is not None and task.status in ("OPEN", "ASSIGNED"):
+        body = "客服正在处理这项服务请求。"
+    elif status == "OPEN":
+        body = "服务案例已建立，正在确认适用的下一步。"
+    else:
+        body = "服务团队正在处理；设备问题仍以核验结果为准。"
+    return {"title": "当前服务进度", "body": body, "status": status}

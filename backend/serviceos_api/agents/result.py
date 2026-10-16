@@ -8,11 +8,9 @@ from typing import Any, Literal, NotRequired, TypedDict, cast
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-ALLOWED_HINTS = frozenset({"QuestionForm", "ChoiceGroup", "DiagnosticSteps", "RiskNotice", "HandoffSummary",
-                           "KnowledgeMetricChart", "CaseProcessFlow"})
+ALLOWED_HINTS = frozenset({"QuestionForm", "ChoiceGroup", "KnowledgeMetricChart", "CaseProcessFlow"})
 ALLOWED_KNOWLEDGE_SOURCES = frozenset({"eufy-s1-pro-heating-battery-v1"})
-UIHint = Literal["QuestionForm", "ChoiceGroup", "DiagnosticSteps", "RiskNotice", "HandoffSummary",
-                 "KnowledgeMetricChart", "CaseProcessFlow"]
+UIHint = Literal["QuestionForm", "ChoiceGroup", "KnowledgeMetricChart", "CaseProcessFlow"]
 
 
 class UIOption(TypedDict):

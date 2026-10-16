@@ -260,6 +260,7 @@ class MessageWorker:
                             "context_digest_items", "context_build_duration_ms",
                         )},
                         "tool_call_counts": stats.get("tool_call_counts", {}),
+                        "execution_termination": stats.get("execution_termination"),
                     }
                     run.result_text = result.text
                     run.result_payload = stored_payload

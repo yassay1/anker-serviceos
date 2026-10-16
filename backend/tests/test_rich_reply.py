@@ -1,4 +1,4 @@
-from serviceos_api.application.rich_reply import RISK, RichReply, _safety_reply
+from serviceos_api.application.rich_reply import RISK, SAFETY_TEXT, RichReply, _safety_reply
 
 
 def test_safety_reply_discards_model_narrative_and_neutralizes_image_caption():
@@ -21,10 +21,14 @@ def test_safety_reply_discards_model_narrative_and_neutralizes_image_caption():
 
     safe = _safety_reply(reply)
 
-    assert [block.type for block in safe.blocks] == ["image", "status"]
-    assert safe.blocks[0].title == "用户提供的图片"
-    assert safe.blocks[0].text == "已收到设备图片；无法据此确认故障原因。请先遵循安全提示。"
-    assert safe.blocks[0].focus is None
+    assert [block.type for block in safe.blocks] == ["alert", "image", "status"]
+    assert safe.blocks[0].title == "先停止使用设备"
+    assert safe.blocks[0].text == SAFETY_TEXT
+    assert safe.blocks[0].severity == "danger"
+    assert safe.blocks[0].status_code == "POLICY_SAFETY_STOP"
+    assert safe.blocks[1].title == "用户提供的图片"
+    assert safe.blocks[1].text == "已收到设备图片；无法据此确认故障原因。请先遵循安全提示。"
+    assert safe.blocks[1].focus is None
     assert safe.quick_replies == []
 def test_risk_filter_matches_overheating_but_respects_negation():
     assert RISK.search('设备明显过热')

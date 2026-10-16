@@ -160,6 +160,7 @@ class PublicationGuard:
         for envelope in payload.get("tool_envelopes", []) or []:
             bundle.extend(envelope.get("notes", []) or [])
             bundle.extend(envelope.get("items", []) or [])
+            bundle.extend(self._typed_order_evidence(envelope))
         case_ids = [row.case_id for row in self.session.scalars(select(CaseConversation).where(
             CaseConversation.conversation_id == conversation_id,
             CaseConversation.tenant_id == self.tenant_id)).all()]
@@ -174,6 +175,53 @@ class PublicationGuard:
                     CaseEvidence.tenant_id == self.tenant_id, CaseEvidence.case_id.in_(case_ids))).all():
                 bundle.append(evidence.summary or evidence.claim_type or "")
         return [text for text in bundle if text]
+
+    def _typed_order_evidence(self, envelope: dict) -> list[str]:
+        """Resolve successful order-tool references into the exact returned fields.
+
+        Tool audit intentionally omits arbitrary result items. The order lookup is a
+        narrow exception: its typed references point to de-identified corpus rows,
+        and the AgentToolService returns only this fixed field allowlist. Reconstruct
+        those fields from the referenced row so publication grounding can verify the
+        same facts without copying free-form tool payloads into the audit record.
+        """
+        if (envelope.get("tool") != "query_order_warranty"
+                or envelope.get("status") != "OK"
+                or envelope.get("applicability") != "REFERENCE_ORDER"):
+            return []
+
+        references = [ref for ref in envelope.get("references", []) or []
+                      if isinstance(ref, dict) and ref.get("path") == "typed"
+                      and isinstance(ref.get("entry_key"), str)]
+        entry_keys = list(dict.fromkeys(ref["entry_key"] for ref in references))
+        if not entry_keys:
+            return []
+
+        rows = self.session.scalars(select(KnowledgeSegment).where(
+            KnowledgeSegment.entry_key.in_(entry_keys))).all()
+        by_key = {row.entry_key: row for row in rows}
+        evidence: list[str] = []
+        allowed_fields = (
+            "order_no", "sku", "description", "qty", "purchase_date", "warranty_end",
+            "status", "carrier", "tracking", "logistics_status", "ship_date", "amount",
+        )
+        for reference in references:
+            row = by_key.get(reference["entry_key"])
+            if row is None:
+                continue
+            source_ref = (row.curation or {}).get("source_ref", row.title)
+            if (reference.get("source_ref") != source_ref
+                    or reference.get("source_sha256_16") != row.content_sha256[:16]):
+                continue
+            attrs = row.attrs or {}
+            # The order tool only resolves actual order rows; a typed reference to a
+            # non-order segment must not broaden the guard's evidence bundle.
+            if not attrs.get("order_no"):
+                continue
+            fields = [f"{name}: {attrs[name]}" for name in allowed_fields if attrs.get(name)]
+            if fields:
+                evidence.append(f"SOURCE: {source_ref} | " + " | ".join(fields))
+        return evidence
 
     def _grounded(self, entity: Entity, bundle: list[str]) -> bool:
         for text in bundle:

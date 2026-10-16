@@ -133,6 +133,83 @@ def test_publication_guard_blocks_ungrounded_and_passes_grounded(guard_env):
         assert passed.decision == "PASSED"
 
 
+def test_order_tool_reference_grounds_only_the_returned_order_row(guard_env):
+    env = guard_env
+    from serviceos_api.persistence.knowledge_models import (
+        KnowledgeDocument, KnowledgeDocumentVersion, KnowledgeSegment,
+    )
+
+    with Session(env.engine, expire_on_commit=False) as session:
+        tenant, _, conversation, message, job, _ = seed_message(session)
+        run, token = active_run(session, tenant.id, conversation.id, message.id, job.id)
+        document = KnowledgeDocument(source_kind="seed_corpus", title="reference orders",
+                                     filename="orders.jsonl", media_type="application/json",
+                                     content_hash="c" * 64, status="STORED", current_version=1,
+                                     split_type="ROW")
+        session.add(document)
+        session.flush()
+        version = KnowledgeDocumentVersion(document_id=document.id, version=1,
+                                           content_hash="c" * 64, status="STORED")
+        session.add(version)
+        session.flush()
+        session.add(KnowledgeSegment(
+            document_id=document.id, version_id=version.id, chunk_index=0,
+            entry_key="orders-test:r3", title="订单 Anker002",
+            content="Anker002 T2080GA1 S1 Pro warranty ends 2027-09-13",
+            content_sha256="d" * 64, models=["T2080GA1"], directories=[],
+            source_status="S", consumer_visible="V", applicability="REFERENCE_ORDER",
+            attrs={"order_no": "anker002", "sku": "T2080GA1",
+                   "description": "eufy RoboVac S1 Pro", "warranty_end": "2027-09-13",
+                   "status": "已发货", "carrier": "ANPOST"},
+            curation={"source_ref": "orders-test:r3"},
+        ))
+        session.flush()
+
+        tool_service = AgentToolService(session, tenant.id, conversation.id, run.id, token,
+                                        settings=TEST_SETTINGS)
+        result = tool_service.query_order_warranty("Anker002")
+        session.refresh(run)
+        order_audit = run.result_payload["tool_envelopes"][-1]
+        assert result.status == "OK" and "2027-09-13" in result.to_prompt_text()
+        assert "items" not in order_audit  # Keep raw tool results out of generic audit.
+
+        guard = PublicationGuard(session, TEST_SETTINGS, tenant.id)
+        valid = guard.check(
+            "Anker002 的质保到 2027-09-13，订单显示已发货，承运商为 ANPOST。",
+            run, conversation.id, "请查一下 Anker002 的订单。",
+        )
+        assert valid.decision == "PASSED"
+
+        wrong_date = guard.check(
+            "Anker002 的质保到 2026-10-13。", run, conversation.id,
+            "请查一下 Anker002 的订单。",
+        )
+        assert wrong_date.decision == "BLOCKED"
+        assert "UNGROUNDED_ENTITY" in wrong_date.reason_codes
+
+        # A reference from another tool cannot authorize an order row as evidence.
+        run.result_payload = {"tool_envelopes": [{
+            **order_audit, "tool": "lookup_manual",
+        }]}
+        unrelated = guard.check("质保到 2027-09-13。", run, conversation.id, "谢谢")
+        assert unrelated.decision == "BLOCKED"
+
+        # Nor can a forged/mismatched source or corpus revision authorize the row.
+        wrong_source = {**order_audit, "references": [{
+            **order_audit["references"][0], "source_ref": "orders-test:other",
+        }]}
+        run.result_payload = {"tool_envelopes": [wrong_source]}
+        forged = guard.check("质保到 2027-09-13。", run, conversation.id, "谢谢")
+        assert forged.decision == "BLOCKED"
+
+        wrong_revision = {**order_audit, "references": [{
+            **order_audit["references"][0], "source_sha256_16": "0" * 16,
+        }]}
+        run.result_payload = {"tool_envelopes": [wrong_revision]}
+        stale = guard.check("质保到 2027-09-13。", run, conversation.id, "谢谢")
+        assert stale.decision == "BLOCKED"
+
+
 def test_publish_hook_blocks_then_supervisor_override_publishes(guard_env):
     env = guard_env
     with Session(env.engine, expire_on_commit=False) as session:

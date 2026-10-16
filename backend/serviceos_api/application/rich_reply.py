@@ -160,11 +160,13 @@ def _safety_reply(reply: RichReply) -> RichReply:
             }))
         else:
             blocks.append(item)
-    return reply.model_copy(update={'blocks': blocks, 'quick_replies': []})
+    safety_alert = ReplyBlock(type='alert', title='先停止使用设备', text=SAFETY_TEXT,
+                              severity='danger', status_code='POLICY_SAFETY_STOP')
+    return reply.model_copy(update={'blocks': [safety_alert, *blocks], 'quick_replies': []})
 SAFETY_TEXT = '如果设备出现鼓包、冒烟、漏液、异味或明显过热，请停止使用和充电，保持安全距离，不要拆机、挤压或继续通电排查，并通过现有入口联系人工客服。单凭描述不能确认故障原因。'
 
 
-def project_reply(session, conversation, run, draft, related_case_id=None):
+def project_reply(session, conversation, run, draft, related_case_id=None, *, force_safety=False):
     """Bind model display requests to current authorized records at publication time."""
     from serviceos_api.persistence.models import (CaseAction, CaseConversation, CaseImageEvidence,
         CaseVerification, Message, ServiceCase, ServiceTask)
@@ -183,7 +185,8 @@ def project_reply(session, conversation, run, draft, related_case_id=None):
     projected = []
     source_message = session.scalar(select(Message).where(Message.id == run.message_id,
         Message.tenant_id == conversation.tenant_id, Message.conversation_id == conversation.id))
-    safety = bool(source_message and RISK.search(' '.join(part.get('text', '') for part in source_message.content)))
+    safety = force_safety or bool(
+        source_message and RISK.search(' '.join(part.get('text', '') for part in source_message.content)))
     if safety:
         reply = _safety_reply(reply)
     for item in reply.blocks:
@@ -194,6 +197,12 @@ def project_reply(session, conversation, run, draft, related_case_id=None):
         block['source_url'] = None
         block['entries'] = []
         block['status_code'] = None
+        if item.type == 'alert' and safety and item.status_code == 'POLICY_SAFETY_STOP':
+            block.update(title='先停止使用设备', text=SAFETY_TEXT, severity='danger',
+                         status_code='POLICY_SAFETY_STOP')
+        elif item.type == 'alert':
+            # Only the server risk policy can attach the reserved safety marker.
+            block['status_code'] = None
         if item.type in ('status', 'timeline'):
             if case is None:
                 continue
@@ -247,7 +256,8 @@ def project_reply(session, conversation, run, draft, related_case_id=None):
             block['text'] = '将打开已有服务入口；不会直接批准或执行售后操作。'
         projected.append(block)
     if safety:
-        projected = [{'type': 'alert', 'title': '先确认安全', 'text': SAFETY_TEXT, 'severity': 'danger'},
+        projected = [{'type': 'alert', 'title': '先停止使用设备', 'text': SAFETY_TEXT, 'severity': 'danger',
+                      'status_code': 'POLICY_SAFETY_STOP'},
                      {'type': 'actions', 'title': '打开人工协助入口', 'action': 'request_assistance',
                       'text': '打开现有协助入口，由你确认后再提交。'},
                      *[item for item in projected if item['type'] not in ('alert', 'actions')]][:8]

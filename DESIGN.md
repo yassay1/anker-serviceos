@@ -137,6 +137,70 @@ components:
 
 本规范按 `frontend/src/styles/base.css` → `workspace.css` → `surfaces.css` 的实际加载顺序和对应 React 组件提取。最终第二轮十张截图的视觉评审结论为 ship；81 项受控浏览器测试、12 次无障碍扫描及构建检查通过。截图模式、真实 API 只读检查和未重跑实时写入闭环的边界详见 `docs/reference-ui-surface.md`；本轮未运行 detector，亦未配置真实 AI 提供方。
 
+## Design references and project fit
+
+Use mature design systems as references for interaction grammar and component boundaries, while keeping the warm ivory, navy, and service-blue identity established by the supplied reference images. Do not import a reference product's brand palette or visual skin wholesale.
+
+| Reference | Borrow | Apply here |
+|---|---|---|
+| [Atlassian Design System — navigation layout](https://atlassian.design/components/navigation-system/layout) | Separate app navigation, page content, and contextual areas; make navigation responsive and keep its hierarchy predictable. | Keep customer navigation simple. Use the staff rail and queue as work-area navigation, with the conversation and case context in distinct content regions. |
+| [Atlassian Design System — lozenge](https://atlassian.design/components/lozenge) | Give status labels stable semantic meanings such as success, warning, danger, and information. | Map labels to actual Case, Conversation, evidence, action, and verification states. Always show the status text; color alone is never a state. |
+| [GitHub Primer — components](https://primer.style/product/components/) | Reusable status labels, timelines, and underline navigation for dense workflow interfaces. | Reuse the same status, progress, and navigation patterns across customer and staff surfaces, with role-appropriate density. |
+
+These are pattern references, not dependencies to install. The frontend remains the existing React, TypeScript, CSS, Router, TanStack Query, and Lucide application. Favor native semantic controls and the existing component catalog over adding a second component framework.
+
+## Premium quality rules
+
+“Premium” means calm, legible, precise, and consistent; it does not mean adding visual effects to every surface.
+
+- Keep one primary action per visible region. Secondary actions use a quiet outline or text treatment.
+- Use warm canvas, white work surfaces, navy text, and the existing service blue. Peach is reserved for the customer's own messages and warm service guidance; semantic status colors keep their operational meaning.
+- Use thin dividers and low, soft shadows to separate surfaces. Avoid stacked shadows, heavy borders, pervasive gradients, glass blur, decorative glow, and oversized card radii.
+- Keep Chinese system typography. Use a small, predictable type scale, readable line length, and aligned numeric metadata. Do not add an external display font solely to signal luxury.
+- Use Lucide SVG icons with consistent stroke weight and size. Never use emoji as interface icons. Icon-only buttons need an accessible name and visible focus state.
+- Reserve photography for the home-page atmosphere. Conversation, evidence, and device identity surfaces should prioritize actual records and readable text.
+- Keep customer and staff density intentionally different while sharing spacing, controls, surfaces, status semantics, and focus treatment.
+
+## Asset library and provenance
+
+Maintain a small curated library rather than collecting assets before the interface needs them. Every shipped raster must have an owner/source, intended use, alt-text rule, and provenance record.
+
+| Asset class | Source of truth | Rendering rule |
+|---|---|---|
+| Brand mark | Approved product artwork; use the current text mark until supplied | Do not redraw or invent a logo from the reference image. |
+| Interface icons | Existing `lucide-react` dependency | Keep stroke weight and optical size consistent; hide decorative icons from assistive technology. |
+| Decorative room image | `frontend/public/images/service-room.png`, with prompt in `docs/assets/service-room.md` | Atmosphere only; never present it as a customer room, product image, or diagnostic evidence. |
+| Product photo guide set | Three `frontend/public/images/product-*-guide.png` images, with prompts and usage rules in `docs/assets/product-photo-guide-set.md` | Upload guidance only; the UI labels them as examples, never evidence or real devices. |
+| Device identity image | No general device-photo feed is established by the current contract | Use a neutral device icon until a real authorized image source exists. Do not substitute generated product photos. |
+| Customer evidence | Authorized evidence content endpoint after the server permits access | Show the actual inspection state; do not expose uninspected or unauthorized content. |
+| User and staff avatars | No authoritative avatar source is established in the current contract | Use a neutral initials/icon fallback, not a fabricated person. |
+
+Keep reference screenshots grouped by date under `docs/design-references/` as review material only. The 2026-10-17 customer session set is indexed at `docs/design-references/2026-10-17-customer/README.md`; the earlier 2026-10-13 set remains in its original folders. Do not use screenshots as page backgrounds or copy their names, case IDs, device facts, status, metrics, or service promises into UI fixtures presented as real records.
+
+## Reference-image translation
+
+The image set has several compositions of the same service journey. Treat them as responsive and state variants rather than competing page specifications:
+
+1. **Customer home / history:** brand header and account control; greeting and new-conversation action; searchable, filterable service list; selected conversation or case summary. On wide screens use master-detail; on narrow screens show one panel at a time.
+2. **Customer conversation:** conversation selector, message thread, evidence/request card, composer, and a contextual service panel. The thread remains the visual center; status and next step come from authorized records or published UI documents.
+3. **Customer service detail:** case identity header, actual progress, evidence, associated device, verification, and follow-up. A three-column desktop arrangement may collapse into stacked sections on smaller screens.
+4. **Staff overview:** work navigation, scoped record counts, search/filter controls, and case queue. Counts must be labeled as the currently loaded authorized set.
+5. **Staff conversation:** queue, conversation, and authorized case/collaboration context. Internal notes must be visibly distinct from public messages.
+
+Never force a one-to-one relationship between Conversation and Case to make the composition easier. The sidebar can display multiple case summaries returned by the API.
+
+## Visual review handoff
+
+Review one representative desktop and mobile capture for each of the five surfaces. Check these in order:
+
+1. **Hierarchy:** page title, primary task, current status, and next action are immediately distinguishable.
+2. **Consistency:** shared controls, spacing, text roles, borders, and status labels look like the same product across routes.
+3. **Truthfulness:** every visible business value maps to an authorized API field or persisted event; unavailable data is omitted or explicitly unavailable.
+4. **Interaction:** loading, empty, error, pending, denied, stale-version, and disconnected states remain understandable and recoverable.
+5. **Responsive and accessible behavior:** no page-level horizontal overflow; keyboard focus is visible; touch targets remain comfortable; reduced motion is respected; status is not color-only.
+
+The current reference rebuild has its own dated evidence in `docs/reference-ui-validation.md`. This checklist is for future visual changes and does not retroactively claim new screenshots or acceptance.
+
 ## Colors
 
 服务蓝负责操作和选中反馈，暖纸与浅桃色缓和客户会话，深色导航帮助客服区定位。

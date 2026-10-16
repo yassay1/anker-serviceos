@@ -7,7 +7,7 @@ from serviceos_api.application.errors import ServiceError
 
 SCHEMA_VERSION = 1
 # Version 3 adds bounded chart and flow payloads. Older published documents remain valid.
-CATALOG_VERSION = 3
+CATALOG_VERSION = 4
 CATALOG = {
     "CaseSummaryCard": ("title", "body", "status", "source", "verification"),
     "EvidenceSummary": ("title", "body", "source", "verification"),
@@ -26,7 +26,7 @@ MIN_OPTIONS = 2
 MAX_OPTIONS = 5
 BINDINGS = {
     "CONVERSATION_VIEW": {"overview", "assistance", "mode"},
-    "CASE_VIEW": {"summary", "evidence", "process_flow"},
+    "CASE_VIEW": {"summary", "evidence", "process_flow", "progress"},
     "TASK_VIEW": {"handoff", "progress"},
     "AGENT_RUN_VIEW": {"question", "metric"},
     "DIAGNOSTIC_TASK_VIEW": {"question"},
@@ -137,8 +137,12 @@ def validate_components(components: list[dict], audience: str,
                 raise ServiceError(422, "诊断问题版本无效。")
         elif source.get("question_revision") is not None:
             raise ServiceError(422, "非诊断数据来源不能包含问题版本。")
-        if audience == "CUSTOMER" and source["kind"] not in ("CONVERSATION_VIEW", "AGENT_RUN_VIEW", "DIAGNOSTIC_TASK_VIEW"):
-            raise ServiceError(403, "客户 UI 不能引用内部数据来源。")
+        if audience == "CUSTOMER":
+            customer_case_progress = (source["kind"] == "CASE_VIEW" and source["binding"] == "progress"
+                                      and kind == "ProgressTimeline")
+            if (source["kind"] not in ("CONVERSATION_VIEW", "AGENT_RUN_VIEW", "DIAGNOSTIC_TASK_VIEW")
+                    and not customer_case_progress):
+                raise ServiceError(403, "客户 UI 不能引用内部数据来源。")
         if kind == "KnowledgeMetricChart" and (source["kind"], source["binding"]) != ("AGENT_RUN_VIEW", "metric"):
             raise ServiceError(422, "知识图表必须引用获准的 AgentRun 来源。")
         if kind == "CaseProcessFlow" and (source["kind"], source["binding"]) != ("CASE_VIEW", "process_flow"):

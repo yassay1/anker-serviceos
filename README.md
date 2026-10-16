@@ -33,6 +33,7 @@
 - [阶段 5 交付准备与集成验收](docs/phase5-validation.md)：实际执行的命令与结果、本轮修复、本机可访问的体验服务，以及仍未通过的验收门槛。
 - [部署与运维手册](docs/operations.md)、[售后 SOP](docs/service-sop.md)：开发/生产依赖、迁移/备份/回滚/EC2+RDS+S3 网络与阻断说明，以及逐阶段服务流程与异常矩阵。
 - [前端适配验证](docs/backend-based-frontend-validation.md)与[全面逻辑检查](docs/comprehensive-logic-audit.md)：真实接口适配、浏览器路径、恢复修复及仍待验的边界。
+- [客户页面对齐验收](docs/customer-ui-alignment-validation.md)：2026-10-17 参考图、桌面优先会话布局、移除客户侧运行生命周期噪音及本轮浏览器回归记录。
 
 ## 当前实现范围
 

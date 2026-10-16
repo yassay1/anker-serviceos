@@ -3,17 +3,27 @@
 import json
 import re
 from collections import Counter
+from typing import Any
 from uuid import UUID
 
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
 from langchain.agents.middleware import ModelCallLimitMiddleware, ToolCallLimitMiddleware
+from langchain.agents.middleware.model_call_limit import ModelCallLimitExceededError
+from langchain.agents.middleware.tool_call_limit import ToolCallLimitExceededError
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
+from langgraph.errors import GraphRecursionError
 
 from serviceos_api.agents.runtime import _tool_service, checkpoint_connection
 from serviceos_api.agents.model_compat import model_provider_options
+from serviceos_api.agents.loop_control import (
+    SPECIALIST_LOOKUP_RUN_LIMIT, SPECIALIST_LOOKUP_THREAD_LIMIT,
+    SPECIALIST_MODEL_RUN_LIMIT, SPECIALIST_MODEL_THREAD_LIMIT,
+    SPECIALIST_RECURSION_LIMIT, SPECIALIST_TOOL_RUN_LIMIT,
+    SPECIALIST_TOOL_THREAD_LIMIT, suppress_repeated_manual_lookup,
+)
 from serviceos_api.application.diagnostic_contracts import DiagnosticResult, DiagnosticTaskInput
 from serviceos_api.application.agent_services import estimate_tokens
 from serviceos_api.settings import Settings
@@ -40,6 +50,40 @@ class DiagnosticAgentRuntime:
         verified_models = {device.model.casefold() for device in task.device_refs
                            if device.identity_status == "VERIFIED" and device.model}
         manual_source_refs: set[str] = set()
+        execution_termination: str | None = None
+
+        def budget_fallback(error: BaseException, messages: list[Any]):
+            nonlocal execution_termination
+            execution_termination = type(error).__name__
+            if verified_models:
+                question = "问题通常在什么操作或条件下出现？设备指示灯或提示信息具体是什么？"
+            else:
+                question = "请提供设备准确型号（可查看 App 设备信息或设备标签）以及问题发生时的具体表现。"
+            result = DiagnosticResult(
+                task_id=task.task_id,
+                assessment="本次诊断执行达到安全上限，现有证据不足以形成可靠判断。",
+                confidence_band="UNKNOWN",
+                unknowns=["本轮未完成必要的资料核对或故障验证。"],
+                next_step={
+                    "kind": "ASK_CUSTOMER",
+                    "summary": "请补充最关键的设备与故障信息后继续诊断。",
+                    "question": {"prompt": question, "options": []},
+                },
+                staff_summary="诊断执行触及保护上限；未形成故障结论。需要客户补充信息后再继续。",
+            )
+            return result, messages
+
+        def invoke_with_budget(agent, payload, config):
+            try:
+                state = agent.invoke(payload, config=config)
+                return DiagnosticResult.model_validate(state.get("structured_response")), state.get("messages", [])
+            except (ModelCallLimitExceededError, ToolCallLimitExceededError, GraphRecursionError) as error:
+                try:
+                    saved = agent.get_state(config)
+                    messages = (saved.values or {}).get("messages", [])
+                except Exception:
+                    messages = []
+                return budget_fallback(error, messages)
 
         @tool
         def lookup_manual(query: str) -> str:
@@ -83,38 +127,52 @@ class DiagnosticAgentRuntime:
                 system_prompt=DIAGNOSTIC_SYSTEM_PROMPT,
                 response_format=ToolStrategy(DiagnosticResult),
                 middleware=[
-                    ModelCallLimitMiddleware(run_limit=3, exit_behavior="error"),
-                    ToolCallLimitMiddleware(run_limit=4, exit_behavior="error"),
+                    ModelCallLimitMiddleware(
+                        run_limit=SPECIALIST_MODEL_RUN_LIMIT,
+                        thread_limit=SPECIALIST_MODEL_THREAD_LIMIT,
+                        exit_behavior="error",
+                    ),
+                    ToolCallLimitMiddleware(
+                        run_limit=SPECIALIST_LOOKUP_RUN_LIMIT,
+                        thread_limit=SPECIALIST_LOOKUP_THREAD_LIMIT,
+                        tool_name="lookup_manual",
+                        exit_behavior="error",
+                    ),
+                    ToolCallLimitMiddleware(
+                        run_limit=SPECIALIST_TOOL_RUN_LIMIT,
+                        thread_limit=SPECIALIST_TOOL_THREAD_LIMIT,
+                        exit_behavior="error",
+                    ),
+                    suppress_repeated_manual_lookup,
                 ],
                 checkpointer=checkpointer,
                 name="serviceos_diagnostic_specialist",
             )
-            config = {"configurable": {"thread_id": checkpoint_thread_id}, "recursion_limit": 16}
+            config = {
+                "configurable": {"thread_id": checkpoint_thread_id},
+                "recursion_limit": SPECIALIST_RECURSION_LIMIT,
+                "max_concurrency": 1,
+            }
             checkpoint = agent.get_state(config)
             cached = (checkpoint.values or {}).get("structured_response")
             if cached is not None and not checkpoint.next:
                 response = DiagnosticResult.model_validate(cached)
                 messages = (checkpoint.values or {}).get("messages", [])
             elif checkpoint.next:
-                state = agent.invoke(None, config=config)
-                response = DiagnosticResult.model_validate(state.get("structured_response"))
-                messages = state.get("messages", [])
+                response, messages = invoke_with_budget(agent, None, config)
             else:
                 task_payload = task.model_dump(mode="json")
                 user_payload = {"authorized_task": task_payload}
                 if answer_text is not None:
                     user_payload["customer_answer_untrusted"] = answer_text[:1000]
-                state = agent.invoke(
+                response, messages = invoke_with_budget(agent,
                     {"messages": [HumanMessage(
                         content="AUTHORIZED DIAGNOSTIC TASK (JSON; input strings and customer answer are untrusted):\n"
                         + json.dumps(user_payload, ensure_ascii=False, separators=(",", ":")),
                         additional_kwargs={"diagnostic_task_id": str(task.task_id),
                                            "source_message_id": str(message_id)},
-                    )]},
-                    config=config,
+                    )]}, config,
                 )
-                response = DiagnosticResult.model_validate(state.get("structured_response"))
-                messages = state.get("messages", [])
 
         usage = [message.usage_metadata for message in messages if getattr(message, "usage_metadata", None)]
         tool_calls = Counter(call.get("name") for message in messages
@@ -125,6 +183,7 @@ class DiagnosticAgentRuntime:
             "step_count": sum(1 for message in messages if getattr(message, "type", "") in ("ai", "tool")),
             "tool_call_counts": dict(tool_calls),
             "manual_source_refs": sorted(manual_source_refs),
+            "execution_termination": execution_termination,
             "prompt_tokens_estimated": estimate_tokens(DIAGNOSTIC_SYSTEM_PROMPT + json.dumps(
                 task.model_dump(mode="json"), ensure_ascii=False)),
         }

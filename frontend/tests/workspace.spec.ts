@@ -55,14 +55,30 @@ test('adaptation: narrow screen panels preserve the message draft', async ({ pag
   await page.goto('/support')
   await page.getByLabel('描述你的问题').fill('充电宝无法持续充电')
   await page.getByRole('button', { name: '资料与协助', exact: true }).click()
-  await expect(page.getByRole('button', { name: '查看协助与补充信息', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '请求真人协助', exact: true })).toBeVisible()
   await expect(page.getByLabel('描述你的问题')).toBeHidden()
-  await page.getByRole('button', { name: '查看协助与补充信息', exact: true }).click()
-  await expect(page.getByRole('button', { name: '请求人工协助', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: '请求人工协助', exact: true })).toHaveCount(1)
+  await page.getByRole('button', { name: '请求真人协助', exact: true }).click()
+  await expect(page.getByRole('button', { name: '提交协助请求', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '提交协助请求', exact: true })).toHaveCount(1)
   await expect(page.getByLabel('描述你的问题')).toHaveValue('充电宝无法持续充电')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
+
+for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }]) {
+  test(`customer conversation: ${viewport.width}px layout has one assistance entry and no runtime completion card`, async ({ page }) => {
+    await page.setViewportSize(viewport)
+    const state = await fixture(page, false)
+    await page.goto('/support')
+    await expect(page.locator('.conversation-selector .conversation-list')).toBeVisible()
+    await expect(page.getByRole('heading', { name: '对话', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '开始新对话', exact: true })).toHaveCount(1)
+    await expect(page.locator('.conversation-list').getByRole('button', { name: '新建会话', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '请求真人协助', exact: true })).toHaveCount(1)
+    await expect(page.getByRole('button', { name: '查看协助与补充信息', exact: true })).toHaveCount(0)
+    await expect(page.getByText(/交互卡修订|本轮处理结束|本轮运行结束/)).toHaveCount(0)
+    expect(state.unexpected).toEqual([])
+  })
+}
 
 test('adaptation: draft review requires the backend minimum reason length', async ({ page }) => {
   await fixture(page)
