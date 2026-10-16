@@ -4,7 +4,7 @@ info:
   title: Anker ServiceOS API
   version: 0.1.0
 x-serviceos-proposal-status: draft
-x-serviceos-implemented-sha256: 60c45c3453100904c32f5a12ee79d827e51db4e5324a29ae88739471e708c7a6
+x-serviceos-implemented-sha256: 57a9e3147125390484852dafb5cb94ed150311e0a1191a6d2a5ef90b09a99daf
 x-serviceos-planned-source: contracts/proposed/v1/planned.yaml
 paths:
   /api/v1/actions/{id}:
@@ -4771,7 +4771,17 @@ components:
     MessageRead:
       additionalProperties: false
       properties:
+        author_display_name:
+          readOnly: true
+          title: Author Display Name
+          type: string
         author_kind:
+          enum:
+          - CUSTOMER
+          - STAFF
+          - AGENT
+          - SYSTEM
+          - SPECIALIST
           title: Author Kind
           type: string
         client_message_id:
@@ -4815,6 +4825,7 @@ components:
       - client_message_id
       - related_case_id
       - created_at
+      - author_display_name
       title: MessageRead
       type: object
     MessageReceipt:
