@@ -38,8 +38,11 @@ VERIFIER_SYSTEM = (
     "You verify a customer-service reply against the customer's message. "
     "Output STRICT JSON only: {\"requests\": [{\"text\": str, \"addressed\": bool, "
     "\"reply_span\": str | null}], \"ungrounded_promises\": [str]}. "
-    "requests = every explicit request or question in the customer message; addressed=true only "
-    "when the reply answers it or explicitly states what is missing and the next step; "
+    "requests = every explicit request or question in the customer message. "
+    "addressed=true when the reply: answers it; OR asks for the specific missing information "
+    "needed to proceed (e.g. order number, model); OR explicitly explains it is out of scope and "
+    "offers an alternative; OR defers it to a human with a next step. addressed=false only when the "
+    "reply silently ignores the request. "
     "ungrounded_promises = promised outcomes, deadlines, refunds, repairs or warranties that the "
     "reply does not tie to a stated evidence source."
 )
