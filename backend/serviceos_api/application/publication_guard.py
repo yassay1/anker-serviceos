@@ -149,8 +149,14 @@ class PublicationGuard:
         bundle: list[str] = [customer_text]
         keys = [ref.get("entry_key") for ref in payload.get("knowledge_references", []) or []]
         if keys:
-            bundle.extend(row[0] for row in self.session.execute(select(KnowledgeSegment.content).where(
-                KnowledgeSegment.entry_key.in_(keys))).all())
+            for content, models in self.session.execute(select(
+                    KnowledgeSegment.content, KnowledgeSegment.models).where(
+                    KnowledgeSegment.entry_key.in_(keys))).all():
+                bundle.append(content)
+                # PN metadata is authoritative provenance: a referenced segment whose
+                # model list contains a code grounds mentions of that code.
+                if models:
+                    bundle.append(" ".join(str(model).upper() for model in models))
         for envelope in payload.get("tool_envelopes", []) or []:
             bundle.extend(envelope.get("notes", []) or [])
             bundle.extend(envelope.get("items", []) or [])
