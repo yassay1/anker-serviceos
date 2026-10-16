@@ -19,7 +19,7 @@ from serviceos_api.application.skills import (
 )
 from serviceos_api.application.contracts import ExperienceContent
 from serviceos_api.application.knowledge_pipeline import normalize_seller
-from serviceos_api.application.knowledge_retrieval import KnowledgeRetrieval
+from serviceos_api.application.knowledge_retrieval import KnowledgeRetrieval, detect_ambiguity
 from serviceos_api.application.policies import resolve_policy_row
 from serviceos_api.application.query_rewrite import QueryRewriter
 from serviceos_api.application.tool_envelope import ToolResult
@@ -626,6 +626,29 @@ class AgentToolService:
                 notes=["知识语料未导入：请运行 knowledge_ingest 或由客服在 /desk 上传知识文档；"
                        "不得根据此结果断言设备规格。"])
             self._audit(run, "lookup_manual", envelope, retrieval_path="none")
+            if specialist is None:
+                self._progress("lookup_completed")
+            self.session.commit()
+            return envelope
+        candidates = detect_ambiguity(query, verified_models)
+        if candidates:
+            conflict_items = []
+            conflict_refs = []
+            for label, model in candidates:
+                probe = retrieval.search(query, {model})
+                head = probe.items[0] if probe.items else None
+                conflict_items.append(
+                    f"冲突候选：{label}（型号 {model.upper()}）"
+                    + (f"——代表条目 {head.entry_key}：{head.excerpt.splitlines()[0]}" if head else ""))
+                conflict_refs.extend(probe.references)
+            envelope = ToolResult(
+                status="OK", applicability="DISAMBIGUATION_REQUIRED",
+                items=conflict_items, references=conflict_refs,
+                notes=["检索命中多个同名产品且设备型号未核验：必须先发起需求澄清——"
+                       "用 ui_proposal 选择卡（QuestionForm/ChoiceGroup），选项为上述冲突品类/型号；"
+                       "澄清完成前不得输出任何单一品类的排障步骤、质保结论或电池判断。"])
+            self._audit(run, "lookup_manual", envelope, retrieval_path="corpus",
+                        knowledge_references=conflict_refs, disambiguation_required=True)
             if specialist is None:
                 self._progress("lookup_completed")
             self.session.commit()
