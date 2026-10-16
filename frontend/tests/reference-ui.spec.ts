@@ -14,7 +14,7 @@ test('customer home creates a separate conversation with a draft without sending
   await page.route('**/api/v1/cases', route => route.fulfill({ json: [] }))
   await page.goto('/')
   await page.getByLabel('问题描述').fill('指示灯没有亮，请帮我检查')
-  await page.getByRole('button', { name: '开始智能诊断', exact: true }).click()
+  await page.getByRole('button', { name: '开始新的诊断', exact: true }).click()
   await expect(page).toHaveURL(/\/support\?conversation=/)
   await expect(page.getByLabel('描述你的问题')).toHaveValue('指示灯没有亮，请帮我检查')
   expect(state.sent).toHaveLength(0)
@@ -40,14 +40,15 @@ test('customer home keeps the draft after a failed conversation creation', async
   await page.route('**/api/v1/cases', route => route.fulfill({ json: [] }))
   let creates = 0
   await page.route('**/api/v1/conversations', route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: { items: state.conversations } })
     creates += 1
     return route.fulfill({ status: 503, json: { detail: '会话暂时无法建立，请稍后重试。' } })
   })
   await page.goto('/')
-  await page.getByRole('button', { name: '开始智能诊断', exact: true }).click()
+  await page.getByRole('button', { name: '开始新的诊断', exact: true }).click()
   expect(creates).toBe(0)
   await page.getByLabel('问题描述').fill('保留这个尚未发送的问题')
-  await page.getByRole('button', { name: '开始智能诊断', exact: true }).click()
+  await page.getByRole('button', { name: '开始新的诊断', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('暂时无法建立')
   await expect(page.getByLabel('问题描述')).toHaveValue('保留这个尚未发送的问题')
   await expect(page).toHaveURL('/')

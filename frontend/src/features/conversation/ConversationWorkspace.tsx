@@ -114,7 +114,7 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
   }, [recorded, pending, selected?.id])
   const relatedCaseIds = [...new Set(recorded.flatMap(message => message.related_case_id ? [message.related_case_id] : []))]
   // The guide reflects available UI context, never an inferred repair result.
-  const diagnosisStage = relatedCaseIds.length ? 2 : uiDocument.data?.components.some(item => ['QuestionForm', 'ChoiceGroup', 'EvidenceSummary'].includes(item.type)) ? 1 : 0
+  const diagnosisStage = relatedCaseIds.length ? 2 : uiDocument.data?.components?.some(item => ['QuestionForm', 'ChoiceGroup', 'EvidenceSummary'].includes(item.type)) ? 1 : 0
   const lastPublic = recorded.filter(message => message.visibility === 'PUBLIC').at(-1)
   const generating = Boolean(progress && selected && progress.conversationId === selected.id && !['COMPLETED', 'FAILED'].includes(progress.stage) &&
     !recorded.some(message => message.author_kind === 'AGENT' && message.client_message_id === progress.runId))
