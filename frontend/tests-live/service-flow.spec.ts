@@ -52,7 +52,7 @@ test('real API: persisted conversation, human handoff and PUBLIC/INTERNAL separa
 
     await login(staff, 'staff', true)
     await staff.goto(`/desk?conversation=${conversationId}`)
-    await expect(staff.getByText(problem, { exact: true })).toBeVisible()
+    await expect(staff.getByRole('region', { name: '当前会话' }).getByText(problem, { exact: true })).toBeVisible()
     await staff.getByRole('button', { name: '人工协作与审批', exact: true }).click()
     await staff.getByRole('button', { name: '接管', exact: true }).click()
     await expect(staff.getByText(/需要人工协助处理当前问题 · 已接管/)).toBeVisible()
