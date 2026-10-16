@@ -28,10 +28,7 @@ test('real API: persisted conversation, human handoff and PUBLIC/INTERNAL separa
     const previousConversationId = (await existingConversation.json() as S['ConversationRead']).id
     await customer.reload()
     await expect.poll(() => new URL(customer.url()).searchParams.get('conversation')).toBe(previousConversationId)
-    // The rebuilt customer workspace keeps its conversation list inside a closed <details>
-    // disclosure (the staff desk opens it by default), so it has to be expanded first.
-    await customer.locator('.conversation-selector summary').click()
-    await customer.getByRole('button', { name: '新建会话', exact: true }).click()
+    await customer.getByRole('button', { name: '开始新对话', exact: true }).click()
     await expect(customer.getByLabel('描述你的问题')).toBeVisible()
     await expect.poll(() => new URL(customer.url()).searchParams.get('conversation')).toMatch(/^[0-9a-f-]{36}$/)
     await expect.poll(() => new URL(customer.url()).searchParams.get('conversation')).not.toBe(previousConversationId)
@@ -285,6 +282,7 @@ test('real API: case fact appears in device passport only after verification and
     } })
     expect(resolved.status()).toBe(200)
     await staff.reload()
+    await staff.locator('.staff-advanced > summary').click()
     await panel.getByRole('button', { name: '归档到设备' }).click()
     await expect(panel.getByText('已核验事实归档到长期设备档案。')).toBeVisible()
     await customer.reload()
