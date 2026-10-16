@@ -25,6 +25,7 @@ function ActionPanel({ actor, serviceCase }: { actor: Actor, serviceCase: Servic
   const actionKey = `serviceos:mock-action:${actor.tenant_id}:${actor.actor_id}:${caseId}`
   const decisionKey = `serviceos:mock-decision:${actor.tenant_id}:${actor.actor_id}:${caseId}`
   const [reason, setReason] = useState('')
+  const [remedy, setRemedy] = useState<'REPAIR' | 'RESHIP' | 'REFER_SELLER' | 'DECLINE'>('REPAIR')
   const [decisionReason, setDecisionReason] = useState('已核对模拟售后请求')
   const [pending, setPending] = useState(() => readPendingMockAction(actionKey))
   const [pendingDecision, setPendingDecision] = useState(() => readPendingMockDecision(decisionKey))
@@ -65,7 +66,7 @@ function ActionPanel({ actor, serviceCase }: { actor: Actor, serviceCase: Servic
   function startAction() {
     if (pending || reason.trim().length < 3) return
     const body = { client_action_id: crypto.randomUUID(), expected_case_version: serviceCase.version,
-      action_kind: 'MOCK_SERVICE_REQUEST' as const, reason: reason.trim() }
+      action_kind: 'MOCK_SERVICE_REQUEST' as const, remedy_type: remedy, reason: reason.trim() }
     setPending(body); savePendingMockAction(actionKey, body)
     void sendAction(body)
   }
@@ -101,7 +102,8 @@ function ActionPanel({ actor, serviceCase }: { actor: Actor, serviceCase: Servic
     {actions.isError && <p className="form-error" role="alert">{readableError(actions.error)}</p>}
     {actions.data?.length === 0 && <p>此案例尚无模拟售后动作。</p>}
     {actions.data?.map(action => <article className="case-action-item" key={action.id}>
-      <div><strong>模拟服务请求 #{action.id.slice(0, 8)}</strong> <StatusBadge value={action.status} /></div>
+      <div><strong>模拟服务请求 #{action.id.slice(0, 8)}</strong> <StatusBadge value={action.status} />
+        {action.remedy_type && <small>　结局：{action.remedy_type}</small>}</div>
       {actor.kind === 'STAFF' && action.reason && <p>申请原因：{action.reason}</p>}
       {action.receipt ? <p>模拟回执：{action.receipt.external_reference} · {action.receipt.result === 'SUCCEEDED' ? '模拟操作成功' : '模拟操作失败'}</p>
         : action.status === 'UNKNOWN' ? <p>结果待对账。系统只查询原操作，不会重新提交。</p>
@@ -110,6 +112,12 @@ function ActionPanel({ actor, serviceCase }: { actor: Actor, serviceCase: Servic
     {actor.kind === 'STAFF' && <>
       <h3>发起模拟请求</h3>
       <label>申请原因 <input value={reason} onChange={e => setReason(e.target.value)} maxLength={1000} disabled={busy || Boolean(pending)} /></label>
+      <label>结局类型 <select value={remedy} onChange={e => setRemedy(e.target.value as typeof remedy)} disabled={busy || Boolean(pending)}>
+        <option value="REPAIR">寄修 REPAIR</option>
+        <option value="RESHIP">补单 RESHIP</option>
+        <option value="REFER_SELLER">引导商家 REFER_SELLER</option>
+        <option value="DECLINE">婉拒 DECLINE</option>
+      </select></label>
       <button type="button" disabled={busy || Boolean(pending) || reason.trim().length < 3 || ['RESOLVED', 'CLOSED'].includes(serviceCase.status)} onClick={startAction}>提交待审批请求</button>
       {pending && <p role="status">上次提交的结果尚未确认，保留原请求编号。
         <button type="button" disabled={busy} onClick={() => void sendAction(pending)}>用原编号重试</button></p>}

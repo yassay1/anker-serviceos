@@ -221,6 +221,14 @@ class AgentRuntime:
                     raise RuntimeError("diagnostic_resume_failed") from error
 
         @tool
+        def resolve_policy(country: str, channel: str, product_family: str,
+                           warranty_state: str) -> str:
+            """Resolve the service policy row (remedies + wording) for country/channel/family/warranty."""
+            with _tool_service(tenant_id, conversation_id, run_id, lease_token, self.settings) as service:
+                return service.resolve_policy(country, channel, product_family,
+                                              warranty_state).to_prompt_text()
+
+        @tool
         def get_service_progress(case_id: str = '') -> dict:
             """Read current authorized linked cases and service records; never changes state."""
             from serviceos_api.application.agent_services import AgentContextBuilder
@@ -249,8 +257,8 @@ class AgentRuntime:
             **model_provider_options(self.settings),
         )
         tools = [lookup_manual, query_order_warranty, check_dealer_authorization, get_case_stage,
-                 load_skill, request_missing_evidence, propose_action, delegate_diagnostic,
-                 get_service_progress]
+                 resolve_policy, load_skill, request_missing_evidence, propose_action,
+                 delegate_diagnostic, get_service_progress]
         with checkpoint_connection() as connection:
             from langgraph.checkpoint.postgres import PostgresSaver
 

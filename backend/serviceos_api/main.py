@@ -14,6 +14,7 @@ from serviceos_api.api.followups import router as followups_router
 from serviceos_api.api.skills import router as skills_router
 from serviceos_api.api.experience import router as experience_router
 from serviceos_api.api.knowledge import router as knowledge_router
+from serviceos_api.api.guard import router as guard_router
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.observability import configure_logging, observe_request
 from serviceos_api.settings import Settings
@@ -75,6 +76,7 @@ def create_app(*, database_engine=None, settings: Settings | None = None) -> Fas
     application.include_router(skills_router)
     application.include_router(experience_router)
     application.include_router(knowledge_router)
+    application.include_router(guard_router)
     return application
 
 

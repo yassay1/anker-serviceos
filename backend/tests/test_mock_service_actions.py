@@ -39,11 +39,11 @@ def case_for(client):
     return response.json()
 
 
-def request_action(client, case, *, key=None, version=None, reason="需要模拟售后服务申请"):
+def request_action(client, case, *, key=None, version=None, reason="需要模拟售后服务申请。"):
     return client.post(f"/api/v1/cases/{case['id']}/action-requests", json={
         "client_action_id": str(key or uuid4()),
         "expected_case_version": version if version is not None else case["version"],
-        "action_kind": "MOCK_SERVICE_REQUEST", "reason": reason,
+        "action_kind": "MOCK_SERVICE_REQUEST", "remedy_type": "REPAIR", "reason": reason,
     })
 
 
@@ -96,7 +96,7 @@ def test_request_approval_receipt_and_replay(app, database_engine):
     assert visible.json()["receipt"]["adapter"] == "MOCK"
     assert visible.json()["receipt"]["external_reference"].startswith("MOCK-")
     assert visible.json()["reason"] is None and visible.json()["requested_by"] is None
-    assert staff.get(f"/api/v1/actions/{action['id']}").json()["reason"] == "需要模拟售后服务申请"
+    assert staff.get(f"/api/v1/actions/{action['id']}").json()["reason"] == "需要模拟售后服务申请。"
     with Session(database_engine) as session:
         assert session.scalar(select(func.count()).select_from(MockServiceOperation).where(
             MockServiceOperation.action_id == UUID(action["id"]))) == 1
@@ -507,7 +507,8 @@ def test_concurrent_request_replay_and_approval_use_consistent_locks(app, databa
             if replay:
                 return service.request(UUID(case["id"]), MockActionRequest(
                     client_action_id=key, expected_case_version=case["version"],
-                    action_kind="MOCK_SERVICE_REQUEST", reason="需要模拟售后服务申请",
+                    action_kind="MOCK_SERVICE_REQUEST", remedy_type="REPAIR",
+                    reason="需要模拟售后服务申请。",
                 ))
             return service.decide(UUID(action["approval_id"]), ActionApprovalDecision(
                 decision_id=uuid4(), expected_version=1, decision="APPROVED", reason="已核对模拟操作条件",
@@ -561,7 +562,7 @@ def test_request_replay_refreshes_preloaded_action_after_approval(app, database_
         assert approve(supervisor, action["approval_id"]).status_code == 200
         replay = ServiceActionService(session, principal_for(staff)).request(UUID(case["id"]), MockActionRequest(
             client_action_id=key, expected_case_version=case["version"],
-            action_kind="MOCK_SERVICE_REQUEST", reason="需要模拟售后服务申请",
+            action_kind="MOCK_SERVICE_REQUEST", remedy_type="REPAIR", reason="需要模拟售后服务申请。",
         ))
         assert replay.id == cached_action.id and replay.status == "APPROVED"
 

@@ -55,6 +55,7 @@ class Settings:
     s3_region: str = ""
     s3_prefix: str = "evidence"
     mock_action_result: str = "SUCCEEDED"
+    publication_guard: bool = True
     allow_container_bootstrap: bool = False
     local_auth_networks: tuple[str, ...] = ("127.0.0.0/8", "::1/128")
     allowed_origins: tuple[str, ...] = (
@@ -126,6 +127,7 @@ class Settings:
             s3_region=os.getenv("SERVICEOS_S3_REGION", ""),
             s3_prefix=os.getenv("SERVICEOS_S3_PREFIX", "evidence"),
             mock_action_result=os.getenv("SERVICEOS_MOCK_ACTION_RESULT", "SUCCEEDED"),
+            publication_guard=os.getenv("SERVICEOS_PUBLICATION_GUARD", "1") != "0",
             allow_container_bootstrap=os.getenv("SERVICEOS_ALLOW_CONTAINER_BOOTSTRAP") == "1",
             local_auth_networks=_values("SERVICEOS_LOCAL_AUTH_NETWORKS", cls.local_auth_networks),
             allowed_origins=_values("SERVICEOS_ALLOWED_ORIGINS", cls.allowed_origins),

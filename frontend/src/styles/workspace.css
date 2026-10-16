@@ -325,3 +325,9 @@
 .knowledge-upload button { border: 1px solid var(--border); background: #fff; border-radius: 8px; padding: 8px 14px; font-size: 13px; }
 .knowledge-upload button:disabled { opacity: 0.55; }
 .knowledge-panel .table-foot { color: var(--muted); font-size: 12px; }
+.guard-panel { margin-top: 18px; }
+.guard-stats { display: flex; gap: 18px; flex-wrap: wrap; margin: 4px 0 10px; font-size: 13px; }
+.guard-stats span { display: inline-flex; align-items: center; gap: 6px; }
+.guard-detail td { background: #f8fafc; padding: 12px 14px; }
+.guard-detail p { margin: 4px 0; font-size: 13px; overflow-wrap: anywhere; }
+.guard-panel h4 { margin: 14px 0 6px; font-size: 13px; }
