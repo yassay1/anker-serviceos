@@ -563,12 +563,13 @@ class AgentToolService:
         return run, job, conversation, message
 
     def load_skill(self, skill_id: str, version: str) -> dict:
-        run, _, conversation, message = self._active_execution(reserve_tool_call=True)
+        run, _, conversation, message = self._active_execution()
         definition = SKILL_REGISTRY.get((skill_id, version))
         if definition is None:
             raise ValueError("skill_unavailable")
         if definition not in eligible_skills(conversation):
             raise ValueError("skill_not_callable")
+        run, _, conversation, message = self._active_execution(reserve_tool_call=True)
         inputs = SkillInput(source_message_ids=[message.id])  # Never trust model-supplied source IDs.
         key = hashlib.sha256(f"{run.id}:{skill_id}:{version}".encode()).hexdigest()
         payload = dict(run.result_payload or {})
