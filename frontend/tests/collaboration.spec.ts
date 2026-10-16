@@ -17,7 +17,7 @@ async function openDesk(page: Page) {
   const state = {
     conversation: {
       id: conversationId, customer_id: '00000000-0000-4000-8000-000000000006',
-      status: 'ACTIVE', collaboration_mode: 'AI_LEAD', reply_policy: 'AI_AUTO',
+      title: '充电设备协作会话', status: 'ACTIVE', collaboration_mode: 'AI_LEAD', reply_policy: 'AI_AUTO',
       version: 1, created_at: createdAt,
     } satisfies Schemas['ConversationRead'],
     task: {
@@ -63,7 +63,10 @@ async function openDesk(page: Page) {
   })
   await page.goto(`/desk?conversation=${conversationId}`)
   const contextButton = page.getByRole('button', { name: '资料', exact: true })
-  if (await contextButton.isVisible()) await contextButton.click()
+  if (await page.evaluate(() => window.matchMedia('(max-width: 760px)').matches)) {
+    await expect(contextButton).toBeVisible()
+    await contextButton.click()
+  } else if (await contextButton.isVisible()) await contextButton.click()
   await expect(page.getByRole('button', { name: '接管', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '批准', exact: true })).toBeVisible()
   return state

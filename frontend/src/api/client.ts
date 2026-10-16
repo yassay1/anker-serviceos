@@ -221,6 +221,18 @@ export async function readCase(id: string): Promise<ServiceCase> {
   return requireData(data, error, response, '案例不存在或当前账号无权访问。')
 }
 
+export async function createServiceCase(body: components['schemas']['CreateCase']): Promise<ServiceCase> {
+  const { data, error, response } = await api.POST('/api/v1/cases', { body })
+  return requireData(data, error, response, '创建服务案例失败，请核对案例列表后重试。')
+}
+
+export async function attachCaseConversation(id: string, conversationId: string, expectedVersion: number): Promise<ServiceCase> {
+  const { data, error, response } = await api.POST('/api/v1/cases/{id}/conversations', {
+    params: { path: { id } }, body: { conversation_id: conversationId, expected_version: expectedVersion },
+  })
+  return requireData(data, error, response, '关联服务会话失败，请刷新案例后重试。')
+}
+
 export async function readResolutionContract(caseId: string): Promise<ResolutionContract> {
   const { data, error, response } = await api.GET('/api/v1/cases/{id}/resolution-contract', {
     params: { path: { id: caseId } },
@@ -328,4 +340,33 @@ export async function decideActionApproval(id: string, body: components['schemas
     params: { path: { id } }, body,
   })
   return requireData(data, error, response, '审批结果未确认，请用原编号重试。')
+}
+
+export type KnowledgeDocumentRead = components['schemas']['KnowledgeDocumentRead']
+export type KnowledgePage = components['schemas']['KnowledgePage']
+export type KnowledgeUploadResult = components['schemas']['KnowledgeUploadResult']
+
+export async function listKnowledgeDocuments(): Promise<KnowledgePage> {
+  const { data, error, response } = await api.GET('/api/v1/knowledge/documents', {
+    params: { query: { limit: 50 } },
+  })
+  return requireData(data, error, response, '知识文档列表加载失败。')
+}
+
+export async function uploadKnowledgeDocument(file: File, title: string): Promise<KnowledgeUploadResult> {
+  const form = new FormData()
+  form.append('file', file)
+  if (title.trim()) form.append('title', title.trim())
+  const { data, error, response } = await api.POST('/api/v1/knowledge/documents', {
+    body: form as never,
+    bodySerializer: (body) => body as unknown as BodyInit,
+  })
+  return requireData(data, error, response, '知识文档上传失败。')
+}
+
+export async function reprocessKnowledgeDocument(id: string): Promise<KnowledgeDocumentRead> {
+  const { data, error, response } = await api.POST('/api/v1/knowledge/documents/{document_id}/reprocess', {
+    params: { path: { document_id: id } },
+  })
+  return requireData(data, error, response, '重新入队结果未确认，请刷新后重试。')
 }

@@ -53,6 +53,25 @@ def message_body(key=None, text="我的充电器无法充电", **extra):
             "content": [{"type": "text", "text": text}], **extra}
 
 
+def test_conversation_title_uses_first_public_customer_message_and_survives_login(app):
+    customer = login(app)
+    created = conversation(customer)
+    identifier = created['id']
+    assert created.get('title') == '新会话'
+    staff = login(app, 'staff')
+    assert staff.post(f'/api/v1/conversations/{identifier}/messages',
+                      json=message_body(text='秘密内部备注，不得作为标题', visibility='INTERNAL')).status_code == 202
+    assert customer.post(f'/api/v1/conversations/{identifier}/messages',
+                         json=message_body(text='您好，我的充电宝充电时断断续续，该怎么排查？')).status_code == 202
+    assert customer.post(f'/api/v1/conversations/{identifier}/messages',
+                         json=message_body(text='后续问题不改变标题')).status_code == 202
+    customer = login(app)
+    listed = customer.get('/api/v1/conversations').json()['items']
+    assert next(row['title'] for row in listed if row['id'] == identifier) == '充电宝充电时断断续续'
+    assert customer.get(f'/api/v1/conversations/{identifier}').json()['title'] == '充电宝充电时断断续续'
+    assert login(app, 'customer-b').get(f'/api/v1/conversations/{identifier}').status_code == 404
+
+
 def test_login_cookie_logout_and_expiry(app, database_engine):
     client = TestClient(app)
     assert client.get("/api/v1/auth/me").status_code == 401

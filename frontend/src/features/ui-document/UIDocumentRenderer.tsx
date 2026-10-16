@@ -357,8 +357,10 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
       const Icon = component.type === 'RiskAlert' ? ShieldAlert : (component.type === 'QuestionForm' || component.type === 'ChoiceGroup') ? CircleHelp :
         component.type === 'ActionBar' ? Headphones : component.type === 'HandoffSummary' ? UsersRound :
           component.type === 'ProgressTimeline' ? ListChecks : FileText
-      return <article className={`ui-card ui-${component.type}`} key={component.id}>
-        <h3><Icon size={18} aria-hidden="true" />{component.props.title}</h3>
+      const Card = component.type === 'ActionBar' ? 'details' : 'article'
+      const Heading = component.type === 'ActionBar' ? 'summary' : 'h3'
+      return <Card className={`ui-card ui-${component.type}`} key={component.id}>
+        <Heading><Icon size={18} aria-hidden="true" />{component.props.title}{component.type === 'ActionBar' && <span className="assistance-expand">展开申请</span>}</Heading>
         {component.type === 'ProgressTimeline' ? <ol className="ui-timeline"><li><p>{component.props.body}</p><StatusBadge value={component.props.status} label={component.props.status === 'FAILED' ? '处理失败' : undefined} /></li></ol> : <p>{component.props.body}</p>}
         {component.type === 'KnowledgeMetricChart' && (() => {
           const chart = (component as VisualComponent).chart as ChartData
@@ -439,7 +441,7 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
           <button type="button" disabled={busy || !active || reason.trim().length < 3} onClick={requestHuman}>{busy ? '正在保存…' : '请求人工协助'}</button>
           {!active && <small>此会话已归档，不能提交新请求。</small>}
         </div>}
-      </article>
+      </Card>
     })}
     {feedback}
   </section>

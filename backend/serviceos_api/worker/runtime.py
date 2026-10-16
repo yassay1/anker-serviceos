@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, func, or_, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from serviceos_api.application.agent_services import AgentContextBuilder
 from serviceos_api.application.auth import Principal
@@ -65,7 +65,16 @@ class MessageWorker:
                     run.status = "FAILED"
                     run.error_code = "lease_expired_max_attempts"
                     run.completed_at = now
+            earlier = aliased(MessageJob)
+            unfinished_predecessor = select(earlier.id).where(
+                earlier.tenant_id == MessageJob.tenant_id,
+                earlier.conversation_id == MessageJob.conversation_id,
+                earlier.status.in_(("QUEUED", "RUNNING")),
+                or_(earlier.created_at < MessageJob.created_at,
+                    and_(earlier.created_at == MessageJob.created_at, earlier.id < MessageJob.id)),
+            ).exists()
             candidates = session.scalars(select(MessageJob).where(
+                ~unfinished_predecessor,
                 MessageJob.attempt_count < func.least(MessageJob.max_attempts, self.settings.worker_max_attempts),
                 or_(
                     and_(MessageJob.status == "QUEUED", MessageJob.available_at <= now),
@@ -78,7 +87,7 @@ class MessageWorker:
                 conversation = session.scalar(select(Conversation.id).where(
                     Conversation.id == candidate.conversation_id,
                     Conversation.tenant_id == candidate.tenant_id,
-                ).with_for_update())
+                ).with_for_update(skip_locked=True))
                 if conversation is None:
                     continue
                 active = session.scalar(select(MessageJob.id).where(
@@ -243,6 +252,7 @@ class MessageWorker:
                         **(run.result_payload or {}),
                         "schema_version": 1,
                         "ui_proposal": result.ui_proposal,
+                        "rich_reply": result.rich_reply,
                         "ui_fallback_code": result.ui_fallback_code,
                         "action_proposals": [str(proposal.id) for proposal in proposals],
                         "context_metrics": {key: stats.get(key) for key in (
@@ -283,6 +293,7 @@ class MessageWorker:
                     raise RuntimeError("worker_lease_lost")
                 self._complete_job(session, job, lease)
         except Exception as error:
+            logger.warning("message job failed: error_code=%s", self._error_code(error), exc_info=True)
             self._fail(lease, self._error_code(error))
         finally:
             stop.set()

@@ -16,7 +16,7 @@ export async function fixture(page: Page, staff = true) {
     tenant_id: ids.tenant, kind: staff ? 'STAFF' : 'CUSTOMER', role: staff ? 'STAFF' : null,
     display_name: staff ? '协作测试客服' : '服务测试客户' }
   const conversation: S['ConversationRead'] = { id: ids.conversation, customer_id: ids.customer,
-    status: 'ACTIVE', collaboration_mode: 'CO_SERVICE', reply_policy: 'AI_REVIEW_REQUIRED', version: 3, created_at: createdAt }
+    title: '充电设备服务咨询', status: 'ACTIVE', collaboration_mode: 'CO_SERVICE', reply_policy: 'AI_REVIEW_REQUIRED', version: 3, created_at: createdAt }
   const state = {
     conversations: [conversation, { ...conversation, id: ids.second, status: 'ARCHIVED' }],
     messages: [{ id: ids.second, conversation_id: ids.conversation, author_kind: 'CUSTOMER', visibility: 'PUBLIC',
@@ -78,6 +78,7 @@ export async function fixture(page: Page, staff = true) {
       : method === 'GET' && path.endsWith('/case-summaries') ? [summary]
       : method === 'GET' && path.endsWith('/tasks') ? []
       : method === 'GET' && path.endsWith('/proposals') ? state.proposals
+      : method === 'GET' && path.endsWith('/knowledge/documents') ? { items: [], next_cursor: null }
       : method === 'GET' && path.endsWith('/devices') ? [device]
       : method === 'GET' && path.endsWith(`/devices/${ids.device}`) ? device
       : method === 'GET' && path.endsWith(`/devices/${ids.device}/cases`) ? history

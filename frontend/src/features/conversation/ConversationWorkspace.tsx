@@ -1,9 +1,9 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { FileText, Headphones, Inbox, MessageSquare, ShieldCheck, Sparkles, ChevronDown } from 'lucide-react'
 import {
-  type Actor, type SendBody, createConversation, listConversations,
+  ApiFailure, type Actor, type SendBody, createConversation, listConversations,
   listDeskCaseSummaries, listMessages, readUIDocument, refreshUIDocument, sendMessage,
 } from '../../api/client'
 import { queryKeys } from '../../app/queryKeys'
@@ -15,6 +15,7 @@ import { type AgentProgress, type SpecialistActivity, useConversationEvents } fr
 import { ConversationSidebar } from './ConversationSidebar'
 import { MessageThread } from './MessageThread'
 import { MessageComposer } from './MessageComposer'
+import { ConversationAttachments } from './ConversationAttachments'
 import { AgentProgressNote, RelatedCases, SpecialistActivityNote } from './ConversationContext'
 import { StatusBadge, statusLabel } from '../../shared/StatusBadge'
 
@@ -35,14 +36,27 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
   const [drafts, setDrafts] = useState<Record<string, { text: string, internal: boolean }>>({})
   const [mobilePanel, setMobilePanel] = useState<'list' | 'chat' | 'context'>('chat')
   const [pending, setPending] = useState<Pending[]>([])
+  const selectorRef = useRef<HTMLDetailsElement>(null)
+  const quickReplyLocks = useRef(new Set<string>())
+  const [quickReplyError, setQuickReplyError] = useState('')
+  const [attachmentsFor, setAttachmentsFor] = useState<string | null>(null)
   const conversations = useQuery({
     queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id), queryFn: listConversations,
     refetchInterval: 10_000,
   })
   const selectedId = searchParams.get('conversation')
+  const selectionKey = `serviceos:last-conversation:${actor.tenant_id}:${actor.actor_id}:${desk ? 'desk' : 'customer'}`
+  const rememberedId = (() => {
+    try { return localStorage.getItem(selectionKey) } catch { return null }
+  })()
   const selected = conversations.data?.find((item) => item.id === selectedId) ?? (
-    selectedId ? undefined : conversations.data?.[0]
+    selectedId ? undefined : conversations.data?.find(item => item.id === rememberedId) ?? conversations.data?.[0]
   )
+  useEffect(() => {
+    if (!selected) return
+    try { localStorage.setItem(selectionKey, selected.id) } catch { /* Server history does not depend on browser storage. */ }
+    if (!selectedId) setSearchParams({ conversation: selected.id }, { replace: true })
+  }, [selected?.id, selectionKey, selectedId, setSearchParams])
   const draft = selected ? drafts[selected.id]?.text ?? '' : ''
   const internal = selected ? drafts[selected.id]?.internal ?? false : false
   useEffect(() => {
@@ -100,6 +114,14 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
     return pending.filter(item => item.conversationId === selected?.id && !recordedKeys.has(item.body.client_message_id))
   }, [recorded, pending, selected?.id])
   const relatedCaseIds = [...new Set(recorded.flatMap(message => message.related_case_id ? [message.related_case_id] : []))]
+  // The guide reflects available UI context, never an inferred repair result.
+  const diagnosisStage = relatedCaseIds.length ? 2 : uiDocument.data?.components?.some(item => ['QuestionForm', 'ChoiceGroup', 'EvidenceSummary'].includes(item.type)) ? 1 : 0
+  const lastPublic = recorded.filter(message => message.visibility === 'PUBLIC').at(-1)
+  const generating = Boolean(progress && selected && progress.conversationId === selected.id && !['COMPLETED', 'FAILED'].includes(progress.stage) &&
+    !recorded.some(message => message.author_kind === 'AGENT' && message.client_message_id === progress.runId))
+  const quickReplyMessageId = !desk && selected?.status === 'ACTIVE' && selected.collaboration_mode === 'AI_LEAD' &&
+    selected.reply_policy === 'AI_AUTO' && visiblePending.length === 0 && !generating && !messages.hasNextPage && !messages.isError &&
+    lastPublic?.author_kind === 'AGENT' && !quickReplyLocks.current.has(`${selected.id}:${lastPublic.id}`) ? lastPublic.id : undefined
 
   async function startConversation() {
     setCreating(true)
@@ -108,6 +130,7 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
       const created = await createConversation()
       await queryClient.invalidateQueries({ queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id) })
       setSearchParams({ conversation: created.id })
+      if (!desk && selectorRef.current) selectorRef.current.open = false
       setMobilePanel('chat')
     } catch (failure) {
       setCreateError(readableError(failure))
@@ -124,22 +147,37 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
       setPending((current) => current.map((part) => part.body.client_message_id === item.body.client_message_id
         ? { ...part, status: 'saved', error: undefined } : part))
       await queryClient.invalidateQueries({ queryKey: queryKeys.messages(actor.tenant_id, actor.actor_id, item.conversationId) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id) })
       return true
     } catch (failure) {
+      if (item.body.reply_to_message_id && failure instanceof ApiFailure && failure.status >= 400 && failure.status < 500) {
+        setPending(current => current.filter(part => part.body.client_message_id !== item.body.client_message_id))
+        setQuickReplyError(readableError(failure))
+        void queryClient.invalidateQueries({ queryKey: queryKeys.messages(actor.tenant_id, actor.actor_id, item.conversationId) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id) })
+        return false
+      }
       setPending((current) => current.map((part) => part.body.client_message_id === item.body.client_message_id
         ? { ...part, status: 'uncertain', error: readableError(failure) } : part))
       return false
     }
   }
 
-  function submitChoice(label: string): Promise<boolean> {
+  function submitChoice(label: string, sourceMessageId?: string, caseId: string | null = null): Promise<boolean> {
     if (!selected || desk || selected.status !== 'ACTIVE') return Promise.resolve(false)
+    if (sourceMessageId) {
+      const lockKey = `${selected.id}:${sourceMessageId}`
+      if (sourceMessageId !== quickReplyMessageId || quickReplyLocks.current.has(lockKey)) return Promise.resolve(false)
+      quickReplyLocks.current.add(lockKey)
+    }
+    setQuickReplyError('')
     const item: Pending = {
       conversationId: selected.id,
       body: {
         client_message_id: crypto.randomUUID(),
+        ...(sourceMessageId ? { reply_to_message_id: sourceMessageId } : {}),
         content: [{ type: 'text', text: label }],
-        related_case_id: null,
+        related_case_id: caseId,
         visibility: 'PUBLIC',
       },
       status: 'sending',
@@ -190,35 +228,49 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
       </div>
       <div className="scope-note"><ShieldCheck size={15} aria-hidden="true" />服务记录来自当前账号</div>
     </div>
-    {!desk && <ol className="diagnosis-steps" aria-label="服务使用指引"><li><span>1</span><div><strong>问题确认</strong><small>描述问题，继续服务会话</small></div></li><li><span>2</span><div><strong>补充信息</strong><small>按会话提示提供实际资料</small></div></li><li><span>3</span><div><strong>查看处理</strong><small>以真实案例与结果记录为准</small></div></li></ol>}
+    {!desk && <ol className="diagnosis-steps" aria-label="服务使用指引">{[
+      ['问题确认', '描述设备与遇到的问题'], ['补充信息', '按提示提供实际资料'], ['查看处理', '跟进关联工单与结果'],
+    ].map(([title, hint], index) => <li key={title} aria-current={diagnosisStage === index ? 'step' : undefined}><span>{index + 1}</span><div><strong>{title}{diagnosisStage === index && <em>当前</em>}</strong><small>{hint}</small></div></li>)}</ol>}
     <div className="mobile-navigation" aria-label="工作区视图">
       <button type="button" aria-pressed={mobilePanel === 'list'} onClick={() => setMobilePanel('list')}><Inbox size={17} aria-hidden="true" />列表</button>
       <button type="button" aria-pressed={mobilePanel === 'chat'} onClick={() => setMobilePanel('chat')}><MessageSquare size={17} aria-hidden="true" />会话</button>
       <button type="button" aria-pressed={mobilePanel === 'context'} disabled={!selected} onClick={() => setMobilePanel('context')}><FileText size={17} aria-hidden="true" />{desk ? '资料' : '资料与协助'}</button>
     </div>
     <div className={`chat-layout ${selected ? 'has-context' : 'no-context'}`}>
-      <div className="conversation-selector"><details open={desk || mobilePanel === 'list'}><summary><Inbox size={16} />我的服务会话<span>{conversations.data?.length ?? 0}</span><ChevronDown size={15} /></summary><ConversationSidebar desk={desk} items={conversations.data} selectedId={selected?.id}
+      <div className="conversation-selector"><details ref={selectorRef} open={desk || mobilePanel === 'list'}><summary><Inbox size={16} />{desk ? '我的服务会话' : '历史问答 · 点击切换会话'}<span>{conversations.data?.length ?? 0}</span><ChevronDown size={15} /></summary><ConversationSidebar desk={desk} items={conversations.data} selectedId={selected?.id}
         loading={conversations.isPending} error={conversations.isError ? readableError(conversations.error) : undefined}
         creating={creating} createError={createError} onCreate={() => void startConversation()}
-        onSelect={(id) => { setSearchParams({ conversation: id }); setMobilePanel('chat') }} /></details></div>
+        onSelect={(id) => { if (!desk && selectorRef.current) selectorRef.current.open = false; setSearchParams({ conversation: id }); setMobilePanel('chat') }} /></details></div>
       <section className="chat-panel" aria-label="当前会话">
         {selected ? <>
           <div className="chat-heading">
-            <div className="chat-identity"><span className="chat-avatar"><Headphones size={22} aria-hidden="true" /></span><div><h2>{soleCase ? soleCase.case.problem_text : desk ? '与客户沟通' : '当前服务会话'}</h2><p>会话 #{selected.id.slice(0, 8)} · {statusLabel(selected.status)} <span className={`stream-note ${streamState}`}><span className="status-dot" aria-hidden="true" />{streamState === 'connected' ? '实时更新已连接' : streamState === 'connecting' ? '正在连接实时更新' : '重连中，消息仍可查询'}</span></p>{soleCase && <div className="conversation-case-meta"><Link to={`/cases/${soleCase.case.id}`}>关联案例 #{soleCase.case.id.slice(0, 8)}</Link><span>版本 {soleCase.case.version}</span>{soleCase.device_ids.map(id => <Link key={id} to={`/devices/${id}`}>设备 #{id.slice(0, 8)}</Link>)}</div>}</div></div>
+            <div className="chat-identity"><span className="chat-avatar"><Headphones size={22} aria-hidden="true" /></span><div><h2>{soleCase ? soleCase.case.problem_text : selected.title || (desk ? '与客户沟通' : '新会话')}</h2><p>会话 #{selected.id.slice(0, 8)} · {statusLabel(selected.status)} <span className={`stream-note ${streamState}`}><span className="status-dot" aria-hidden="true" />{streamState === 'connected' ? '实时更新已连接' : streamState === 'connecting' ? '正在连接实时更新' : '重连中，消息仍可查询'}</span></p>{soleCase && <div className="conversation-case-meta"><Link to={`/cases/${soleCase.case.id}`}>关联案例 #{soleCase.case.id.slice(0, 8)}</Link><span>版本 {soleCase.case.version}</span>{soleCase.device_ids.map(id => <Link key={id} to={`/devices/${id}`}>设备 #{id.slice(0, 8)}</Link>)}</div>}</div></div>
             <StatusBadge value={soleCase ? soleCase.case.status : selected.status} />
           </div>
-          <MessageThread key={selected.id} actor={actor} desk={desk} messages={recorded} pending={visiblePending}
+          <MessageThread key={`thread:${selected.id}`} actor={actor} desk={desk} messages={recorded} pending={visiblePending}
+            quickReplyMessageId={quickReplyMessageId} onQuickReply={submitChoice}
             loading={messages.isPending} error={messages.isError ? readableError(messages.error) : undefined}
             hasMore={Boolean(messages.hasNextPage)} loadingMore={messages.isFetchingNextPage}
             onMore={() => void messages.fetchNextPage()} onRetry={(item) => void deliver(item)}>
+            {quickReplyError && <p className="form-error" role="alert">{quickReplyError}</p>}
+            {!desk && selected.status === 'ACTIVE' && selected.collaboration_mode === 'AI_LEAD' &&
+              selected.reply_policy === 'AI_AUTO' && !messages.hasNextPage && !messages.isError &&
+              lastPublic?.author_kind === 'CUSTOMER' && progress?.conversationId !== selected.id &&
+              <p className="agent-progress" role="status">消息已保存，正在等待服务助手回复。处理时间较长时，可以请求下方的人工协助。</p>}
             {progress?.conversationId === selected.id && <AgentProgressNote progress={progress} connected={streamState === 'connected'} />}
             {specialistActivity?.conversationId === selected.id && <SpecialistActivityNote activity={specialistActivity} connected={streamState === 'connected'} />}
             {!desk && interactionCards}
           </MessageThread>
-          <MessageComposer desk={desk} active={selected.status === 'ACTIVE'} draft={draft} internal={internal}
-            onDraft={setDraft} onInternal={setInternal} onSubmit={submitMessage} />
-        </> : <div className="message-empty"><h2>{conversations.isPending ? '正在加载会话…' : selectedId ? '会话不可访问' : '选择一个会话'}</h2>
-          <p>{conversations.isPending ? '正在查询当前账号的服务记录。' : selectedId ? '请从左侧选择有权限查看的会话。' : desk ? '从左侧打开客户会话。' : '新建会话后即可发送消息。'}</p></div>}
+          <MessageComposer key={`composer:${selected.id}`} desk={desk} active={selected.status === 'ACTIVE'} draft={draft} internal={internal}
+            onDraft={setDraft} onInternal={setInternal} onSubmit={submitMessage} onAttach={() => setAttachmentsFor(selected.id)} />
+          {attachmentsFor === selected.id && selected.status === 'ACTIVE' && <ConversationAttachments key={`attachments:${selected.id}`}
+            actor={actor} conversationId={selected.id} customerId={selected.customer_id} relatedCaseIds={relatedCaseIds}
+            initialProblem={recorded.find(message => message.author_kind === 'CUSTOMER' && message.visibility === 'PUBLIC')?.content.map(part => part.text).join('\n') ?? draft}
+            onClose={() => setAttachmentsFor(null)} />}
+          {!desk && relatedCaseIds.length > 0 && <div className="conversation-evidence-links">{relatedCaseIds.map(id =>
+            <Link key={id} to={`/cases/${id}#case-evidence`}>上传图片／查看案例 #{id.slice(0, 8)}</Link>)}</div>}
+        </> : <div className="message-empty"><span className="empty-symbol"><Sparkles size={28} aria-hidden="true" /></span><h2>{conversations.isPending ? '正在加载会话…' : selectedId ? '会话不可访问' : '让我们一起找到问题所在'}</h2>
+          <p>{conversations.isPending ? '正在查询当前账号的服务记录。' : selectedId ? '请从左侧选择有权限查看的会话。' : desk ? '从左侧打开客户会话。' : '告诉我们设备型号、遇到的现象和已尝试的方法。'}</p>{!desk && !conversations.isPending && <button type="button" className="primary-button" disabled={creating} onClick={() => void startConversation()}><Sparkles size={17} />{creating ? '正在建立会话…' : '开始新的诊断'}</button>}{createError && <p role="alert" className="form-error">{createError}</p>}</div>}
       </section>
       {selected && <aside className="context-panel" aria-label={desk ? '案例与协作信息' : '服务辅助信息'}>
         <div className="assistant-panel-heading"><Sparkles size={21} /><h2>{desk ? 'AI 助手' : '相关服务与帮助'}</h2></div>
@@ -240,16 +292,18 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
         {desk ? <CollaborationPanel key={selected.id} conversation={selected} actor={actor} desk /> :
           <section className="collaboration-panel" aria-label="人机协作">
             <h3><Headphones size={18} aria-hidden="true" />服务有人接续</h3>
-            <p className="policy-summary">当前：{statusLabel(selected.collaboration_mode)} · 发言策略：{statusLabel(selected.reply_policy)} · 版本 {selected.version}</p>
+            <p className="policy-summary">{statusLabel(selected.collaboration_mode)} · {statusLabel(selected.reply_policy)}</p>
             <p>补充信息与人工协助在会话中的交互卡处理，服务记录会继续保留。</p>
             <button type="button" onClick={() => {
               setMobilePanel('chat')
               requestAnimationFrame(() => {
                 const cards = document.getElementById('conversation-interactions')
+                const assistance = cards?.querySelector<HTMLDetailsElement>('details.ui-ActionBar')
+                if (assistance) assistance.open = true
                 cards?.focus()
                 cards?.scrollIntoView({ block: 'nearest' })
               })
-            }}>查看会话中的交互卡</button>
+            }}>查看协助与补充信息</button>
           </section>}
         {desk && interactionCards}
       </aside>}

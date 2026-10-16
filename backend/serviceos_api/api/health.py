@@ -69,6 +69,23 @@ def database_readiness(connection) -> dict[str, str]:
     return {"database": "ready", "schema": "ready" if expected == present else "outdated"}
 
 
+def knowledge_readiness(connection, settings) -> dict[str, str]:
+    """Make the retrieval fork visible: corpus presence and vector-leg state."""
+    try:
+        segments = connection.execute(
+            text("SELECT count(*) FROM serviceos_knowledge.knowledge_segments")).scalar() or 0
+        embedded = connection.execute(
+            text("SELECT count(*) FROM serviceos_knowledge.knowledge_embeddings")).scalar() or 0
+    except SQLAlchemyError:
+        return {"knowledge": "missing"}
+    return {
+        "knowledge": "ready" if segments else "empty",
+        "knowledge_segments": str(segments),
+        "knowledge_embedded": str(embedded),
+        "knowledge_vector": "on" if settings.embedding_configured else "keyword_only",
+    }
+
+
 @router.get("/readiness", response_model=ReadinessResponse, responses={503: {"model": ReadinessResponse}}, operation_id="read_readiness")
 def read_readiness(request: Request, response: Response) -> ReadinessResponse:
     settings = request.app.state.settings
@@ -79,6 +96,7 @@ def read_readiness(request: Request, response: Response) -> ReadinessResponse:
             request.app.state.owns_engine = True
         with request.app.state.database_engine.connect() as connection:
             components.update(database_readiness(connection))
+            components.update(knowledge_readiness(connection, settings))
     except (RuntimeError, ValueError, SQLAlchemyError, CommandError, OSError):
         pass
     components["auth"] = "local_development" if settings.local_auth_enabled else "not_configured"

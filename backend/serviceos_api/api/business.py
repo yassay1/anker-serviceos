@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from serviceos_api.api.dependencies import Business, ConversationBusiness, get_actor, get_session, local_login_allowed
 from serviceos_api.application import auth
+from serviceos_api.application.conversation_titles import conversation_reads
 from serviceos_api.application.services import ConversationService
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.contracts import (
@@ -51,12 +52,13 @@ def create_conversation(body: CreateConversation, service: Business):
 
 @router.get("/conversations", response_model=ConversationList, tags=["conversations"], operation_id="list_conversations")
 def list_conversations(service: Business, limit: int = Query(default=50, ge=1, le=100)):
-    return ConversationList(items=[ConversationRead.model_validate(row) for row in service.list_resources(Conversation, limit)])
+    return ConversationList(items=conversation_reads(service.session, service.actor.tenant_id,
+                                                     service.list_resources(Conversation, limit)))
 
 
 @router.get("/conversations/{id}", response_model=ConversationRead, tags=["conversations"], operation_id="read_conversation")
 def read_conversation(id: UUID, service: Business):
-    return ConversationRead.model_validate(service.resource(Conversation, id))
+    return conversation_reads(service.session, service.actor.tenant_id, [service.resource(Conversation, id)])[0]
 
 
 @router.post("/conversations/{id}/messages", response_model=MessageReceipt, status_code=status.HTTP_202_ACCEPTED,
@@ -79,7 +81,7 @@ def list_desk_case_summaries(id: UUID, service: ConversationBusiness):
 @router.post("/conversations/{id}/mode-transitions", response_model=ConversationRead,
              tags=["collaboration"], operation_id="transition_mode")
 def transition_mode(id: UUID, body: ModeTransition, service: ConversationBusiness):
-    return ConversationRead.model_validate(service.transition_mode(id, body))
+    return conversation_reads(service.session, service.actor.tenant_id, [service.transition_mode(id, body)])[0]
 
 
 @router.post("/conversations/{id}/assistance-requests", response_model=TaskRead, status_code=201,

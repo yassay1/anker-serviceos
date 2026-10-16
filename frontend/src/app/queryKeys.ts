@@ -23,4 +23,5 @@ export const queryKeys = {
   proposals: (tenantId: string, conversationId: string) => ['proposals', tenantId, conversationId] as const,
   uiDocument: (tenantId: string, actorId: string, conversationId: string) =>
     ['ui-document', tenantId, actorId, conversationId] as const,
+  knowledge: (tenantId: string, actorId: string) => ['knowledge', tenantId, actorId] as const,
 }

@@ -60,6 +60,20 @@
 .composer textarea { border-color: #d5ddea; }
 .composer-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .composer-foot p { color: var(--muted); font-size: 11px; margin: 0; }
+.composer-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 12px; }
+.composer-tools button { min-height: 36px; padding: 6px 10px; font-size: 12px; }
+.composer-tools button[aria-pressed="true"] { color: var(--accent-hover); border-color: var(--accent); background: var(--accent-soft); }
+.composer-tools > span { color: var(--muted); font-size: 11px; flex: 1 1 180px; }
+.conversation-attachments { width: min(700px, calc(100% - 24px)); max-height: 85dvh; overflow-y: auto; padding: 24px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--ink); }
+.conversation-attachments::backdrop { background: rgb(16 33 60 / 35%); }
+.conversation-attachments > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.conversation-attachments h2 { margin: 0; font-size: 19px; }
+.conversation-attachments > p { color: var(--muted); font-size: 13px; }
+.conversation-attachments label { display: grid; gap: 8px; font-size: 13px; }
+.attachment-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.attachment-new { border-top: 1px solid var(--border); padding-top: 16px; margin-top: 20px; }
+.attachment-new > button { margin-top: 12px; }
+.conversation-attachments .case-evidence { margin-top: 16px; }
 .checkbox-label { display: flex; align-items: center; gap: 7px; font-weight: 400; min-height: 26px; color: var(--muted); }
 .checkbox-label input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 .context-panel { display: flex; flex-direction: column; overflow-y: auto; }
@@ -304,3 +318,10 @@
 .case-verification select, .case-verification textarea { display: block; width: 100%; max-width: 580px; margin-top: 6px; }
 .case-verification textarea { min-height: 88px; resize: vertical; }
 @media (max-width: 760px) { .cases-page { padding: 18px 14px 48px; } .cases-layout { grid-template-columns: 1fr; } }
+.knowledge-panel { margin-top: 22px; padding: 18px 20px 22px; }
+.knowledge-panel .table-toolbar small { color: var(--muted); }
+.knowledge-upload { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 6px 0 12px; }
+.knowledge-upload input[type='file'] { max-width: 260px; }
+.knowledge-upload button { border: 1px solid var(--border); background: #fff; border-radius: 8px; padding: 8px 14px; font-size: 13px; }
+.knowledge-upload button:disabled { opacity: 0.55; }
+.knowledge-panel .table-foot { color: var(--muted); font-size: 12px; }

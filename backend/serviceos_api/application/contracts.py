@@ -5,6 +5,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+from serviceos_api.application.rich_reply import RichReply
 
 
 class Schema(BaseModel):
@@ -30,6 +31,7 @@ class CreateConversation(Schema):
 
 class ConversationRead(Schema):
     id: UUID
+    title: str = Field(default="新会话", max_length=24)
     customer_id: UUID
     status: str
     collaboration_mode: str
@@ -345,9 +347,15 @@ class TextPart(Schema):
 
 class SendMessage(Schema):
     client_message_id: UUID
+    reply_to_message_id: UUID | None = None
     content: list[TextPart] = Field(min_length=1, max_length=10)
     related_case_id: UUID | None = None
     visibility: Literal["PUBLIC", "INTERNAL"] = "PUBLIC"
+
+
+class ReplyPart(TextPart):
+    # Read-only extension. SendMessage intentionally still accepts only TextPart.
+    rich: RichReply | None = None
 
 
 class MessageRead(Schema):
@@ -355,7 +363,7 @@ class MessageRead(Schema):
     conversation_id: UUID
     author_kind: str
     visibility: str
-    content: list[TextPart]
+    content: list[ReplyPart]
     client_message_id: UUID | None
     related_case_id: UUID | None
     created_at: datetime
@@ -591,3 +599,53 @@ class VerificationRead(Schema):
     note: str
     case_status: str
     created_at: datetime
+
+
+class KnowledgeDocumentRead(Schema):
+    document_id: UUID
+    title: str
+    filename: str | None
+    source_kind: Literal["seed_corpus", "manual", "upload"]
+    status: Literal["UPLOADED", "CONVERTED", "CHUNKED", "EMBEDDED", "STORED", "FAILED"]
+    error_code: str | None
+    current_version: int
+    split_type: Literal["ROW", "MARKDOWN_HEADER", "LENGTH", "IMAGE"]
+    uploaded_by_staff_id: UUID | None
+    created_at: datetime
+
+
+class KnowledgeSegmentCounts(Schema):
+    segments: int
+    embedded: int
+    parents: int
+
+
+class KnowledgeDocumentDetail(KnowledgeDocumentRead):
+    counts: KnowledgeSegmentCounts
+
+
+class KnowledgePage(Schema):
+    items: list[KnowledgeDocumentRead]
+    next_cursor: str | None
+
+
+class KnowledgeUploadResult(Schema):
+    document: KnowledgeDocumentRead
+    deduplicated: bool
+
+
+class KnowledgeSearchRead(Schema):
+    entry_key: str
+    source_ref: str
+    applicability: str
+    path: str
+    excerpt: str
+
+
+class KnowledgeStatsRead(Schema):
+    corpus_present: bool
+    documents: int
+    segments: int
+    embedded: int
+    vector_enabled: bool
+    provider: str

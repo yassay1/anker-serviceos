@@ -799,6 +799,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/knowledge/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Knowledge Documents */
+        get: operations["list_knowledge_documents"];
+        put?: never;
+        /** Upload Knowledge Document */
+        post: operations["upload_knowledge_document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Knowledge Document */
+        get: operations["get_knowledge_document"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge/documents/{document_id}/reprocess": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reprocess Knowledge Document */
+        post: operations["reprocess_knowledge_document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search Knowledge */
+        get: operations["search_knowledge"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Knowledge Stats */
+        get: operations["read_knowledge_stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/local-auth/login": {
         parameters: {
             query?: never;
@@ -1013,6 +1099,21 @@ export interface components {
              */
             visibility: "PUBLIC" | "INTERNAL";
         };
+        /** Body_upload_knowledge_document */
+        Body_upload_knowledge_document: {
+            /** File */
+            file: string;
+            /**
+             * Sheet Overrides
+             * @default
+             */
+            sheet_overrides: string;
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+        };
         /** CandidateFact */
         CandidateFact: {
             /** Client Fact Id */
@@ -1127,6 +1228,11 @@ export interface components {
             reply_policy: string;
             /** Status */
             status: string;
+            /**
+             * Title
+             * @default 新会话
+             */
+            title: string;
             /** Version */
             version: number;
         };
@@ -1586,6 +1692,144 @@ export interface components {
             /** Version */
             version: string;
         };
+        /** ImageFocus */
+        ImageFocus: {
+            /** Height */
+            height: number;
+            /** Width */
+            width: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
+        /** KnowledgeDocumentDetail */
+        KnowledgeDocumentDetail: {
+            counts: components["schemas"]["KnowledgeSegmentCounts"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Current Version */
+            current_version: number;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /** Error Code */
+            error_code: string | null;
+            /** Filename */
+            filename: string | null;
+            /**
+             * Source Kind
+             * @enum {string}
+             */
+            source_kind: "seed_corpus" | "manual" | "upload";
+            /**
+             * Split Type
+             * @enum {string}
+             */
+            split_type: "ROW" | "MARKDOWN_HEADER" | "LENGTH" | "IMAGE";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "UPLOADED" | "CONVERTED" | "CHUNKED" | "EMBEDDED" | "STORED" | "FAILED";
+            /** Title */
+            title: string;
+            /** Uploaded By Staff Id */
+            uploaded_by_staff_id: string | null;
+        };
+        /** KnowledgeDocumentRead */
+        KnowledgeDocumentRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Current Version */
+            current_version: number;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /** Error Code */
+            error_code: string | null;
+            /** Filename */
+            filename: string | null;
+            /**
+             * Source Kind
+             * @enum {string}
+             */
+            source_kind: "seed_corpus" | "manual" | "upload";
+            /**
+             * Split Type
+             * @enum {string}
+             */
+            split_type: "ROW" | "MARKDOWN_HEADER" | "LENGTH" | "IMAGE";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "UPLOADED" | "CONVERTED" | "CHUNKED" | "EMBEDDED" | "STORED" | "FAILED";
+            /** Title */
+            title: string;
+            /** Uploaded By Staff Id */
+            uploaded_by_staff_id: string | null;
+        };
+        /** KnowledgePage */
+        KnowledgePage: {
+            /** Items */
+            items: components["schemas"]["KnowledgeDocumentRead"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /** KnowledgeSearchRead */
+        KnowledgeSearchRead: {
+            /** Applicability */
+            applicability: string;
+            /** Entry Key */
+            entry_key: string;
+            /** Excerpt */
+            excerpt: string;
+            /** Path */
+            path: string;
+            /** Source Ref */
+            source_ref: string;
+        };
+        /** KnowledgeSegmentCounts */
+        KnowledgeSegmentCounts: {
+            /** Embedded */
+            embedded: number;
+            /** Parents */
+            parents: number;
+            /** Segments */
+            segments: number;
+        };
+        /** KnowledgeStatsRead */
+        KnowledgeStatsRead: {
+            /** Corpus Present */
+            corpus_present: boolean;
+            /** Documents */
+            documents: number;
+            /** Embedded */
+            embedded: number;
+            /** Provider */
+            provider: string;
+            /** Segments */
+            segments: number;
+            /** Vector Enabled */
+            vector_enabled: boolean;
+        };
+        /** KnowledgeUploadResult */
+        KnowledgeUploadResult: {
+            /** Deduplicated */
+            deduplicated: boolean;
+            document: components["schemas"]["KnowledgeDocumentRead"];
+        };
         /** LocalLogin */
         LocalLogin: {
             /**
@@ -1610,7 +1854,7 @@ export interface components {
             /** Client Message Id */
             client_message_id: string | null;
             /** Content */
-            content: components["schemas"]["TextPart"][];
+            content: components["schemas"]["ReplyPart"][];
             /**
              * Conversation Id
              * Format: uuid
@@ -1740,6 +1984,15 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** QuickReply */
+        QuickReply: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Message */
+            message: string;
+        };
         /** ReadinessResponse */
         ReadinessResponse: {
             /** Components */
@@ -1753,6 +2006,85 @@ export interface components {
              * @enum {string}
              */
             status: "ready" | "not_ready";
+        };
+        /** ReplyBlock */
+        ReplyBlock: {
+            /** Action */
+            action?: ("upload_evidence" | "request_assistance" | "view_case") | null;
+            /** Case Id */
+            case_id?: string | null;
+            /** Columns */
+            columns?: string[];
+            /** Entries */
+            entries?: components["schemas"]["ReplyEvent"][];
+            /** Evidence Id */
+            evidence_id?: string | null;
+            focus?: components["schemas"]["ImageFocus"] | null;
+            /** Items */
+            items?: components["schemas"]["ReplyStep"][];
+            /** Rows */
+            rows?: string[][];
+            /**
+             * Severity
+             * @default info
+             * @enum {string}
+             */
+            severity: "info" | "warning" | "danger";
+            /** Source Id */
+            source_id?: string | null;
+            /** Source Url */
+            source_url?: string | null;
+            /** Status Code */
+            status_code?: string | null;
+            /**
+             * Text
+             * @default
+             */
+            text: string;
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "summary" | "steps" | "table" | "image" | "image_focus" | "alert" | "timeline" | "status" | "reference" | "actions";
+        };
+        /** ReplyEvent */
+        ReplyEvent: {
+            /** Description */
+            description: string;
+            /** Label */
+            label: string;
+            /**
+             * State
+             * @default recorded
+             * @enum {string}
+             */
+            state: "recorded" | "pending" | "current" | "completed" | "failed";
+            /** Time */
+            time: string;
+        };
+        /** ReplyPart */
+        ReplyPart: {
+            rich?: components["schemas"]["RichReply"] | null;
+            /** Text */
+            text: string;
+            /**
+             * Type
+             * @default text
+             * @constant
+             */
+            type: "text";
+        };
+        /** ReplyStep */
+        ReplyStep: {
+            /** Description */
+            description: string;
+            /** Title */
+            title: string;
         };
         /** ResolutionContractRead */
         ResolutionContractRead: {
@@ -1781,6 +2113,19 @@ export interface components {
             /** Version */
             version: number;
         };
+        /** RichReply */
+        RichReply: {
+            /** Blocks */
+            blocks?: components["schemas"]["ReplyBlock"][];
+            /** Quick Replies */
+            quick_replies?: components["schemas"]["QuickReply"][];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
         /** SendMessage */
         SendMessage: {
             /**
@@ -1792,6 +2137,8 @@ export interface components {
             content: components["schemas"]["TextPart"][];
             /** Related Case Id */
             related_case_id?: string | null;
+            /** Reply To Message Id */
+            reply_to_message_id?: string | null;
             /**
              * Visibility
              * @default PUBLIC
@@ -4519,6 +4866,563 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    list_knowledge_documents: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgePage"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Actor cannot manage knowledge documents */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Knowledge document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Document state forbids the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description File exceeds size limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Unsupported knowledge file type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Knowledge storage unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+        };
+    };
+    upload_knowledge_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_knowledge_document"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeUploadResult"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Actor cannot manage knowledge documents */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Knowledge document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Document state forbids the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description File exceeds size limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Unsupported knowledge file type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Knowledge storage unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+        };
+    };
+    get_knowledge_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeDocumentDetail"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Actor cannot manage knowledge documents */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Knowledge document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Document state forbids the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description File exceeds size limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Unsupported knowledge file type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Knowledge storage unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+        };
+    };
+    reprocess_knowledge_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeDocumentRead"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Actor cannot manage knowledge documents */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Knowledge document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Document state forbids the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description File exceeds size limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Unsupported knowledge file type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Knowledge storage unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+        };
+    };
+    search_knowledge: {
+        parameters: {
+            query: {
+                q: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeSearchRead"][];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Actor cannot manage knowledge documents */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Knowledge document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Document state forbids the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description File exceeds size limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Unsupported knowledge file type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Knowledge storage unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+        };
+    };
+    read_knowledge_stats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeStatsRead"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Actor cannot manage knowledge documents */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Knowledge document not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Document state forbids the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description File exceeds size limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Unsupported knowledge file type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Knowledge storage unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
                 };
             };
         };
