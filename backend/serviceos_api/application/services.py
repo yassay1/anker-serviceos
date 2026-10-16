@@ -347,7 +347,9 @@ class ConversationService(BusinessService):
                         options = proposal.get("options") or []
                         run_components = []
                         if "QuestionForm" in hints or "ChoiceGroup" in hints:
-                            kind = "ChoiceGroup" if len(options) >= 2 and "ChoiceGroup" in hints else "QuestionForm"
+                            # Server-side promotion: clickable options never get dropped just
+                            # because the model hinted the free-text form type.
+                            kind = "ChoiceGroup" if len(options) >= 2 else "QuestionForm"
                             run_components.append({"id": "agent-choice" if kind == "ChoiceGroup" else "agent-question",
                                                    "type": kind,
                                                    "props": {"title": "下一步需要的信息", "body": proposal["purpose"]},
