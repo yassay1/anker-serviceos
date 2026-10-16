@@ -1998,8 +1998,13 @@ export interface components {
         };
         /** MessageRead */
         MessageRead: {
-            /** Author Kind */
-            author_kind: string;
+            /** Author Display Name */
+            readonly author_display_name: string;
+            /**
+             * Author Kind
+             * @enum {string}
+             */
+            author_kind: "CUSTOMER" | "STAFF" | "AGENT" | "SYSTEM" | "SPECIALIST";
             /** Client Message Id */
             client_message_id: string | null;
             /** Content */

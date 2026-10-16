@@ -19,10 +19,10 @@ export async function fixture(page: Page, staff = true) {
     title: '充电设备服务咨询', status: 'ACTIVE', collaboration_mode: 'CO_SERVICE', reply_policy: 'AI_REVIEW_REQUIRED', version: 3, created_at: createdAt }
   const state = {
     conversations: [conversation, { ...conversation, id: ids.second, status: 'ARCHIVED' }],
-    messages: [{ id: ids.second, conversation_id: ids.conversation, author_kind: 'CUSTOMER', visibility: 'PUBLIC',
+    messages: [{ id: ids.second, conversation_id: ids.conversation, author_kind: 'CUSTOMER', author_display_name: '客户', visibility: 'PUBLIC',
       content: [{ type: 'text', text: '充电宝连接后供电不稳定，需要重新插拔才有反应。' }],
       client_message_id: null, related_case_id: null, created_at: createdAt },
-      { id: ids.device, conversation_id: ids.conversation, author_kind: 'STAFF', visibility: 'PUBLIC',
+      { id: ids.device, conversation_id: ids.conversation, author_kind: 'STAFF', author_display_name: '客服', visibility: 'PUBLIC',
         content: [{ type: 'text', text: '收到，我们在这段会话继续处理。请补充充电线材与适配器的信息。' }],
         client_message_id: null, related_case_id: null, created_at: createdAt }] as S['MessageRead'][],
     sent: [] as S['SendMessage'][], unexpected: [] as string[],
@@ -59,7 +59,8 @@ export async function fixture(page: Page, staff = true) {
       const body = route.request().postDataJSON() as S['SendMessage']
       state.sent.push(body)
       const message: S['MessageRead'] = { id: crypto.randomUUID(), conversation_id: path.split('/')[4],
-        author_kind: actor.kind, visibility: body.visibility, content: body.content,
+        author_kind: actor.kind, author_display_name: actor.kind === 'CUSTOMER' ? '客户' : '客服',
+        visibility: body.visibility, content: body.content,
         client_message_id: body.client_message_id, related_case_id: null, created_at: createdAt }
       state.messages.push(message)
       return route.fulfill({ status: 202, json: { message, replayed: false, processing_state: 'QUEUED' } satisfies S['MessageReceipt'] })

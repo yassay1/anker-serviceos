@@ -7,11 +7,14 @@ from sqlalchemy.exc import IntegrityError
 
 from serviceos_api.application.agent_services import AgentToolService
 from serviceos_api.application.diagnostic_contracts import DiagnosticResult
+from serviceos_api.application.auth import Principal
+from serviceos_api.application.services import ConversationService
 from serviceos_api.bootstrap_local import seed_local_accounts
 from serviceos_api.persistence.models import (
     AgentRun, CaseConversation, CaseEvidence, Conversation, Customer, DiagnosticTask, Message, MessageJob,
-    ServiceCase, SpecialistRun, Tenant,
+    OutboxEvent, ServiceCase, SpecialistRun, Tenant,
 )
+from serviceos_api.application.contracts import MessageRead
 
 
 def seed_active_agent_run(session):
@@ -228,3 +231,137 @@ def test_diagnostic_task_cannot_reference_another_tenants_conversation(db_sessio
 
     with pytest.raises(IntegrityError):
         db_session.flush()
+
+
+def _diagnostic_fixture(db_session, *, mode="AI_LEAD", policy="AI_AUTO"):
+    tenant, conversation, case, _, parent_run, token = seed_active_agent_run(db_session)
+    conversation.collaboration_mode = mode
+    conversation.reply_policy = policy
+    context = {
+        "linked_cases": [{"id": str(case.id), "version": case.version, "problem": case.problem_text}],
+        "linked_devices": [], "case_evidence": [], "public_history": [],
+    }
+    service = AgentToolService(db_session, tenant.id, conversation.id, parent_run.id, token)
+    task, specialist, task_input, _ = service.start_diagnostic("分析当前故障", context, "接上后没有充电")
+    result = DiagnosticResult(
+        task_id=task.id,
+        assessment="可能是电源连接不稳定",
+        next_step={"kind": "EXPLAIN", "summary": "检查电源连接是否牢固"},
+        staff_summary="仅供客服参考的内部摘要，不应出现在专家消息中。",
+    )
+    return tenant, conversation, parent_run, task, specialist, task_input, result, service
+
+
+def test_completed_diagnostic_publishes_one_safe_specialist_message_and_outbox(db_session):
+    tenant, conversation, parent, task, specialist, task_input, result, service = _diagnostic_fixture(db_session)
+
+    service.complete_diagnostic(task.id, specialist.id, result, {}, task_input)
+    message = db_session.scalar(select(Message).where(Message.specialist_run_id == specialist.id))
+    events = db_session.scalars(select(OutboxEvent).where(
+        OutboxEvent.conversation_id == conversation.id, OutboxEvent.type == "message.created",
+    )).all()
+
+    assert message is not None
+    assert message.author_kind == "SPECIALIST" and message.visibility == "PUBLIC"
+    assert MessageRead.model_validate(message).author_display_name == "诊断专家"
+    assert message.client_message_id == specialist.id and message.request_hash
+    assert message.author_customer_id is None and message.author_staff_id is None
+    body = message.content[0]["text"]
+    assert "初步假设（待核验）" in body and "下一步建议（待确认）" in body
+    assert "仅供客服参考" not in body and "内部摘要" not in body
+    assert sum(event.data.get("message_id") == str(message.id) for event in events) == 1
+    assert any(event.data.get("message_id") == str(message.id) and event.visibility == "PUBLIC" for event in events)
+
+    replay = ConversationService(db_session, actor=None).publish_specialist_result(
+        tenant.id, conversation.id, parent.id, parent.lease_token, task.id, specialist.id,
+    )
+    assert replay.id == message.id
+    assert len(db_session.scalars(select(Message).where(Message.specialist_run_id == specialist.id)).all()) == 1
+    with pytest.raises(IntegrityError):
+        with db_session.begin_nested():
+            db_session.add(Message(
+                tenant_id=tenant.id, conversation_id=conversation.id, author_kind="SPECIALIST",
+                specialist_run_id=specialist.id, visibility="PUBLIC", content=message.content,
+                client_message_id=uuid4(), request_hash="f" * 64,
+            ))
+            db_session.flush()
+
+
+def test_message_author_constraints_require_specialist_source_and_forbid_forged_sources(db_session):
+    tenant, conversation, _, _, specialist, _, _, _ = _diagnostic_fixture(db_session)
+    invalid_rows = [
+        Message(tenant_id=tenant.id, conversation_id=conversation.id, author_kind="SPECIALIST",
+                visibility="PUBLIC", content=[{"type": "text", "text": "未授权专家消息"}]),
+        Message(tenant_id=tenant.id, conversation_id=conversation.id, author_kind="AGENT",
+                specialist_run_id=specialist.id, visibility="INTERNAL",
+                content=[{"type": "text", "text": "伪造专家来源"}]),
+    ]
+    for row in invalid_rows:
+        with pytest.raises(IntegrityError):
+            with db_session.begin_nested():
+                db_session.add(row)
+                db_session.flush()
+
+
+def test_specialist_publication_failure_rolls_back_result_and_result_event(db_session, monkeypatch):
+    tenant, conversation, _, task, specialist, task_input, result, service = _diagnostic_fixture(db_session)
+
+    def fail_publish(*args, **kwargs):
+        raise RuntimeError("simulated_publication_failure")
+
+    monkeypatch.setattr(ConversationService, "publish_specialist_result", fail_publish)
+    with pytest.raises(RuntimeError, match="simulated_publication_failure"):
+        service.complete_diagnostic(task.id, specialist.id, result, {}, task_input)
+    db_session.rollback()
+
+    saved_task = db_session.get(DiagnosticTask, task.id)
+    saved_run = db_session.get(SpecialistRun, specialist.id)
+    saved_messages = db_session.scalars(select(Message).where(Message.specialist_run_id == specialist.id)).all()
+    events = db_session.scalars(select(OutboxEvent).where(
+        OutboxEvent.tenant_id == tenant.id, OutboxEvent.conversation_id == conversation.id,
+        OutboxEvent.type == "specialist.activity",
+    )).all()
+    assert saved_task.result_payload is None and saved_task.status == "RUNNING"
+    assert saved_run.result_payload is None and saved_run.status == "RUNNING"
+    assert saved_messages == []
+    assert all(event.data.get("stage") != "RESULT_READY" for event in events)
+
+
+@pytest.mark.parametrize(("mode", "policy", "expected_visibility"), [
+    ("AI_LEAD", "AI_AUTO", "PUBLIC"),
+    ("CO_SERVICE", "AI_REVIEW_REQUIRED", "INTERNAL"),
+    ("HUMAN_LEAD", "HUMAN_ONLY", "INTERNAL"),
+])
+def test_diagnostic_result_message_uses_current_collaboration_visibility(
+        db_session, mode, policy, expected_visibility):
+    tenant, conversation, _, task, specialist, task_input, result, service = _diagnostic_fixture(
+        db_session, mode=mode, policy=policy,
+    )
+
+    service.complete_diagnostic(task.id, specialist.id, result, {}, task_input)
+    message = db_session.scalar(select(Message).where(Message.specialist_run_id == specialist.id))
+
+    assert message is not None and message.visibility == expected_visibility
+    customer = db_session.scalar(select(Customer).where(Customer.id == conversation.customer_id))
+    customer_service = ConversationService(db_session, Principal(tenant.id, customer.id, "CUSTOMER", "客户"))
+    customer_messages = customer_service.messages(conversation.id).items
+    assert (message.id in {item.id for item in customer_messages}) is (expected_visibility == "PUBLIC")
+
+
+@pytest.mark.parametrize(("kind", "next_step", "expected_task_status"), [
+    ("question", {"kind": "ASK_CUSTOMER", "summary": "确认充电器", "question": {"prompt": "指示灯是否亮起？"}}, "WAITING_CUSTOMER"),
+    ("safety", {"kind": "SAFETY_STOP", "summary": "停止使用并联系人工"}, "WAITING_STAFF"),
+    ("human", {"kind": "HUMAN_REVIEW", "summary": "请客服核实"}, "WAITING_STAFF"),
+])
+def test_question_safety_and_human_review_do_not_publish_specialist_message(
+        db_session, kind, next_step, expected_task_status):
+    _, _, _, task, specialist, task_input, _, service = _diagnostic_fixture(db_session)
+    result = DiagnosticResult(
+        task_id=task.id, assessment="可能存在供电问题", next_step=next_step,
+        staff_summary="内部摘要。",
+    )
+
+    service.complete_diagnostic(task.id, specialist.id, result, {}, task_input)
+
+    assert task.status == expected_task_status
+    assert db_session.scalar(select(Message.id).where(Message.specialist_run_id == specialist.id)) is None

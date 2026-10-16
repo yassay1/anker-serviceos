@@ -19,7 +19,7 @@ from serviceos_api.application.ui_visualizations import (
 )
 from serviceos_api.persistence.models import (
     AgentProposal, AgentRun, CaseAction, CaseConversation, CaseDevice, CaseEvidence, CaseVerification, Conversation, ConversationEvent, DeviceFact,
-    DevicePassport, DiagnosticAnswer, DiagnosticTask, Message, MessageJob, OutboxEvent, ServiceCase, ServiceTask, TaskAssignment,
+    DevicePassport, DiagnosticAnswer, DiagnosticTask, Message, MessageJob, OutboxEvent, ServiceCase, ServiceTask, SpecialistRun, TaskAssignment,
     UIActionInvocation, UIDocument,
 )
 
@@ -661,7 +661,7 @@ class ConversationService(BusinessService):
             task.version += 1
             self.session.commit()
             raise ServiceError(409, "诊断问题已过期，请继续使用文字消息或请求人工协助。")
-        question = DiagnosticQuestion.model_validate(task.question_payload)
+        DiagnosticQuestion.model_validate(task.question_payload)
         options = component.get("options") or []
         if options and answer_text not in {option["label"] for option in options}:
             raise ServiceError(422, "请使用当前问题中的选项作答。")
@@ -1048,6 +1048,106 @@ class ConversationService(BusinessService):
         run.status = "COMPLETED"
         run.completed_at = datetime.now(timezone.utc)
         self.session.commit()
+        return message
+
+    def publish_specialist_result(self, tenant_id: UUID, conversation_id: UUID, agent_run_id: UUID,
+                                  lease_token: UUID, task_id: UUID, specialist_run_id: UUID):
+        """Persist a validated specialist projection under the parent AgentRun lease.
+
+        The caller owns the transaction so diagnostic state, message and Outbox event
+        commit atomically. Specialist output is never accepted from an HTTP payload.
+        """
+        from serviceos_api.application.agent_services import (
+            _public_diagnostic_message, validate_agent_execution,
+        )
+        from serviceos_api.application.diagnostic_contracts import DiagnosticResult
+        from serviceos_api.persistence.models import DiagnosticTask
+
+        run, _, conversation, source_message = validate_agent_execution(
+            self.session, tenant_id, conversation_id, agent_run_id, lease_token,
+        )
+        task = self.session.scalar(select(DiagnosticTask).where(
+            DiagnosticTask.id == task_id, DiagnosticTask.tenant_id == tenant_id,
+            DiagnosticTask.conversation_id == conversation_id,
+            DiagnosticTask.parent_agent_run_id == run.id,
+        ).with_for_update())
+        specialist = self.session.scalar(select(SpecialistRun).where(
+            SpecialistRun.id == specialist_run_id, SpecialistRun.tenant_id == tenant_id,
+            SpecialistRun.diagnostic_task_id == task_id,
+            SpecialistRun.parent_agent_run_id == run.id,
+            SpecialistRun.status == "COMPLETED",
+        ).with_for_update())
+        if task is None or specialist is None or task.status not in ("COMPLETED", "WAITING_STAFF"):
+            raise ValueError("specialist_result_unavailable")
+
+        # Customer questions use the existing controlled UI action. Safety and
+        # human-review outcomes retain their fixed reply path and never publish
+        # the specialist's free-form result as a chat message.
+        result = DiagnosticResult.model_validate(specialist.result_payload)
+        if (result.task_id != task.id or result.next_step.question is not None
+                or result.next_step.kind in ("ASK_CUSTOMER", "SAFETY_STOP", "HUMAN_REVIEW")):
+            return None
+
+        text = _public_diagnostic_message(result)
+        visibility = "PUBLIC" if (
+            conversation.collaboration_mode == "AI_LEAD" and conversation.reply_policy == "AI_AUTO"
+        ) else "INTERNAL"
+        content = [{"type": "text", "text": text}]
+        existing = self.session.scalar(select(Message).where(
+            Message.tenant_id == tenant_id, Message.conversation_id == conversation.id,
+            Message.specialist_run_id == specialist.id,
+        ))
+        if existing is not None:
+            fingerprint = hashlib.sha256(json.dumps({
+                "specialist_run_id": str(specialist.id), "diagnostic_task_id": str(task.id),
+                "conversation_id": str(conversation.id), "content": content,
+                "related_case_id": str(task.case_id) if task.case_id else None,
+                "visibility": existing.visibility,
+            }, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            if existing.request_hash != fingerprint:
+                raise ServiceError(409, "此诊断专家运行已保存不同结果，拒绝重复写入。")
+            return existing
+
+        guard_decision = None
+        if visibility == "PUBLIC" and self.settings.publication_guard:
+            from serviceos_api.application.publication_guard import PublicationGuard
+            from serviceos_api.persistence.models import PublicationGuardDecision
+
+            customer_text = " ".join(part.get("text", "") for part in source_message.content)
+            outcome = PublicationGuard(self.session, self.settings, tenant_id).check(
+                text, run, conversation.id, customer_text,
+            )
+            outcome.verifier["latency_ms"] = outcome.latency_ms
+            guard_decision = PublicationGuardDecision(
+                tenant_id=tenant_id, conversation_id=conversation.id, run_id=run.id,
+                decision=outcome.decision, reason_codes=outcome.reason_codes,
+                entities={"items": outcome.entities}, verifier=outcome.verifier,
+                reply_text=text,
+            )
+            self.session.add(guard_decision)
+            self.session.flush()
+            if outcome.decision == "BLOCKED":
+                visibility = "INTERNAL"
+
+        fingerprint = hashlib.sha256(json.dumps({
+            "specialist_run_id": str(specialist.id), "diagnostic_task_id": str(task.id),
+            "conversation_id": str(conversation.id), "content": content,
+            "related_case_id": str(task.case_id) if task.case_id else None, "visibility": visibility,
+        }, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        message = Message(
+            tenant_id=tenant_id, conversation_id=conversation.id, author_kind="SPECIALIST",
+            author_customer_id=None, author_staff_id=None, specialist_run_id=specialist.id,
+            visibility=visibility, content=content, related_case_id=task.case_id,
+            client_message_id=specialist.id, request_hash=fingerprint,
+        )
+        self.session.add(message)
+        self.session.flush()
+        event_id = uuid4()
+        self.session.add(OutboxEvent(
+            id=event_id, tenant_id=tenant_id, conversation_id=conversation.id,
+            type="message.created", visibility=visibility,
+            data={"message_id": str(message.id), "conversation_id": str(conversation.id)},
+        ))
         return message
 
     def messages(self, conversation_id, cursor=None, limit=50):

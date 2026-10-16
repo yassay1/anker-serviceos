@@ -169,10 +169,12 @@ body:has(.staff-app) { background: var(--canvas); }
 .staff-shell .desk-view .message p { font-size: 15px; }
 .staff-shell .desk-view .message.own-message { background: #eaf3ff; border-radius: 11px 4px 11px 11px; color: var(--ink); }
 .staff-shell .desk-view .message.author-agent { background: #edf4ff; border-radius: 4px 11px 11px 11px; }
+.staff-shell .desk-view .message.author-specialist { background: #f0f7f6; border-radius: 4px 11px 11px 11px; }
 .staff-shell .desk-view .message.internal-message { background: #fff6df; border: 1px dashed #edce8e; }
 .staff-shell .desk-view .message-avatar { position: absolute; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; left: -39px; top: 1px; background: #fff0d9; color: #a36a22; }
 .staff-shell .desk-view .own-message .message-avatar { left: auto; right: -39px; background: #e9f2ff; color: var(--accent); }
 .staff-shell .desk-view .author-agent .message-avatar { background: #e5eeff; color: #2769dc; }
+.staff-shell .desk-view .author-specialist .message-avatar { background: #e3f1ee; color: #23645a; }
 .staff-shell .desk-view .message-meta { font-size: 13px; gap: 7px; margin-bottom: 5px; }
 .staff-shell .desk-view .message-meta strong { font-size: 13px; }
 .staff-shell .desk-view .composer { flex-shrink: 0; display: grid; gap: 7px; padding: 10px 16px 13px; position: relative; border-top: 1px solid #e6ebf3; background: white; }

@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, computed_field, field_validator, model_validator
 from serviceos_api.application.rich_reply import RichReply
 
 
@@ -361,12 +361,20 @@ class ReplyPart(TextPart):
 class MessageRead(Schema):
     id: UUID
     conversation_id: UUID
-    author_kind: str
+    author_kind: Literal["CUSTOMER", "STAFF", "AGENT", "SYSTEM", "SPECIALIST"]
     visibility: str
     content: list[ReplyPart]
     client_message_id: UUID | None
     related_case_id: UUID | None
     created_at: datetime
+
+    @computed_field
+    @property
+    def author_display_name(self) -> str:
+        return {
+            "CUSTOMER": "客户", "STAFF": "客服", "AGENT": "服务助手",
+            "SYSTEM": "系统", "SPECIALIST": "诊断专家",
+        }[self.author_kind]
 
 
 class MessagePage(Schema):

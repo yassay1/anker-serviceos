@@ -5,7 +5,6 @@ import hashlib
 import json
 import re
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -120,6 +119,25 @@ def _public_diagnostic_summary(assessment: str) -> str:
         return safe_text(candidate, limit=460)
     except Exception:
         return "诊断专家已形成待核验假设；服务助手将结合当前授权信息继续处理。"
+
+
+def _public_diagnostic_message(result: DiagnosticResult) -> str:
+    """Project only the validated diagnostic finding and a screened next step."""
+    from serviceos_api.application.ui_catalog import safe_text
+
+    finding = _public_diagnostic_summary(result.assessment)
+    if result.next_step.kind not in ("EXPLAIN", "REQUEST_EVIDENCE", "NO_ACTION"):
+        return finding
+    summary = " ".join(result.next_step.summary.split())
+    contact_data = re.compile(r"(?:[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|(?<!\d)(?:\+?\d[\d ()-]{7,}\d)(?!\d))")
+    if len(summary) > 360 or contact_data.search(summary):
+        return finding
+    try:
+        next_step = safe_text(f"下一步建议（待确认）：{summary}", limit=400)
+    except Exception:
+        return finding
+    candidate = f"{finding}\n{next_step}"
+    return candidate if len(candidate) <= 900 else finding
 
 
 def _search_tokens(value: str) -> set[str]:
@@ -546,6 +564,7 @@ class AgentToolService:
         self.run_id = run_id
         self.lease_token = lease_token
         self.settings = settings
+        self.specialist_message_visibility: str | None = None
 
     def _active_execution(self, *, reserve_tool_call: bool = False):
         run, job, conversation, message = validate_agent_execution(
@@ -951,6 +970,11 @@ class AgentToolService:
                 SpecialistRun.status == "COMPLETED",
             ).order_by(SpecialistRun.attempt.desc()).limit(1))
             if latest:
+                self.specialist_message_visibility = self.session.scalar(select(Message.visibility).where(
+                    Message.tenant_id == self.tenant_id,
+                    Message.conversation_id == self.conversation_id,
+                    Message.specialist_run_id == latest.id,
+                ))
                 return task, latest, DiagnosticTaskInput.model_validate(task.input_payload), DiagnosticResult.model_validate(task.result_payload)
         latest = self.session.scalar(select(SpecialistRun).where(
             SpecialistRun.tenant_id == self.tenant_id, SpecialistRun.diagnostic_task_id == task.id,
@@ -991,6 +1015,11 @@ class AgentToolService:
             SpecialistRun.parent_agent_run_id == run.id,
         ).order_by(SpecialistRun.attempt.desc()).with_for_update().limit(1))
         if task.parent_agent_run_id == run.id and task.status in ("WAITING_CUSTOMER", "COMPLETED") and latest and latest.status == "COMPLETED":
+            self.specialist_message_visibility = self.session.scalar(select(Message.visibility).where(
+                Message.tenant_id == self.tenant_id,
+                Message.conversation_id == self.conversation_id,
+                Message.specialist_run_id == latest.id,
+            ))
             return task, latest, DiagnosticTaskInput.model_validate(task.input_payload), answer, DiagnosticResult.model_validate(task.result_payload)
         if task.status not in ("RUNNING", "FAILED") or task.question_payload is None:
             raise ValueError("diagnostic_answer_resume_invalid")
@@ -1084,6 +1113,13 @@ class AgentToolService:
                 self.session, self.tenant_id, self.conversation_id, self.run_id, self.lease_token,
                 task.id, specialist_run.id, "WAITING_STAFF",
             )
+        specialist_message = None
+        if question is None:
+            conversation_service = ConversationService(self.session, actor=None, settings=self.settings)
+            specialist_message = conversation_service.publish_specialist_result(
+                self.tenant_id, self.conversation_id, self.run_id, self.lease_token, task.id, specialist_run.id,
+            )
+        self.specialist_message_visibility = specialist_message.visibility if specialist_message is not None else None
         self.session.commit()
         return payload
 

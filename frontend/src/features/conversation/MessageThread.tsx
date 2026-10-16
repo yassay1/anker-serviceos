@@ -18,10 +18,11 @@ function MessageItem({ message, actor, quickActive, onQuickReply }: {
 }) {
   const mine = message.author_kind === actor.kind
   return <li className={`message author-${message.author_kind.toLowerCase()} ${mine ? 'own-message' : ''} ${message.visibility === 'INTERNAL' ? 'internal-message' : ''}`}>
-    <span className="message-avatar" aria-hidden="true">{message.author_kind === 'AGENT' ? <Bot size={20} /> : <UserRound size={19} />}</span>
+    <span className="message-avatar" aria-hidden="true">{message.author_kind === 'AGENT' || message.author_kind === 'SPECIALIST' ? <Bot size={20} /> : <UserRound size={19} />}</span>
     <div className="message-meta">
-      <strong>{message.author_kind === 'CUSTOMER' ? '客户' : message.author_kind === 'STAFF' ? '客服' : '服务助手'}</strong>
-      {message.visibility === 'INTERNAL' && <span className="private-tag">内部备注</span>}
+      <strong>{message.author_display_name}</strong>
+      {message.author_kind === 'SPECIALIST' && <span className="specialist-tag">AI 假设（待核验）</span>}
+      {message.visibility === 'INTERNAL' && <span className="private-tag">{message.author_kind === 'SPECIALIST' ? '仅客服可见' : '内部备注'}</span>}
       <time dateTime={message.created_at}>{clock.format(new Date(message.created_at))}</time>
     </div>
     {message.content.map((part, index) => message.author_kind === 'AGENT'

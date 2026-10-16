@@ -125,11 +125,12 @@
 | B. 专家身份/进度/结果可见（已实现） | ConversationService Outbox、`specialist.activity` allowlist、SSE history、conversation event hook 和活动卡 | 复用 generic EventRead、sequence 与 PUBLIC/INTERNAL；不新增 transport/OpenAPI 路由 | 提供真实进度但不降低模型 wall-clock；后端最新 reply policy 二次复核，历史/客户角色过滤验收通过。 |
 | C. 受控提问、答案与恢复（已实现） | DiagnosticQuestion/Answer、UI Catalog/Renderer、UIAction service、MessageJob/Worker、migration 0016 | 复用 `DIAGNOSTIC_TASK_VIEW` + `SUBMIT_DIAGNOSTIC_ANSWER`；同事务保存 Message/Answer/Job/Outbox；无专用 task endpoint | 等待不占用原 Worker lease；用户回答后再发生一轮专家推理。刷新/幂等/权限/版本/过期/同 lease checkpoint 恢复路径有定向测试；杀进程与真实 Provider 仍未测。 |
 | D. SOP/人工/知识与案例核验整合（已实现代码边界） | Agent context builder、只读经验候选/手册/固定 Skill、结果来源复核、ConversationService 安全发布、相关测试 | 不增加新可信事实接口；SAFETY_STOP/HUMAN_REVIEW 转 WAITING_STAFF；候选只作参考，Case/Device/Conversation 不合并 | 经验来源每次重新验证；客服专属 provenance review UI 与真实来源复核业务操作仍未交付。没有 Jev/RAG 平台。 |
+| E. 专家作为消息作者（2026-10-17 已实现） | Message/SpecialistRun 来源约束、ConversationService 诊断结果投影、`MessageRead` 显示名、`MessageThread` | migration 0019；复用消息历史和 `message.created` Outbox/SSE；普通发送接口不接受专家身份字段 | `AI_LEAD + AI_AUTO` 经公开内容检查后 PUBLIC，其他有效策略 INTERNAL；追问/安全停止/人工复核不发布专家正文；结果、Message、Outbox 原子提交。定向测试与本地验收见[专家作者消息验收记录](specialist-author-messages-validation.md)。 |
 
 ### 阶段化实施约束
 
 - 每阶段先检查本计划真实勾选和当前代码证据；用户已批准 spec 011，按 A–D 任务依赖实施。
-- 跨模块 API 先确认 `specs/011.../contracts/feature-contract.md`；后端以 Application Service/Pydantic/真实路由/OpenAPI 为单一接口来源，前端只消费生成 Client。
+- 跨模块 API 先确认对应功能契约（011 委派与活动、017 专家作者消息）；后端以 Application Service/Pydantic/真实路由/OpenAPI 为单一接口来源，前端只消费生成 Client。
 - 真实 Provider 试验必须使用已批准的 Provider 配置，分开记录简单流量与委派流量的 `model_ttft_ms`、`agent_first_progress_ms`、总调用数、tokens、P50/P95。当前未运行该基线，禁止以测试替身冒充真实模型验收。
 - 测试聚焦成功、无效结构、工具/资源权限、并发冲突、幂等、policy变化、断线恢复、worker重启和Checkpoint丢失，不做无目标的大规模矩阵。
 - 长时间用户等待事件中写入固定脱敏 summary；事件/reply 内容都由服务端发布控制，不能把 Agent Trace 或 Prompt 交给客户端。

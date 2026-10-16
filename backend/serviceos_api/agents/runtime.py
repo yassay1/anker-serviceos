@@ -47,7 +47,7 @@ approved experience examples 是经审核的其他案例参考，不是设备事
 当 lookup_manual 返回 applicability=DISAMBIGUATION_REQUIRED（检索命中同名产品冲突，例如 S1 Pro 同时对应扫地机器人与穿戴式吸奶器），必须先做需求澄清：用 ui_proposal 的 options 给出选择卡（ChoiceGroup，options 为冲突品类），选项就是工具返回的冲突品类/型号（label 用客户可直接点击确认的话术，如"我问的是扫地机器人 S1 Pro"）；澄清完成前不得输出任何单一品类的排障步骤、质保结论、电池判断或指标图表。优先给出安全、可逆的下一步和明确停止/人工求助条件。
 回复客户时只依据当前用户明确表达调整服务语气；证据不足时保持中性，不替用户断言情绪。该线索只影响措辞和解释顺序，不影响业务事实、紧急度、工具权限、审批、协作模式或发布资格。
 request_missing_evidence 与 propose_action 只会创建内部草稿，不会通知客户或执行动作。不要暴露内部备注、原始推理、密钥或其他客户信息。
-如果授权上下文含 resumed_diagnostic_result，这是受控回答后同一诊断任务的结构化结果；直接综合回复，不要再次委派。只有现有资料/Skill 无法覆盖、需要多步核对证据或用户明确要求深入排查时，才调用 delegate_diagnostic；简单解释、问候或已有证据充分的问题直接处理。每个用户轮次最多委派一次。专家返回的是待核验假设和建议，不是设备事实或已解决结论。专家不能代替你向用户发布结果，你仍负责核对上下文、回复策略与最终答复。
+如果授权上下文含 resumed_diagnostic_result，这是受控回答后同一诊断任务的结构化结果；直接综合回复，不要再次委派。只有现有资料/Skill 无法覆盖、需要多步核对证据或用户明确要求深入排查时，才调用 delegate_diagnostic；简单解释、问候或已有证据充分的问题直接处理。每个用户轮次最多委派一次。专家返回的是待核验假设和建议，不是设备事实或已解决结论。诊断完成后后端会按当前策略把专家结果作为独立作者消息保存；如果授权上下文的 resumed_diagnostic_message_visibility 或工具结果的 result_message_visibility 为 PUBLIC 或 INTERNAL，不要复述 assessment 或下一步原文，只简短说明接下来由谁处理或提示查看专家结果。如果 diagnostic_result.next_step.question 存在，问题卡负责呈现问题；回复只提示用户查看问题卡，不重复问题原文。你仍负责服务协调与最终回复。
 请用简洁、自然的中文回复客户；如果当前会话不是 AI 自动回复模式，最终回复只会保存为内部草稿供人工查看。
 最终答复使用受控结果结构：text 是客户答复，ui_proposal 是可选的内部界面建议。不要把界面建议、字段名或选项元数据写进 text；未通过应用校验的界面建议会被丢弃。
 ui_proposal 的内容格式为
@@ -175,7 +175,7 @@ class AgentRuntime:
 
         @tool
         def delegate_diagnostic(goal: str) -> dict:
-            """委派复杂售后问题给受限只读诊断专家；Service Agent 仍负责最终回复。"""
+            """委派复杂问题给受限诊断专家。工具返回消息可见性；专家结果已入会话时只补充协调信息，不重复结论。"""
             from serviceos_api.agents.diagnostic import DiagnosticAgentRuntime
 
             with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
@@ -185,7 +185,8 @@ class AgentRuntime:
                 specialist_thread_id = specialist_run.checkpoint_thread_id
                 if cached is not None:
                     return {"task_id": str(task_id), "status": "COMPLETED",
-                            "diagnostic_result": cached.model_dump(mode="json")}
+                            "diagnostic_result": cached.model_dump(mode="json"),
+                            "result_message_visibility": getattr(service, "specialist_message_visibility", None) or "NONE"}
             try:
                 result, stats = DiagnosticAgentRuntime(self.settings).invoke(
                     task=task_input, tenant_id=tenant_id, conversation_id=conversation_id,
@@ -197,13 +198,15 @@ class AgentRuntime:
                         task_id, specialist_run_id, result, stats, task_input,
                         set(stats.get("manual_source_refs", [])),
                     )
+                    message_visibility = getattr(service, "specialist_message_visibility", None) or "NONE"
             except Exception:
                 with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
                     service.fail_diagnostic(task_id, specialist_run_id, "diagnostic_execution_failed")
                 return {"task_id": str(task_id), "status": "FAILED",
                         "error_code": "diagnostic_execution_failed", "diagnostic_result": None,
                         "note": "诊断专家本次执行失败；请基于现有工具与资料直接回答，或建议人工协助。"}
-            return {"task_id": str(task_id), "status": "COMPLETED", "diagnostic_result": payload}
+            return {"task_id": str(task_id), "status": "COMPLETED", "diagnostic_result": payload,
+                    "result_message_visibility": message_visibility}
 
         # A controlled customer answer resumes its persisted DiagnosticTask
         # deterministically; the manager does not need to infer which task to resume.
@@ -217,6 +220,7 @@ class AgentRuntime:
                 task, specialist_run, task_input, answer, cached = service.resume_diagnostic(task_id, answer_id)
             if cached is not None:
                 context["resumed_diagnostic_result"] = cached.model_dump(mode="json")
+                context["resumed_diagnostic_message_visibility"] = getattr(service, "specialist_message_visibility", None) or "NONE"
             else:
                 try:
                     result, diagnostic_stats = DiagnosticAgentRuntime(self.settings).invoke(
@@ -230,6 +234,7 @@ class AgentRuntime:
                             task_id, specialist_run.id, result, diagnostic_stats, task_input,
                             set(diagnostic_stats.get("manual_source_refs", [])),
                         )
+                        context["resumed_diagnostic_message_visibility"] = getattr(service, "specialist_message_visibility", None) or "NONE"
                 except Exception as error:
                     with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
                         service.fail_diagnostic(task_id, specialist_run.id, "diagnostic_resume_failed")

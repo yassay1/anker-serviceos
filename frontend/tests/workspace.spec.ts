@@ -49,6 +49,24 @@ test('adaptation: drafts and visibility stay with their conversation', async ({ 
   expect(state.sent[0]).toMatchObject({ visibility: 'INTERNAL', content: [{ type: 'text', text: '会话 A 的内部记录' }] })
 })
 
+test('conversation: specialist result has its own author and no Agent quick replies', async ({ page }) => {
+  const state = await fixture(page)
+  state.messages.push({
+    id: '77777777-7777-4777-8777-777777777777', conversation_id: ids.conversation,
+    author_kind: 'SPECIALIST', author_display_name: '诊断专家', visibility: 'INTERNAL',
+    content: [{ type: 'text', text: '初步假设（待核验）：可能是电源连接不稳定。' }],
+    client_message_id: null, related_case_id: null, created_at: state.messages[0].created_at,
+  })
+  await page.goto('/desk')
+  const specialist = page.locator('.message.author-specialist')
+  await expect(specialist.getByText('诊断专家', { exact: true })).toBeVisible()
+  await expect(specialist.getByText('AI 假设（待核验）', { exact: true })).toBeVisible()
+  await expect(specialist.getByText('仅客服可见', { exact: true })).toBeVisible()
+  await expect(specialist.getByText('初步假设（待核验）：可能是电源连接不稳定。', { exact: true })).toBeVisible()
+  await expect(specialist.getByRole('button')).toHaveCount(0)
+  expect(state.unexpected).toEqual([])
+})
+
 test('adaptation: narrow screen panels preserve the message draft', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await fixture(page, false)

@@ -2336,7 +2336,19 @@
       "MessageRead": {
         "additionalProperties": false,
         "properties": {
+          "author_display_name": {
+            "readOnly": true,
+            "title": "Author Display Name",
+            "type": "string"
+          },
           "author_kind": {
+            "enum": [
+              "CUSTOMER",
+              "STAFF",
+              "AGENT",
+              "SYSTEM",
+              "SPECIALIST"
+            ],
             "title": "Author Kind",
             "type": "string"
           },
@@ -2399,7 +2411,8 @@
           "content",
           "client_message_id",
           "related_case_id",
-          "created_at"
+          "created_at",
+          "author_display_name"
         ],
         "title": "MessageRead",
         "type": "object"

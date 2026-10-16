@@ -293,7 +293,7 @@ Rule、Capability Resolver 和服务端 UI Policy 在 Agent 之后再次过滤�
 
 DiagnosticTask 由应用服务在父 AgentRun lease 下创建，tenant/conversation/source message/parent run 为必需关联，Case 可选；多会话/多 Case 关系沿用现有关联表，不设一对一。当前任务状态含 `QUEUED/RUNNING/WAITING_CUSTOMER/WAITING_STAFF/COMPLETED/FAILED/CANCELLED/EXPIRED`；问题 revision、DiagnosticAnswer、答案去重与版本校验、7 天等待期限和跨 AgentRun 恢复已实现。过期在授权 UI 投影/答案校验时懒更新；没有独立过期调度器。task version 和单活动 SpecialistRun 约束已实现。
 
-已实现的结构化 `DiagnosticResult` schema_version=1 分开：`assessment`（固定为不确定诊断假设）、`evidence_refs`（当前任务已授权来源 ID/文档版本）、`unknowns`、`next_step`、可选 `question` 和客服摘要。服务端验证 task/evidence refs 与 Case/Device/审核经验当前版本；模型假设不会写成 VERIFIED。专家结果不自动形成公开消息；安全/转人工建议由 ConversationService 固定回复与最新策略约束。
+已实现的结构化 `DiagnosticResult` schema_version=1 分开：`assessment`（固定为不确定诊断假设）、`evidence_refs`（当前任务已授权来源 ID/文档版本）、`unknowns`、`next_step`、可选 `question` 和客服摘要。服务端验证 task/evidence refs 与 Case/Device/审核经验当前版本；模型假设不会写成 VERIFIED。经单独确认的 [feature 017](../specs/017-specialist-author-messages/contracts/feature-contract.md) 允许符合条件的已验证结果通过 ConversationService 写为一条 SPECIALIST 作者消息：`AI_LEAD + AI_AUTO` 经公开内容检查后为 PUBLIC；其他有效协作策略为 INTERNAL、仅客服可见。追问仍走问题卡；安全停止/人工复核继续由 ConversationService 固定回复与最新策略约束，不公开专家自由文本。
 
 ### 已实现的 Question UI Action
 
@@ -307,12 +307,12 @@ DiagnosticTask 由应用服务在父 AgentRun lease 下创建，tenant/conversat
 
 | 模式 / 回复策略 | 客户可见 | 客服可见 |
 |---|---|---|
-| `AI_LEAD + AI_AUTO` | 通过审核的专家参与和真实阶段；最终诊断摘要由 Service Agent/ConversationService 授权发布 | 同租户授权详情 |
-| `AI_REVIEW_REQUIRED` | 客户不可见；如进入后续阶段仅按最新授权外发 | INTERNAL 专家活动摘要；细粒度来源审查面板尚未实现 |
-| `CO_SERVICE` | 默认 INTERNAL；客户不可见 | INTERNAL 专家活动摘要；细粒度来源审查面板尚未实现 |
-| `HUMAN_LEAD + HUMAN_ONLY` | 不显示专家活动、消息或 UI | 仅按授权显示 INTERNAL 活动摘要；细粒度来源审查面板尚未实现 |
+| `AI_LEAD + AI_AUTO` | 通过检查的专家活动和 SPECIALIST PUBLIC 结果消息 | 同租户授权详情 |
+| `AI_REVIEW_REQUIRED` | 客户不可见 | INTERNAL 专家结果消息与活动摘要 |
+| `CO_SERVICE` | 默认 INTERNAL；客户不可见 | INTERNAL 专家结果消息与活动摘要 |
+| `HUMAN_LEAD + HUMAN_ONLY` | 不显示专家活动、消息或 UI | INTERNAL 专家结果消息与活动摘要 |
 
-专家的“独立身份”仅是界面上的专业角色 attribution，不授予消息作者身份、API 认证身份或发布权限。INTERNAL 事件只通过服务端 staff actor filter 返回；dispatcher 写入时复核当前策略。历史事件仍按 actor visibility filter 读取，不因序号而泄露 INTERNAL 数据。
+专家的“独立身份”是受限的消息作者 attribution，不是 API 认证身份，也不授予专家独立发布权限。消息中的 `SPECIALIST` 作者类型和 tenant-scoped `specialist_run_id` 由后端写入；普通 SendMessage 不接收这些字段。INTERNAL 事件和消息只通过服务端 staff actor filter 返回；dispatcher 按 PUBLIC/INTERNAL 过滤，前端呈现不能代替授权。历史事件仍按 actor visibility filter 读取，不因序号而泄露 INTERNAL 数据。
 
 阶段 A–D 的后端、前端与迁移已实现；没有新增 Task API，因此 OpenAPI 不需加入诊断专属路由。既有 UI Action Pydantic contract 已扩展并已导出/生成前端类型。详见 [011 feature contract](../specs/011-visible-specialist-orchestration/contracts/feature-contract.md)。
 

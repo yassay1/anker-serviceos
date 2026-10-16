@@ -10,6 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.schema import conv
 
 BUSINESS_SCHEMA = "serviceos"
 
@@ -528,13 +529,20 @@ class Message(TenantRecord, Base):
         tenant_reference("author_customer_id", "customers"),
         tenant_reference("author_staff_id", "tenant_memberships", "staff_user_id"),
         tenant_reference("related_case_id", "service_cases"),
+        ForeignKeyConstraint(
+            ["tenant_id", "specialist_run_id"],
+            [f"{BUSINESS_SCHEMA}.specialist_runs.tenant_id", f"{BUSINESS_SCHEMA}.specialist_runs.id"],
+            name=conv("fk_messages_tenant_specialist_run"), use_alter=True,
+        ),
         UniqueConstraint("tenant_id", "conversation_id", "client_message_id"),
+        UniqueConstraint("tenant_id", "specialist_run_id"),
         CheckConstraint("visibility IN ('PUBLIC','INTERNAL')", name="visibility_values"),
         CheckConstraint("jsonb_typeof(content) = 'array' AND jsonb_array_length(content) > 0", name="content_array"),
         CheckConstraint(
-            "(author_kind = 'CUSTOMER' AND author_customer_id IS NOT NULL AND author_staff_id IS NULL AND visibility = 'PUBLIC') OR "
-            "(author_kind = 'STAFF' AND author_staff_id IS NOT NULL AND author_customer_id IS NULL) OR "
-            "(author_kind IN ('AGENT','SYSTEM') AND author_customer_id IS NULL AND author_staff_id IS NULL)",
+            "(author_kind = 'CUSTOMER' AND author_customer_id IS NOT NULL AND author_staff_id IS NULL AND specialist_run_id IS NULL AND visibility = 'PUBLIC') OR "
+            "(author_kind = 'STAFF' AND author_staff_id IS NOT NULL AND author_customer_id IS NULL AND specialist_run_id IS NULL) OR "
+            "(author_kind IN ('AGENT','SYSTEM') AND author_customer_id IS NULL AND author_staff_id IS NULL AND specialist_run_id IS NULL) OR "
+            "(author_kind = 'SPECIALIST' AND author_customer_id IS NULL AND author_staff_id IS NULL AND specialist_run_id IS NOT NULL)",
             name="author_identity",
         ),
         CheckConstraint("client_message_id IS NULL OR request_hash IS NOT NULL", name="idempotency_hash"),
@@ -544,6 +552,7 @@ class Message(TenantRecord, Base):
     author_kind: Mapped[str] = mapped_column(String(24))
     author_customer_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     author_staff_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    specialist_run_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     visibility: Mapped[str] = mapped_column(String(16), default="PUBLIC", server_default="PUBLIC")
     content: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
     related_case_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))

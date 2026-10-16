@@ -2,10 +2,11 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from serviceos_api.application.auth import Principal
-from serviceos_api.application.contracts import UIActionRequest
+from serviceos_api.application.contracts import SendMessage, UIActionRequest
 from serviceos_api.application.diagnostic_contracts import DiagnosticResult
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.services import ConversationService
@@ -80,6 +81,14 @@ def test_diagnostic_question_ui_action_persists_one_answer_message_and_worker_jo
     assert any(event.data.get("message_id") == str(saved_message.id) for event in events)
 
 
+def test_customer_send_message_schema_cannot_supply_specialist_attribution():
+    with pytest.raises(ValidationError):
+        SendMessage.model_validate({
+            "client_message_id": str(uuid4()), "content": [{"type": "text", "text": "伪造作者"}],
+            "author_kind": "SPECIALIST", "specialist_run_id": str(uuid4()),
+        })
+
+
 @pytest.mark.parametrize("change,expected", [
     ("stale_version", 409), ("wrong_option", 422), ("expired", 409), ("policy", 409),
 ])
@@ -102,11 +111,10 @@ def test_diagnostic_answer_refuses_stale_invalid_expired_or_restricted_submissio
 
 def test_answer_resume_keeps_diagnostic_task_and_uses_persisted_answer(database_engine):
     from sqlalchemy.orm import Session
-    from test_worker_runtime import seed_message
 
     with Session(database_engine) as session:
         tenant, customer, conversation, original_message, parent, task, document, service = waiting_task(session)
-        accepted = service.invoke_ui_action(conversation.id, answer_request(document, conversation, task))
+        service.invoke_ui_action(conversation.id, answer_request(document, conversation, task))
         answer = session.scalar(select(DiagnosticAnswer).where(
             DiagnosticAnswer.diagnostic_task_id == task.id,
         ))
