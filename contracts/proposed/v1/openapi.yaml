@@ -4,7 +4,7 @@ info:
   title: Anker ServiceOS API
   version: 0.1.0
 x-serviceos-proposal-status: draft
-x-serviceos-implemented-sha256: 88f357de8fe90855985b0cdb2ac030ffa1500178269c21574ecf31fc632832ce
+x-serviceos-implemented-sha256: 60c45c3453100904c32f5a12ee79d827e51db4e5324a29ae88739471e708c7a6
 x-serviceos-planned-source: contracts/proposed/v1/planned.yaml
 paths:
   /api/v1/actions/{id}:
@@ -2195,6 +2195,219 @@ paths:
       tags:
       - experience
       x-serviceos-status: implemented
+  /api/v1/guard/decisions:
+    get:
+      operationId: list_guard_decisions
+      parameters:
+      - in: query
+        name: cursor
+        required: false
+        schema:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Cursor
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          maximum: 100
+          minimum: 1
+          title: Limit
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuardDecisionPage'
+          description: Successful Response
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Not authenticated
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Actor cannot access guard records
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Guard decision not found
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Decision state forbids the operation
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Guard Decisions
+      tags:
+      - guard
+      x-serviceos-status: implemented
+  /api/v1/guard/decisions/{decision_id}:
+    get:
+      operationId: read_guard_decision
+      parameters:
+      - in: path
+        name: decision_id
+        required: true
+        schema:
+          format: uuid
+          title: Decision Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuardDecisionRead'
+          description: Successful Response
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Not authenticated
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Actor cannot access guard records
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Guard decision not found
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Decision state forbids the operation
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Read Guard Decision
+      tags:
+      - guard
+      x-serviceos-status: implemented
+  /api/v1/guard/decisions/{decision_id}/override:
+    post:
+      operationId: override_guard_decision
+      parameters:
+      - in: path
+        name: decision_id
+        required: true
+        schema:
+          format: uuid
+          title: Decision Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuardDecisionRead'
+          description: Successful Response
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Not authenticated
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Actor cannot access guard records
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Guard decision not found
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Decision state forbids the operation
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Override Guard Decision
+      tags:
+      - guard
+      x-serviceos-status: implemented
+  /api/v1/guard/stats:
+    get:
+      operationId: read_guard_stats
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuardStatsRead'
+          description: Successful Response
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Not authenticated
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Actor cannot access guard records
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Guard decision not found
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Decision state forbids the operation
+      security:
+      - SessionCookie: []
+      summary: Read Guard Stats
+      tags:
+      - guard
+      x-serviceos-status: implemented
   /api/v1/health:
     get:
       operationId: read_health
@@ -2674,6 +2887,49 @@ paths:
       tags:
       - local-auth
       x-serviceos-status: implemented
+  /api/v1/policies:
+    get:
+      operationId: list_service_policies
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/PolicyRead'
+                title: Response List Service Policies
+                type: array
+          description: Successful Response
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Not authenticated
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Actor cannot access guard records
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Guard decision not found
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceErrorBody'
+          description: Decision state forbids the operation
+      security:
+      - SessionCookie: []
+      summary: List Service Policies
+      tags:
+      - guard
+      x-serviceos-status: implemented
   /api/v1/proposals/{id}/decision:
     post:
       operationId: decide_proposal
@@ -3141,6 +3397,16 @@ components:
           anyOf:
           - $ref: '#/components/schemas/MockReceiptRead'
           - type: 'null'
+        remedy_type:
+          anyOf:
+          - enum:
+            - REPAIR
+            - RESHIP
+            - REFER_SELLER
+            - DECLINE
+            type: string
+          - type: 'null'
+          title: Remedy Type
         requested_by:
           anyOf:
           - format: uuid
@@ -3165,6 +3431,7 @@ components:
       - id
       - case_id
       - action_kind
+      - remedy_type
       - adapter
       - status
       - version
@@ -4045,6 +4312,117 @@ components:
       - purpose
       title: FollowUpRequest
       type: object
+    GuardDecisionPage:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/GuardDecisionRead'
+          title: Items
+          type: array
+        next_cursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next Cursor
+      required:
+      - items
+      - next_cursor
+      title: GuardDecisionPage
+      type: object
+    GuardDecisionRead:
+      additionalProperties: false
+      properties:
+        conversation_id:
+          format: uuid
+          title: Conversation Id
+          type: string
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        decision:
+          enum:
+          - PASSED
+          - BLOCKED
+          - OVERRIDDEN
+          title: Decision
+          type: string
+        entities:
+          additionalProperties: true
+          title: Entities
+          type: object
+        id:
+          format: uuid
+          title: Id
+          type: string
+        override_at:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          title: Override At
+        override_by:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Override By
+        proposal_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Proposal Id
+        reason_codes:
+          items:
+            type: string
+          title: Reason Codes
+          type: array
+        reply_text:
+          title: Reply Text
+          type: string
+        run_id:
+          format: uuid
+          title: Run Id
+          type: string
+        verifier:
+          additionalProperties: true
+          title: Verifier
+          type: object
+      required:
+      - id
+      - conversation_id
+      - run_id
+      - decision
+      - reason_codes
+      - entities
+      - verifier
+      - reply_text
+      - proposal_id
+      - override_by
+      - override_at
+      - created_at
+      title: GuardDecisionRead
+      type: object
+    GuardStatsRead:
+      additionalProperties: false
+      properties:
+        blocked:
+          title: Blocked
+          type: integer
+        overridden:
+          title: Overridden
+          type: integer
+        passed:
+          title: Passed
+          type: integer
+      required:
+      - passed
+      - blocked
+      - overridden
+      title: GuardStatsRead
+      type: object
     HTTPValidationError:
       properties:
         detail:
@@ -4479,6 +4857,14 @@ components:
           minLength: 3
           title: Reason
           type: string
+        remedy_type:
+          enum:
+          - REPAIR
+          - RESHIP
+          - REFER_SELLER
+          - DECLINE
+          title: Remedy Type
+          type: string
         source_proposal_id:
           anyOf:
           - format: uuid
@@ -4489,6 +4875,7 @@ components:
       - client_action_id
       - expected_case_version
       - action_kind
+      - remedy_type
       - reason
       title: MockActionRequest
       type: object
@@ -4551,6 +4938,66 @@ components:
       - expected_version
       - reason
       title: ModeTransition
+      type: object
+    PolicyRead:
+      additionalProperties: false
+      properties:
+        channel:
+          title: Channel
+          type: string
+        country:
+          title: Country
+          type: string
+        effective_from:
+          format: date-time
+          title: Effective From
+          type: string
+        effective_to:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          title: Effective To
+        id:
+          format: uuid
+          title: Id
+          type: string
+        product_family:
+          title: Product Family
+          type: string
+        remedies:
+          additionalProperties: true
+          title: Remedies
+          type: object
+        rule_id:
+          title: Rule Id
+          type: string
+        source_ref:
+          title: Source Ref
+          type: string
+        status:
+          title: Status
+          type: string
+        version:
+          title: Version
+          type: integer
+        warranty_state:
+          title: Warranty State
+          type: string
+      required:
+      - id
+      - rule_id
+      - version
+      - country
+      - channel
+      - product_family
+      - warranty_state
+      - remedies
+      - status
+      - source_ref
+      - effective_from
+      - effective_to
+      title: PolicyRead
       type: object
     ProposalDecision:
       additionalProperties: false

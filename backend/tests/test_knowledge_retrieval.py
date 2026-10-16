@@ -312,3 +312,26 @@ def test_lookup_manual_without_corpus_is_typed_not_found(db_session):
     assert "语料未导入" in envelope.to_prompt_text()
     db_session.refresh(run)
     assert run.result_payload["retrieval_path"] == "none"
+
+
+def test_detect_ambiguity_requires_two_unresolved_candidates():
+    from serviceos_api.application.knowledge_retrieval import detect_ambiguity
+    assert len(detect_ambiguity("我的 S1 Pro 吸力小", set())) == 2
+    assert detect_ambiguity("我的 S1 Pro 吸力小", {"t8d04"}) == []
+    assert detect_ambiguity("我的 E28 丢地图", set()) == []
+
+
+def test_lookup_manual_returns_disambiguation_conflict_without_verified_model(db_session):
+    tenant, conversation, run = active_run(db_session)
+    service = AgentToolService(db_session, tenant.id, conversation.id, run.id, run.lease_token,
+                               settings=Settings(environment="test"))
+    envelope = service.lookup_manual("S1 Pro 吸力变小是不是电池不行", verified_models=set())
+    assert envelope.applicability == "DISAMBIGUATION_REQUIRED"
+    assert len(envelope.items) == 2
+    joined = "".join(envelope.items)
+    assert "扫地机器人" in joined and "吸奶器" in joined
+    assert "需求澄清" in envelope.notes[0]
+    db_session.refresh(run)
+    assert run.result_payload["disambiguation_required"] is True
+    resolved = service.lookup_manual("S1 Pro 加热耗电", verified_models={"t8d04"})
+    assert resolved.applicability != "DISAMBIGUATION_REQUIRED"

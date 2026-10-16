@@ -19,7 +19,8 @@ from serviceos_api.application.skills import (
 )
 from serviceos_api.application.contracts import ExperienceContent
 from serviceos_api.application.knowledge_pipeline import normalize_seller
-from serviceos_api.application.knowledge_retrieval import KnowledgeRetrieval
+from serviceos_api.application.knowledge_retrieval import KnowledgeRetrieval, detect_ambiguity
+from serviceos_api.application.policies import resolve_policy_row
 from serviceos_api.application.query_rewrite import QueryRewriter
 from serviceos_api.application.tool_envelope import ToolResult
 from serviceos_api.application.diagnostic_contracts import (
@@ -629,6 +630,29 @@ class AgentToolService:
                 self._progress("lookup_completed")
             self.session.commit()
             return envelope
+        candidates = detect_ambiguity(query, verified_models)
+        if candidates:
+            conflict_items = []
+            conflict_refs = []
+            for label, model in candidates:
+                probe = retrieval.search(query, {model})
+                head = probe.items[0] if probe.items else None
+                conflict_items.append(
+                    f"冲突候选：{label}（型号 {model.upper()}）"
+                    + (f"——代表条目 {head.entry_key}：{head.excerpt.splitlines()[0]}" if head else ""))
+                conflict_refs.extend(probe.references)
+            envelope = ToolResult(
+                status="OK", applicability="DISAMBIGUATION_REQUIRED",
+                items=conflict_items, references=conflict_refs,
+                notes=["检索命中多个同名产品且设备型号未核验：必须先发起需求澄清——"
+                       "用 ui_proposal 选择卡（QuestionForm/ChoiceGroup），选项为上述冲突品类/型号；"
+                       "澄清完成前不得输出任何单一品类的排障步骤、质保结论或电池判断。"])
+            self._audit(run, "lookup_manual", envelope, retrieval_path="corpus",
+                        knowledge_references=conflict_refs, disambiguation_required=True)
+            if specialist is None:
+                self._progress("lookup_completed")
+            self.session.commit()
+            return envelope
         effective = query
         rewritten = QueryRewriter(settings).rewrite(query)
         if rewritten.applied:
@@ -729,6 +753,31 @@ class AgentToolService:
                 notes=[f"判定：AUTHORIZED。命中授权经销商「{attrs.get('seller')}」（country 精准 + seller 匹配），"
                        f"SOURCE: {source}；可按授权渠道流程继续寄修/补单判断。"])
         self._audit(run, "check_dealer_authorization", envelope)
+        self.session.commit()
+        return envelope
+
+    def resolve_policy(self, country: str, channel: str, product_family: str,
+                       warranty_state: str) -> ToolResult:
+        if not all(isinstance(value, str) and value.strip()
+                   for value in (country, channel, product_family, warranty_state)):
+            raise ValueError("policy_input_required")
+        run, _, _, _ = self._active_execution()
+        row = resolve_policy_row(self.session, country=country, channel=channel,
+                                 product_family=product_family, warranty_state=warranty_state)
+        if row is None:
+            envelope = ToolResult(
+                status="NOT_FOUND", applicability="SERVICE_POLICY",
+                notes=["没有匹配的服务政策规则；不得自行发明质保或补救结论，请转人工确认。"])
+        else:
+            allowed = (row.remedies or {}).get("allowed", [])
+            envelope = ToolResult(
+                status="OK", applicability="SERVICE_POLICY",
+                items=[f"allowed_remedies: {', '.join(allowed)}",
+                       f"wording: {(row.remedies or {}).get('wording_ref', '')}"],
+                references=[{"rule_id": row.rule_id, "version": row.version, "path": "typed"}],
+                notes=[f"命中服务政策 {row.rule_id}@v{row.version}（SOURCE: {row.source_ref}）；"
+                       "补救动作只能从 allowed_remedies 中选择。"])
+        self._audit(run, "resolve_policy", envelope)
         self.session.commit()
         return envelope
 

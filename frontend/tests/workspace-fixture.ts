@@ -79,6 +79,9 @@ export async function fixture(page: Page, staff = true) {
       : method === 'GET' && path.endsWith('/tasks') ? []
       : method === 'GET' && path.endsWith('/proposals') ? state.proposals
       : method === 'GET' && path.endsWith('/knowledge/documents') ? { items: [], next_cursor: null }
+      : method === 'GET' && path.endsWith('/guard/stats') ? { passed: 0, blocked: 0, overridden: 0 }
+      : method === 'GET' && path.endsWith('/guard/decisions') ? { items: [], next_cursor: null }
+      : method === 'GET' && path.endsWith('/policies') ? []
       : method === 'GET' && path.endsWith('/devices') ? [device]
       : method === 'GET' && path.endsWith(`/devices/${ids.device}`) ? device
       : method === 'GET' && path.endsWith(`/devices/${ids.device}/cases`) ? history

@@ -531,6 +531,7 @@ class MockActionRequest(Schema):
     client_action_id: UUID
     expected_case_version: int = Field(ge=1)
     action_kind: Literal["MOCK_SERVICE_REQUEST"]
+    remedy_type: Literal["REPAIR", "RESHIP", "REFER_SELLER", "DECLINE"]
     source_proposal_id: UUID | None = None
     reason: str = Field(min_length=3, max_length=1000)
 
@@ -546,6 +547,7 @@ class CaseActionRead(Schema):
     id: UUID
     case_id: UUID
     action_kind: Literal["MOCK_SERVICE_REQUEST"]
+    remedy_type: Literal["REPAIR", "RESHIP", "REFER_SELLER", "DECLINE"] | None
     adapter: Literal["MOCK"]
     status: Literal["WAITING_APPROVAL", "APPROVED", "EXECUTING", "UNKNOWN", "SUCCEEDED", "FAILED", "REJECTED"]
     version: int
@@ -649,3 +651,44 @@ class KnowledgeStatsRead(Schema):
     embedded: int
     vector_enabled: bool
     provider: str
+
+
+class GuardDecisionRead(Schema):
+    id: UUID
+    conversation_id: UUID
+    run_id: UUID
+    decision: Literal["PASSED", "BLOCKED", "OVERRIDDEN"]
+    reason_codes: list[str]
+    entities: dict[str, Any]
+    verifier: dict[str, Any]
+    reply_text: str
+    proposal_id: UUID | None
+    override_by: UUID | None
+    override_at: datetime | None
+    created_at: datetime
+
+
+class GuardDecisionPage(Schema):
+    items: list[GuardDecisionRead]
+    next_cursor: str | None
+
+
+class GuardStatsRead(Schema):
+    passed: int
+    blocked: int
+    overridden: int
+
+
+class PolicyRead(Schema):
+    id: UUID
+    rule_id: str
+    version: int
+    country: str
+    channel: str
+    product_family: str
+    warranty_state: str
+    remedies: dict[str, Any]
+    status: str
+    source_ref: str
+    effective_from: datetime
+    effective_to: datetime | None

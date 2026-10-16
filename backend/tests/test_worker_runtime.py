@@ -415,7 +415,7 @@ def test_agent_publication_rechecks_current_policy(database_engine):
                        provider="test", model="test-only", result_text="基于现有资料的建议")
         session.add(run)
         session.flush()
-        first = ConversationService(session, Principal(tenant.id, customer.id, "CUSTOMER", "客户")).publish_agent_response(
+        first = ConversationService(session, Principal(tenant.id, customer.id, "CUSTOMER", "客户"), settings=Settings(environment="test")).publish_agent_response(
             tenant.id, conversation.id, run.id, run.lease_token, "基于现有资料的建议", None,
         )
         assert first.visibility == "PUBLIC"
@@ -438,7 +438,7 @@ def test_agent_publication_rechecks_current_policy(database_engine):
         conversation.reply_policy = "HUMAN_ONLY"
         session.add(second_run)
         session.flush()
-        second = ConversationService(session, Principal(tenant.id, customer.id, "CUSTOMER", "客户")).publish_agent_response(
+        second = ConversationService(session, Principal(tenant.id, customer.id, "CUSTOMER", "客户"), settings=Settings(environment="test")).publish_agent_response(
             tenant.id, conversation.id, second_run.id, second_run.lease_token, "内部草稿", None,
         )
         assert second.visibility == "INTERNAL"
@@ -489,7 +489,7 @@ def test_reply_draft_approval_rechecks_mode_and_publishes_once(database_engine):
                        provider="test", model="test-only")
         session.add(run)
         session.flush()
-        draft = ConversationService(session, actor=None).publish_agent_response(
+        draft = ConversationService(session, actor=None, settings=Settings(environment="test")).publish_agent_response(
             tenant.id, conversation.id, run.id, run.lease_token, "请补充接口照片")
         assert draft.visibility == "INTERNAL"
         proposal = session.scalar(select(AgentProposal).where(
@@ -513,7 +513,7 @@ def test_reply_draft_approval_rechecks_mode_and_publishes_once(database_engine):
                        provider="test", model="test-only")
         session.add(run)
         session.flush()
-        ConversationService(session, actor=None).publish_agent_response(
+        ConversationService(session, actor=None, settings=Settings(environment="test")).publish_agent_response(
             tenant.id, conversation.id, run.id, run.lease_token, "仅作内部工作")
         proposal = session.scalar(select(AgentProposal).where(
             AgentProposal.agent_run_id == run.id, AgentProposal.proposal_type == "REPLY"))
@@ -816,7 +816,7 @@ def test_sop_safety_and_human_review_override_freeform_agent_reply(db_session, k
     )
     db_session.add(task)
     db_session.flush()
-    published = ConversationService(db_session, actor=None).publish_agent_response(
+    published = ConversationService(db_session, actor=None, settings=Settings(environment="test")).publish_agent_response(
         tenant.id, conversation.id, run.id, run.lease_token,
         "UNSAFE MODEL TEXT: continue testing and the problem is solved.",
     )

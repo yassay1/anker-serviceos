@@ -25,6 +25,7 @@ from serviceos_api.persistence.knowledge_models import (
     EMBEDDING_DIMENSIONS, KNOWLEDGE_SCHEMA, MANUAL_APPLICABILITY, KnowledgeDocument,
     KnowledgeDocumentVersion, KnowledgeEmbedding, KnowledgeSegment,
 )
+from serviceos_api.persistence.models import ServicePolicy
 from serviceos_api.settings import Settings
 
 KNOWLEDGE_DIR = Path(__file__).resolve().parent / "knowledge"
@@ -272,6 +273,41 @@ def embed_missing(session: Session, embedder: EmbeddingAdapter) -> int:
     return total
 
 
+def ingest_policies(session: Session) -> dict:
+    """Upsert DMN-style policy rows; older versions of a rule become SUPERSEDED."""
+    path = KNOWLEDGE_DIR / "corpus" / "policies-v1.jsonl"
+    created = updated = 0
+    seen: dict[str, int] = {}
+    for line in path.open(encoding="utf-8"):
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        seen[row["rule_id"]] = max(seen.get(row["rule_id"], 0), row["version"])
+        existing = session.scalar(select(ServicePolicy).where(
+            ServicePolicy.rule_id == row["rule_id"], ServicePolicy.version == row["version"]))
+        if existing is not None:
+            if existing.source_ref != row["source_ref"] or existing.remedies != row["remedies"]:
+                existing.remedies = row["remedies"]
+                existing.source_ref = row["source_ref"]
+                updated += 1
+            continue
+        session.add(ServicePolicy(
+            rule_id=row["rule_id"], version=row["version"], country=row["country"],
+            channel=row["channel"], product_family=row["product_family"],
+            warranty_state=row["warranty_state"], remedies=row["remedies"],
+            status="ACTIVE", source_ref=row["source_ref"],
+        ))
+        created += 1
+    for rule_id, top in seen.items():
+        for stale in session.scalars(select(ServicePolicy).where(
+                ServicePolicy.rule_id == rule_id, ServicePolicy.version < top,
+                ServicePolicy.status == "ACTIVE")).all():
+            stale.status = "SUPERSEDED"
+            updated += 1
+    session.flush()
+    return {"policies_created": created, "policies_updated": updated}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Ingest curated knowledge seeds.")
     parser.add_argument("--embed", action="store_true",
@@ -290,12 +326,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with Session(engine, expire_on_commit=False) as session:
             summary = ingest(session)
+            policies = ingest_policies(session)
             session.commit()
             embedded = embed_missing(session, EmbeddingAdapter(settings)) if args.embed else 0
             session.commit()
         print(f"knowledge schema: {KNOWLEDGE_SCHEMA}")
         print(f"seed documents: {summary['documents']} (created {summary['created_documents']}), "
               f"segments: {summary['segments']}, pruned documents: {summary['pruned']}, "
+              f"policies: {policies['policies_created']} created / {policies['policies_updated']} updated, "
               f"embedded now: {embedded}")
         return 0
     finally:

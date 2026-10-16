@@ -54,8 +54,8 @@ def test_service_agent_keeps_diagnostic_as_an_optional_manager_tool(monkeypatch)
     assert result.text == "已有资料足够回答。"
     assert {tool.name for tool in captured["tools"]} == {
         "lookup_manual", "query_order_warranty", "check_dealer_authorization", "get_case_stage",
-        "load_skill", "request_missing_evidence", "propose_action", "delegate_diagnostic",
-        "get_service_progress",
+        "resolve_policy", "load_skill", "request_missing_evidence", "propose_action",
+        "delegate_diagnostic", "get_service_progress",
     }
     assert captured["config"]["recursion_limit"] == 30
     assert any(getattr(middleware, "run_limit", None) == 6 for middleware in captured["middleware"])

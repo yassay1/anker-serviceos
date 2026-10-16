@@ -305,6 +305,64 @@ class CaseAction(TenantRecord, Base):
     receipt_result: Mapped[str | None] = mapped_column(String(16))
     receipt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error_code: Mapped[str | None] = mapped_column(String(80))
+    remedy_type: Mapped[str | None] = mapped_column(String(16))
+
+
+class ServicePolicy(Base):
+    """DMN-style decision row: inputs match most-specific-first; outputs are remedies."""
+
+    __tablename__ = "service_policies"
+    __table_args__ = (
+        UniqueConstraint("rule_id", "version", name="uq_service_policies_rule_version"),
+        CheckConstraint("channel IN ('DIRECT','AUTHORIZED_DEALER','UNAUTHORIZED','*')", name="channel_values"),
+        CheckConstraint("product_family IN ('ROBOVAC','BREAST_PUMP','*')", name="family_values"),
+        CheckConstraint("warranty_state IN ('IN','OUT','UNKNOWN')", name="warranty_state_values"),
+        CheckConstraint("status IN ('ACTIVE','SUPERSEDED')", name="policy_status_values"),
+        Index("ix_service_policies_active", "country", "channel", "product_family",
+              "warranty_state", "status"),
+        {"schema": BUSINESS_SCHEMA},
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
+    )
+    rule_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    country: Mapped[str] = mapped_column(String(8), nullable=False)
+    channel: Mapped[str] = mapped_column(String(24), nullable=False)
+    product_family: Mapped[str] = mapped_column(String(24), nullable=False)
+    warranty_state: Mapped[str] = mapped_column(String(16), nullable=False)
+    remedies: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    effective_from: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    effective_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="ACTIVE")
+    source_ref: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class PublicationGuardDecision(TenantRecord, Base):
+    """Append-only audit of pre-publication grounding/coverage checks."""
+
+    __tablename__ = "publication_guard_decisions"
+    __table_args__ = (
+        CheckConstraint("decision IN ('PASSED','BLOCKED','OVERRIDDEN')", name="decision_values"),
+        tenant_reference("conversation_id", "conversations"),
+        tenant_reference("proposal_id", "agent_proposals"),
+        Index("ix_publication_guard_decisions_tenant", "tenant_id", "created_at", "id"),
+        {"schema": BUSINESS_SCHEMA},
+    )
+    conversation_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason_codes: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    entities: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    verifier: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    reply_text: Mapped[str] = mapped_column(Text, nullable=False)
+    proposal_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    override_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    override_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class CaseActionApproval(TenantRecord, Base):

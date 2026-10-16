@@ -782,6 +782,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/guard/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Guard Decisions */
+        get: operations["list_guard_decisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guard/decisions/{decision_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Guard Decision */
+        get: operations["read_guard_decision"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guard/decisions/{decision_id}/override": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Override Guard Decision */
+        post: operations["override_guard_decision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guard/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Guard Stats */
+        get: operations["read_guard_stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -896,6 +964,23 @@ export interface paths {
         put?: never;
         /** Login */
         post: operations["login_local"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Service Policies */
+        get: operations["list_service_policies"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1159,6 +1244,8 @@ export interface components {
             /** Reason */
             reason?: string | null;
             receipt?: components["schemas"]["MockReceiptRead"] | null;
+            /** Remedy Type */
+            remedy_type: ("REPAIR" | "RESHIP" | "REFER_SELLER" | "DECLINE") | null;
             /** Requested By */
             requested_by?: string | null;
             /**
@@ -1672,6 +1759,68 @@ export interface components {
             /** Purpose */
             purpose: string;
         };
+        /** GuardDecisionPage */
+        GuardDecisionPage: {
+            /** Items */
+            items: components["schemas"]["GuardDecisionRead"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /** GuardDecisionRead */
+        GuardDecisionRead: {
+            /**
+             * Conversation Id
+             * Format: uuid
+             */
+            conversation_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "PASSED" | "BLOCKED" | "OVERRIDDEN";
+            /** Entities */
+            entities: {
+                [key: string]: unknown;
+            };
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Override At */
+            override_at: string | null;
+            /** Override By */
+            override_by: string | null;
+            /** Proposal Id */
+            proposal_id: string | null;
+            /** Reason Codes */
+            reason_codes: string[];
+            /** Reply Text */
+            reply_text: string;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /** Verifier */
+            verifier: {
+                [key: string]: unknown;
+            };
+        };
+        /** GuardStatsRead */
+        GuardStatsRead: {
+            /** Blocked */
+            blocked: number;
+            /** Overridden */
+            overridden: number;
+            /** Passed */
+            passed: number;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1902,6 +2051,11 @@ export interface components {
             expected_case_version: number;
             /** Reason */
             reason: string;
+            /**
+             * Remedy Type
+             * @enum {string}
+             */
+            remedy_type: "REPAIR" | "RESHIP" | "REFER_SELLER" | "DECLINE";
             /** Source Proposal Id */
             source_proposal_id?: string | null;
         };
@@ -1942,6 +2096,41 @@ export interface components {
              * @enum {string}
              */
             target_mode: "AI_LEAD" | "CO_SERVICE" | "HUMAN_LEAD";
+        };
+        /** PolicyRead */
+        PolicyRead: {
+            /** Channel */
+            channel: string;
+            /** Country */
+            country: string;
+            /**
+             * Effective From
+             * Format: date-time
+             */
+            effective_from: string;
+            /** Effective To */
+            effective_to: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Product Family */
+            product_family: string;
+            /** Remedies */
+            remedies: {
+                [key: string]: unknown;
+            };
+            /** Rule Id */
+            rule_id: string;
+            /** Source Ref */
+            source_ref: string;
+            /** Status */
+            status: string;
+            /** Version */
+            version: number;
+            /** Warranty State */
+            warranty_state: string;
         };
         /** ProposalDecision */
         ProposalDecision: {
@@ -4850,6 +5039,264 @@ export interface operations {
             };
         };
     };
+    list_guard_decisions: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuardDecisionPage"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Actor cannot access guard records */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Guard decision not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Decision state forbids the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_guard_decision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                decision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuardDecisionRead"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Actor cannot access guard records */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Guard decision not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Decision state forbids the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    override_guard_decision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                decision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuardDecisionRead"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Actor cannot access guard records */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Guard decision not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Decision state forbids the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_guard_stats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GuardStatsRead"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Actor cannot access guard records */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Guard decision not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Decision state forbids the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+        };
+    };
     read_health: {
         parameters: {
             query?: never;
@@ -5456,6 +5903,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_service_policies: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyRead"][];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Actor cannot access guard records */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Guard decision not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
+                };
+            };
+            /** @description Decision state forbids the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceErrorBody"];
                 };
             };
         };

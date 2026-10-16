@@ -280,7 +280,7 @@ class MessageWorker:
                 ).with_for_update())
                 if active_job is None:
                     raise RuntimeError("worker_lease_lost")
-                service = ConversationService(session, actor=None)
+                service = ConversationService(session, actor=None, settings=self.settings)
                 service.publish_agent_response(
                     tenant_id=tenant_id, conversation_id=conversation_id, agent_run_id=run_id,
                     lease_token=lease.token, text=stored_result, related_case_id=related_case_id,

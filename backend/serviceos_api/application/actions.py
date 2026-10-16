@@ -96,7 +96,7 @@ class ServiceActionService(BusinessService):
                                       result=action.receipt_result, received_at=action.receipt_at)
         return CaseActionRead(
             id=action.id, case_id=action.case_id, action_kind=action.action_kind,
-            adapter=action.adapter, status=action.status, version=action.version,
+            remedy_type=action.remedy_type, adapter=action.adapter, status=action.status, version=action.version,
             approval_id=approval_id, receipt=receipt, created_at=action.created_at,
             reason=action.reason if self.actor.kind == "STAFF" else None,
             requested_by=action.requested_by if self.actor.kind == "STAFF" else None,
@@ -109,7 +109,7 @@ class ServiceActionService(BusinessService):
         if len(reason) < 3:
             raise ServiceError(422, "售后动作原因不能为空。", code="ACTION_REASON_REQUIRED")
         fingerprint = _hash({"kind": command.action_kind, "proposal": str(command.source_proposal_id),
-                             "reason": reason})
+                             "reason": reason, "remedy": command.remedy_type})
         previous = self.session.scalar(select(CaseAction).where(
             CaseAction.tenant_id == case.tenant_id, CaseAction.case_id == case.id,
             CaseAction.client_action_id == command.client_action_id,
@@ -137,6 +137,7 @@ class ServiceActionService(BusinessService):
             request_hash=fingerprint, action_kind=command.action_kind, adapter="MOCK",
             status="WAITING_APPROVAL", requested_by=self.actor.actor_id,
             source_proposal_id=command.source_proposal_id, reason=reason,
+            remedy_type=command.remedy_type,
         )
         self.session.add(action)
         self.session.flush()

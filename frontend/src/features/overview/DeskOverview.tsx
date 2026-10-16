@@ -7,6 +7,7 @@ import { queryKeys } from '../../app/queryKeys'
 import { readableError } from '../../shared/errors'
 import { StatusBadge } from '../../shared/StatusBadge'
 import { KnowledgePanel } from './KnowledgePanel'
+import { GuardPanel } from './GuardPanel'
 
 export function DeskOverview({ actor }: { actor: Actor }) {
   const [filter, setFilter] = useState('open')
@@ -42,5 +43,6 @@ export function DeskOverview({ actor }: { actor: Actor }) {
       <div className="assistant-note"><ShieldCheck size={18} /><p>诊断与建议以实际会话记录为准，内部草稿经审阅后才能公开。</p></div>
     </aside></div>
     <KnowledgePanel actor={actor} />
+    <GuardPanel actor={actor} />
   </div>
 }

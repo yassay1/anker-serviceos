@@ -370,3 +370,32 @@ export async function reprocessKnowledgeDocument(id: string): Promise<KnowledgeD
   })
   return requireData(data, error, response, '重新入队结果未确认，请刷新后重试。')
 }
+
+export type GuardDecision = components['schemas']['GuardDecisionRead']
+export type GuardPage = components['schemas']['GuardDecisionPage']
+export type GuardStats = components['schemas']['GuardStatsRead']
+export type ServicePolicy = components['schemas']['PolicyRead']
+
+export async function listGuardDecisions(): Promise<GuardPage> {
+  const { data, error, response } = await api.GET('/api/v1/guard/decisions', {
+    params: { query: { limit: 30 } },
+  })
+  return requireData(data, error, response, '发布守卫记录加载失败。')
+}
+
+export async function readGuardStats(): Promise<GuardStats> {
+  const { data, error, response } = await api.GET('/api/v1/guard/stats')
+  return requireData(data, error, response, '发布守卫统计加载失败。')
+}
+
+export async function overrideGuardDecision(id: string): Promise<GuardDecision> {
+  const { data, error, response } = await api.POST('/api/v1/guard/decisions/{decision_id}/override', {
+    params: { path: { decision_id: id } },
+  })
+  return requireData(data, error, response, '复核发布结果未确认，请刷新后重试。')
+}
+
+export async function listServicePolicies(): Promise<ServicePolicy[]> {
+  const { data, error, response } = await api.GET('/api/v1/policies')
+  return requireData(data, error, response, '服务政策列表加载失败。')
+}

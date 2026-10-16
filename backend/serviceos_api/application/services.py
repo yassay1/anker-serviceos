@@ -25,6 +25,12 @@ from serviceos_api.persistence.models import (
 class ConversationService(BusinessService):
     """Only application entry for publishing and reading user-visible messages."""
 
+    def __init__(self, session, actor, settings=None):
+        super().__init__(session, actor)
+        from serviceos_api.settings import Settings
+
+        self.settings = settings or Settings.from_environment()
+
     @staticmethod
     def record_agent_progress(session, tenant_id: UUID, conversation_id: UUID,
                               run_id: UUID, lease_token: UUID, step: str):
@@ -341,7 +347,9 @@ class ConversationService(BusinessService):
                         options = proposal.get("options") or []
                         run_components = []
                         if "QuestionForm" in hints or "ChoiceGroup" in hints:
-                            kind = "ChoiceGroup" if len(options) >= 2 and "ChoiceGroup" in hints else "QuestionForm"
+                            # Server-side promotion: clickable options never get dropped just
+                            # because the model hinted the free-text form type.
+                            kind = "ChoiceGroup" if len(options) >= 2 else "QuestionForm"
                             run_components.append({"id": "agent-choice" if kind == "ChoiceGroup" else "agent-question",
                                                    "type": kind,
                                                    "props": {"title": "下一步需要的信息", "body": proposal["purpose"]},
@@ -916,6 +924,25 @@ class ConversationService(BusinessService):
         if safety:
             # A language model must not override the user's stop-use safety boundary.
             text = SAFETY_TEXT
+        guard_decision = None
+        if visibility == "PUBLIC" and self.settings.publication_guard:
+            from serviceos_api.application.publication_guard import PublicationGuard
+            from serviceos_api.persistence.models import PublicationGuardDecision
+
+            customer_text = " ".join(part.get("text", "") for part in
+                                     (source_message.content if source_message else []))
+            outcome = PublicationGuard(self.session, self.settings, tenant_id).check(
+                text, run, conversation.id, customer_text)
+            outcome.verifier["latency_ms"] = outcome.latency_ms
+            guard_decision = PublicationGuardDecision(
+                tenant_id=tenant_id, conversation_id=conversation.id, run_id=run.id,
+                decision=outcome.decision, reason_codes=outcome.reason_codes,
+                entities={"items": outcome.entities}, verifier=outcome.verifier,
+                reply_text=text)
+            self.session.add(guard_decision)
+            self.session.flush()
+            if outcome.decision == "BLOCKED":
+                visibility = "INTERNAL"
         content = [{"type": "text", "text": text}]
         draft_rich = (run.result_payload or {}).get('rich_reply')
         if safety and not draft_rich:
@@ -946,11 +973,15 @@ class ConversationService(BusinessService):
         self.session.add(message)
         self.session.flush()
         if visibility == "INTERNAL":
-            self.session.add(AgentProposal(
+            proposal = AgentProposal(
                 tenant_id=tenant_id, agent_run_id=run.id, conversation_id=conversation.id,
                 proposal_type="REPLY", idempotency_key="reply-draft",
                 payload={"summary": text, "source_message_id": str(message.id)},
-            ))
+            )
+            self.session.add(proposal)
+            self.session.flush()
+            if guard_decision is not None:
+                guard_decision.proposal_id = proposal.id
         self.session.add(OutboxEvent(
             tenant_id=tenant_id, conversation_id=conversation.id,
             type="message.created", visibility=visibility,

@@ -21,6 +21,27 @@ from serviceos_api.settings import Settings
 _PARAGRAPH_SPLIT = re.compile(r"\n\s*\n")
 EXCERPT_CHAR_LIMIT = 1600
 
+# Curated same-name product families: a query mentioning one of these names without a
+# VERIFIED device model must trigger requirement clarification, not a guessed family.
+AMBIGUOUS_PRODUCTS = {
+    "s1 pro": (
+        ("扫地机器人 S1 Pro Omni", "t2080"),
+        ("穿戴式吸奶器 S1 Pro", "t8d04"),
+    ),
+}
+
+
+def detect_ambiguity(query: str, verified_models: set[str]) -> list[tuple[str, str]]:
+    """Return conflicting (label, model) candidates visible to the agent, else []."""
+    folded = query.casefold()
+    verified = {model.casefold() for model in verified_models}
+    for name, candidates in AMBIGUOUS_PRODUCTS.items():
+        if name in folded:
+            unresolved = [candidate for candidate in candidates if candidate[1] not in verified]
+            if len(unresolved) >= 2:
+                return list(unresolved)
+    return []
+
 
 def search_tokens(value: str) -> set[str]:
     normalized = value.casefold()
