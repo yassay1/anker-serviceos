@@ -808,7 +808,11 @@ class ConversationService(BusinessService):
             self.resource(ServiceCase, request.related_case_id)
             if self.session.get(CaseConversation, (request.related_case_id, conversation.id)) is None:
                 raise ServiceError(409, "请先把案例关联到当前会话。")
-        payload = request.model_dump(mode="json") | {"actor_id": str(self.actor.actor_id), "actor_kind": self.actor.kind}
+        payload = request.model_dump(mode="json")
+        # Preserve fingerprints of pre-upgrade text sends and their unknown-result retries.
+        if request.reply_to_message_id is None:
+            payload.pop('reply_to_message_id', None)
+        payload |= {"actor_id": str(self.actor.actor_id), "actor_kind": self.actor.kind}
         fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         existing = self.session.scalar(select(Message).where(
             Message.tenant_id == self.actor.tenant_id, Message.conversation_id == conversation.id,
@@ -820,6 +824,30 @@ class ConversationService(BusinessService):
             self.session.commit()
             return MessageReceipt(message=MessageRead.model_validate(existing), replayed=True,
                                   processing_state="QUEUED" if existing.author_kind == "CUSTOMER" else "NOT_SCHEDULED")
+        if request.reply_to_message_id is not None:
+            # Same conversation row lock as ordinary sends: two clicks/tabs cannot both
+            # advance a single published follow-up. Exact-id retries above still replay.
+            source = self.session.scalar(select(Message).where(
+                Message.tenant_id == self.actor.tenant_id, Message.conversation_id == conversation.id,
+                Message.visibility == 'PUBLIC').order_by(Message.created_at.desc(), Message.id.desc()).limit(1))
+            allowed = []
+            if source is not None and source.author_kind == 'AGENT':
+                for part in source.content:
+                    rich = part.get('rich')
+                    if isinstance(rich, dict):
+                        allowed.extend(item.get('message') for item in rich.get('quick_replies', []) if isinstance(item, dict))
+            sent = '\n'.join(part.text for part in request.content).strip()
+            if (self.actor.kind != 'CUSTOMER' or request.visibility != 'PUBLIC' or
+                conversation.collaboration_mode != 'AI_LEAD' or conversation.reply_policy != 'AI_AUTO' or
+                source is None or source.id != request.reply_to_message_id or sent not in allowed or
+                source.related_case_id != request.related_case_id):
+                raise ServiceError(409, '此快捷追问已失效，请查看最新消息或直接输入问题。', code='QUICK_REPLY_STALE')
+            linked_cases = self.session.scalars(select(ServiceCase).join(CaseConversation, CaseConversation.case_id == ServiceCase.id).where(
+                CaseConversation.conversation_id == conversation.id, ServiceCase.tenant_id == self.actor.tenant_id,
+                ServiceCase.customer_id == conversation.customer_id, ServiceCase.archived_at.is_(None))).all()
+            relevant = [case for case in linked_cases if case.id == source.related_case_id] if source.related_case_id else linked_cases
+            if relevant and all(case.status in ('RESOLVED', 'CLOSED') for case in relevant):
+                raise ServiceError(409, '关联问题已结束，请直接描述新的服务问题。', code='QUICK_REPLY_STALE')
         identity = {"author_customer_id" if self.actor.kind == "CUSTOMER" else "author_staff_id": self.actor.actor_id}
         message = Message(tenant_id=self.actor.tenant_id, conversation_id=conversation.id,
                           author_kind=self.actor.kind, visibility=request.visibility,
@@ -881,7 +909,22 @@ class ConversationService(BusinessService):
             conversation.collaboration_mode == "AI_LEAD"
             and conversation.reply_policy == "AI_AUTO"
         ) else "INTERNAL"
+        from serviceos_api.application.rich_reply import RISK, SAFETY_TEXT
+        source_message = self.session.scalar(select(Message).where(Message.id == run.message_id,
+            Message.tenant_id == tenant_id, Message.conversation_id == conversation.id))
+        safety = bool(source_message and RISK.search(' '.join(part.get('text', '') for part in source_message.content)))
+        if safety:
+            # A language model must not override the user's stop-use safety boundary.
+            text = SAFETY_TEXT
         content = [{"type": "text", "text": text}]
+        draft_rich = (run.result_payload or {}).get('rich_reply')
+        if safety and not draft_rich:
+            draft_rich = {'schema_version': 1, 'blocks': [], 'quick_replies': []}
+        if draft_rich:
+            from serviceos_api.application.rich_reply import project_reply
+            rich = project_reply(self.session, conversation, run, draft_rich, related_case_id)
+            if rich and (rich['blocks'] or rich['quick_replies']):
+                content[0]['rich'] = rich
         fingerprint = hashlib.sha256(json.dumps({
             "agent_run_id": str(run.id), "conversation_id": str(conversation.id),
             "content": content, "related_case_id": str(related_case_id) if related_case_id else None,

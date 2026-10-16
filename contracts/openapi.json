@@ -573,6 +573,12 @@
             "title": "Status",
             "type": "string"
           },
+          "title": {
+            "default": "新会话",
+            "maxLength": 24,
+            "title": "Title",
+            "type": "string"
+          },
           "version": {
             "title": "Version",
             "type": "integer"
@@ -1708,6 +1714,43 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "ImageFocus": {
+        "additionalProperties": false,
+        "properties": {
+          "height": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Height",
+            "type": "number"
+          },
+          "width": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "title": "ImageFocus",
+        "type": "object"
+      },
       "KnowledgeDocumentDetail": {
         "additionalProperties": false,
         "properties": {
@@ -2133,7 +2176,7 @@
           },
           "content": {
             "items": {
-              "$ref": "#/components/schemas/TextPart"
+              "$ref": "#/components/schemas/ReplyPart"
             },
             "title": "Content",
             "type": "array"
@@ -2407,6 +2450,35 @@
         "title": "ProposalRead",
         "type": "object"
       },
+      "QuickReply": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "pattern": "^[a-zA-Z0-9_-]{1,40}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 40,
+            "minLength": 2,
+            "title": "Label",
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 500,
+            "minLength": 2,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "message"
+        ],
+        "title": "QuickReply",
+        "type": "object"
+      },
       "ReadinessResponse": {
         "additionalProperties": false,
         "properties": {
@@ -2436,6 +2508,273 @@
           "components"
         ],
         "title": "ReadinessResponse",
+        "type": "object"
+      },
+      "ReplyBlock": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "enum": [
+                  "upload_evidence",
+                  "request_assistance",
+                  "view_case"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "columns": {
+            "items": {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Columns",
+            "type": "array"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/ReplyEvent"
+            },
+            "maxItems": 8,
+            "title": "Entries",
+            "type": "array"
+          },
+          "evidence_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Id"
+          },
+          "focus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImageFocus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReplyStep"
+            },
+            "maxItems": 6,
+            "title": "Items",
+            "type": "array"
+          },
+          "rows": {
+            "items": {
+              "items": {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "maxItems": 8,
+            "title": "Rows",
+            "type": "array"
+          },
+          "severity": {
+            "default": "info",
+            "enum": [
+              "info",
+              "warning",
+              "danger"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "status_code": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Code"
+          },
+          "text": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Text",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "summary",
+              "steps",
+              "table",
+              "image",
+              "image_focus",
+              "alert",
+              "timeline",
+              "status",
+              "reference",
+              "actions"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "ReplyBlock",
+        "type": "object"
+      },
+      "ReplyEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "state": {
+            "default": "recorded",
+            "enum": [
+              "recorded",
+              "pending",
+              "current",
+              "completed",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "time": {
+            "maxLength": 64,
+            "title": "Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "time",
+          "description"
+        ],
+        "title": "ReplyEvent",
+        "type": "object"
+      },
+      "ReplyPart": {
+        "additionalProperties": false,
+        "properties": {
+          "rich": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RichReply"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "text": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "const": "text",
+            "default": "text",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "ReplyPart",
+        "type": "object"
+      },
+      "ReplyStep": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "description"
+        ],
+        "title": "ReplyStep",
         "type": "object"
       },
       "ResolutionContractRead": {
@@ -2484,6 +2823,35 @@
         "title": "ResolutionContractRead",
         "type": "object"
       },
+      "RichReply": {
+        "additionalProperties": false,
+        "properties": {
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/ReplyBlock"
+            },
+            "maxItems": 8,
+            "title": "Blocks",
+            "type": "array"
+          },
+          "quick_replies": {
+            "items": {
+              "$ref": "#/components/schemas/QuickReply"
+            },
+            "maxItems": 4,
+            "title": "Quick Replies",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "title": "RichReply",
+        "type": "object"
+      },
       "SendMessage": {
         "additionalProperties": false,
         "properties": {
@@ -2512,6 +2880,18 @@
               }
             ],
             "title": "Related Case Id"
+          },
+          "reply_to_message_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply To Message Id"
           },
           "visibility": {
             "default": "PUBLIC",

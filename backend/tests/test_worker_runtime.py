@@ -88,6 +88,78 @@ def test_message_job_lease_is_fenced_and_serialized(database_engine):
         assert job.lease_token == recovered.token
 
 
+def test_workers_claim_different_conversations_without_overlapping_one_conversation(database_engine):
+    with Session(database_engine) as session:
+        tenant, customer, first_conversation, _, first_job, _ = seed_message(session)
+        other = Conversation(tenant_id=tenant.id, customer_id=customer.id)
+        session.add(other)
+        session.flush()
+        for conversation in (first_conversation, other):
+            message = Message(tenant_id=tenant.id, conversation_id=conversation.id,
+                              author_kind="CUSTOMER", author_customer_id=customer.id,
+                              visibility="PUBLIC", content=[{"type": "text", "text": "并行队列检查"}],
+                              client_message_id=uuid4(), request_hash="b" * 64)
+            session.add(message)
+            session.flush()
+            session.add(MessageJob(tenant_id=tenant.id, message_id=message.id,
+                                   conversation_id=conversation.id))
+        session.commit()
+        first_id, other_id = first_conversation.id, other.id
+    settings = Settings(environment="test")
+    first_worker = MessageWorker(database_engine, settings)
+    second_worker = MessageWorker(database_engine, settings)
+    first, second = first_worker.claim_one(), second_worker.claim_one()
+    assert first is not None and second is not None
+    with Session(database_engine) as session:
+        claimed = {session.get(MessageJob, lease.item_id).conversation_id for lease in (first, second)}
+        assert claimed == {first_id, other_id}
+    assert MessageWorker(database_engine, settings).claim_one() is None
+
+
+def test_next_turn_waits_for_earlier_turn_retry(database_engine):
+    with Session(database_engine) as session:
+        tenant, customer, conversation, _, job, _ = seed_message(session)
+        now = datetime.now(timezone.utc)
+        job.created_at, job.available_at = now - timedelta(seconds=10), now + timedelta(minutes=1)
+        message = Message(tenant_id=tenant.id, conversation_id=conversation.id,
+                          author_kind="CUSTOMER", author_customer_id=customer.id, visibility="PUBLIC",
+                          content=[{"type": "text", "text": "上一轮还没回答"}],
+                          client_message_id=uuid4(), request_hash="c" * 64)
+        session.add(message)
+        session.flush()
+        session.add(MessageJob(tenant_id=tenant.id, message_id=message.id, conversation_id=conversation.id,
+                               created_at=now, available_at=now))
+        session.commit()
+    assert MessageWorker(database_engine, Settings(environment="test")).claim_one() is None
+
+
+def test_queued_turn_includes_reply_published_after_it_was_sent(database_engine):
+    with Session(database_engine) as session:
+        tenant, customer, conversation, first, job, _ = seed_message(session)
+        start = datetime.now(timezone.utc) - timedelta(minutes=1)
+        first.created_at = start
+        second = Message(tenant_id=tenant.id, conversation_id=conversation.id,
+                         author_kind="CUSTOMER", author_customer_id=customer.id, visibility="PUBLIC",
+                         content=[{"type": "text", "text": "那第二步呢？"}], created_at=start + timedelta(seconds=1),
+                         client_message_id=uuid4(), request_hash="d" * 64)
+        run = AgentRun(tenant_id=tenant.id, job_id=job.id, conversation_id=conversation.id, message_id=first.id,
+                       thread_id=str(uuid4()), lease_token=uuid4(), provider="test", model="test", status="COMPLETED")
+        session.add_all([second, run])
+        session.flush()
+        reply = Message(tenant_id=tenant.id, conversation_id=conversation.id, author_kind="AGENT",
+                        visibility="PUBLIC", content=[{"type": "text", "text": "第一步断电，第二步只检查外观。"}],
+                        created_at=start + timedelta(seconds=2), client_message_id=run.id, request_hash="e" * 64)
+        later = Message(tenant_id=tenant.id, conversation_id=conversation.id,
+                        author_kind="CUSTOMER", author_customer_id=customer.id, visibility="PUBLIC",
+                        content=[{"type": "text", "text": "未来一轮，不应读到"}],
+                        created_at=start + timedelta(seconds=3), client_message_id=uuid4(), request_hash="f" * 64)
+        session.add_all([reply, later])
+        session.flush()
+        context = AgentContextBuilder(session, tenant.id).build(conversation.id, second.id)
+        ids = [entry['message_id'] for entry in context['public_history']]
+        assert ids == [str(first.id), str(reply.id)]
+
+
 def test_context_excludes_internal_messages_and_candidate_facts(database_engine):
     with Session(database_engine) as session:
         tenant, customer, conversation, message, _, case = seed_message(session, with_case=True)
