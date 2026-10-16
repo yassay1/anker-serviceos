@@ -14,6 +14,8 @@ import { caseGuidance, isDemoRecord, shortDate } from '../../shared/servicePrese
 import { CaseEvidencePanel } from './CaseEvidencePanel'
 import { VerificationPanel } from './VerificationPanel'
 import { FollowUpPanel } from './FollowUpPanel'
+import { StaffCasesWorkspace } from './StaffCasesWorkspace'
+import { CaseConversationPicker } from '../../shared/CaseConversationPicker'
 import {
   type PendingDecision, readPendingMockAction, readPendingMockDecision,
   savePendingMockAction, savePendingMockDecision,
@@ -164,7 +166,7 @@ export function CasesWorkspace({ actor }: { actor: Actor }) {
     `${row.problem_text} ${row.id} ${row.user_goal ?? ''}`.toLowerCase().includes(search.trim().toLowerCase()))
   const preview = filtered.find(row => row.id === previewId) ?? filtered[0]
   const record = selected.data
-  const guidance = record ? caseGuidance(record.status) : null
+  const guidance = record ? caseGuidance(record.status, actor.kind === 'STAFF') : null
   const supportPath = actor.kind === 'STAFF' ? '/desk' : '/support'
 
   function deviceLinks(caseId: string) {
@@ -174,6 +176,10 @@ export function CasesWorkspace({ actor }: { actor: Actor }) {
     return matches.length ? matches.map(device => <Link key={device.id} to={`/devices/${device.id}`} className="case-device-link"><DeviceIcon model={device.model} size={17} />{device.model || '型号待确认'}</Link>)
       : <span className="muted"><Package size={16} aria-hidden="true" /> 暂无关联设备档案</span>
   }
+
+  if (actor.kind === 'STAFF' && !id) return <StaffCasesWorkspace actor={actor} rows={rows} loading={cases.isPending}
+    error={cases.isError ? readableError(cases.error) : undefined} loaded={cases.isSuccess}
+    onRetry={() => void cases.refetch()} relatedDevices={relatedDevices} />
 
   return <section className={`cases-page ${id ? 'case-detail-page' : 'case-list-page'}`} aria-label="服务案例">
     <header className="page-heading">{id ? <Link className="breadcrumb" to="/cases"><ArrowLeft size={16} />返回我的服务<span>/</span>服务详情</Link> : <><div><h1>我的服务</h1><p>每一次问题都有记录，每一步处理都可回看。</p></div><Link className="button-link primary-button" to={supportPath}><Sparkles size={17} />发起服务咨询</Link></>}</header>
@@ -220,7 +226,7 @@ export function CasesWorkspace({ actor }: { actor: Actor }) {
             <ActionPanel key={`${actor.actor_id}:${record.id}`} actor={actor} serviceCase={record} />
           </div>
           <div className="case-side-column">
-            <section className="surface service-help"><span className="round-icon"><MessageSquare size={23} /></span><div><h2>继续服务沟通</h2><p>在服务中心查看原会话，补充问题或请求人工协助。</p></div><Link className="button-link" to={supportPath}>前往服务会话<ArrowRight size={16} /></Link></section>
+            <section className="surface service-help"><span className="round-icon"><MessageSquare size={23} /></span><div><h2>继续服务沟通</h2><p>在服务中心查看原会话，补充问题或请求人工协助。</p></div>{actor.kind === 'STAFF' ? <CaseConversationPicker key={record.id} actor={actor} serviceCase={record} label="进入服务会话" className="button-link" /> : <Link className="button-link" to={supportPath}>前往服务会话<ArrowRight size={16} /></Link>}</section>
             {!finished(record.status) && <CaseEvidencePanel key={`evidence:${actor.actor_id}:${record.id}`} actor={actor} serviceCase={record} />}
             {!finished(record.status) && <div id="case-result"><VerificationPanel key={`verification:${actor.actor_id}:${record.id}`} actor={actor} serviceCase={record} /></div>}
             <FollowUpPanel key={`follow-up:${actor.actor_id}:${record.id}`} actor={actor} serviceCase={record} />

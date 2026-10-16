@@ -56,6 +56,7 @@ test('real API: persisted conversation, human handoff and PUBLIC/INTERNAL separa
     await login(staff, 'staff', true)
     await staff.goto(`/desk?conversation=${conversationId}`)
     await expect(staff.getByText(problem, { exact: true })).toBeVisible()
+    await staff.getByRole('button', { name: '人工协作与审批', exact: true }).click()
     await staff.getByRole('button', { name: '接管', exact: true }).click()
     await expect(staff.getByText(/需要人工协助处理当前问题 · 已接管/)).toBeVisible()
     await staff.getByLabel('协作模式').selectOption('HUMAN_LEAD')
@@ -65,16 +66,16 @@ test('real API: persisted conversation, human handoff and PUBLIC/INTERNAL separa
     await expect(customer.getByRole('region', { name: '人机协作' }).getByText('真人主导 · 仅人工回复')).toBeVisible()
 
     const internal = `仅内部审阅的联调备注 ${Date.now()}`
-    await staff.getByLabel('仅客服可见的内部备注').check()
+    await staff.getByRole('button', { name: '内部备注', exact: true }).click()
     await staff.getByLabel('回复客户').fill(internal)
     const savedNote = staff.waitForResponse(r => r.url().endsWith(`/conversations/${conversationId}/messages`) && r.request().method() === 'POST')
-    await staff.getByRole('button', { name: '发送消息', exact: true }).click()
+    await staff.getByRole('button', { name: '保存内部备注', exact: true }).click()
     expect((await savedNote).status()).toBe(202)
-    await staff.getByLabel('仅客服可见的内部备注').uncheck()
+    await staff.getByRole('button', { name: '回复客户', exact: true }).click()
     const publicReply = `已由客服接续处理 ${Date.now()}`
     await staff.getByLabel('回复客户').fill(publicReply)
     const savedReply = staff.waitForResponse(r => r.url().endsWith(`/conversations/${conversationId}/messages`) && r.request().method() === 'POST')
-    await staff.getByRole('button', { name: '发送消息', exact: true }).click()
+    await staff.getByRole('button', { name: '发送回复', exact: true }).click()
     const publicReceipt = await savedReply
     expect(publicReceipt.status()).toBe(202)
     expect((await publicReceipt.json() as S['MessageReceipt']).message.visibility).toBe('PUBLIC')
@@ -261,6 +262,7 @@ test('real API: case fact appears in device passport only after verification and
     const linkedCase = await link.json() as S['CaseRead']
     await login(staff, 'staff', true)
     await staff.goto(`/devices/${device.id}`)
+    await staff.locator('.staff-advanced > summary').click()
     const panel = staff.getByRole('region', { name: '案例事实归档' })
     await panel.getByLabel('来源案例').selectOption(serviceCase.id)
     await panel.getByLabel('事实字段').fill('port_type')

@@ -7,11 +7,12 @@ import { queryKeys } from './app/queryKeys'
 
 export function App() {
   const actor = useQuery({ queryKey: queryKeys.actor, queryFn: readActor, retry: false, staleTime: 0 })
-  return <>
+  const staff = actor.data?.kind === 'STAFF'
+  return <div className={staff ? 'app staff-app' : 'app'}>
     <a className="skip-link" href="#main-content">跳到主要内容</a>
     <header className="site-header"><div className="header-inner">
       <NavLink className="brand" to="/" aria-label="售后通首页"><span>售后通</span><small>AI 驱动的售后服务平台</small></NavLink>
-      <nav aria-label="主要导航"><NavLink to="/" end>首页</NavLink><NavLink to="/support">服务中心</NavLink><NavLink to="/cases">我的服务</NavLink><NavLink to="/devices">我的设备</NavLink>{actor.data?.kind === 'STAFF' && <NavLink to="/desk">客服工作区</NavLink>}</nav>
+      {!staff && <nav aria-label="主要导航"><NavLink to="/" end>首页</NavLink><NavLink to="/support">服务中心</NavLink><NavLink to="/cases">我的服务</NavLink><NavLink to="/devices">我的设备</NavLink></nav>}
       {actor.data && <AccountHeader key={`${actor.data.tenant_id}:${actor.data.actor_id}`} actor={actor.data} />}
     </div></header>
     <main id="main-content" tabIndex={-1}>
@@ -27,5 +28,5 @@ export function App() {
       </Routes>
     </main>
     <footer><ShieldCheck size={14} aria-hidden="true" />售后通 · 服务记录按当前账号授权展示</footer>
-  </>
+  </div>
 }

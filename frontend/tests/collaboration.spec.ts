@@ -67,6 +67,7 @@ async function openDesk(page: Page) {
     await expect(contextButton).toBeVisible()
     await contextButton.click()
   } else if (await contextButton.isVisible()) await contextButton.click()
+  await page.getByRole('button', { name: '人工协作与审批', exact: true }).click()
   await expect(page.getByRole('button', { name: '接管', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '批准', exact: true })).toBeVisible()
   return state

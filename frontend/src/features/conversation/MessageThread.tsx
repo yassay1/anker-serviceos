@@ -1,5 +1,5 @@
 import { type Actor, type Message, type SendBody } from '../../api/client'
-import { MessageSquareText } from 'lucide-react'
+import { Bot, MessageSquareText, UserRound } from 'lucide-react'
 import { type ReactNode, useLayoutEffect, useRef } from 'react'
 import { MessageText, RichMessage } from './RichMessage'
 
@@ -17,7 +17,8 @@ function MessageItem({ message, actor, quickActive, onQuickReply }: {
   onQuickReply?: (value: string, sourceMessageId: string, caseId: string | null) => Promise<boolean>
 }) {
   const mine = message.author_kind === actor.kind
-  return <li className={`message ${mine ? 'own-message' : ''} ${message.visibility === 'INTERNAL' ? 'internal-message' : ''}`}>
+  return <li className={`message author-${message.author_kind.toLowerCase()} ${mine ? 'own-message' : ''} ${message.visibility === 'INTERNAL' ? 'internal-message' : ''}`}>
+    <span className="message-avatar" aria-hidden="true">{message.author_kind === 'AGENT' ? <Bot size={20} /> : <UserRound size={19} />}</span>
     <div className="message-meta">
       <strong>{message.author_kind === 'CUSTOMER' ? '客户' : message.author_kind === 'STAFF' ? '客服' : '服务助手'}</strong>
       {message.visibility === 'INTERNAL' && <span className="private-tag">内部备注</span>}

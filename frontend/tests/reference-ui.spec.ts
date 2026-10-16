@@ -29,8 +29,8 @@ test('staff overview filters real case rows and opens the original case route', 
     { id: 'case-b', problem_text: '线材更换完成', status: 'RESOLVED', created_at: '2026-10-14T01:00:00Z', customer_id: 'customer-b', version: 2, user_goal: null },
   ] }))
   await page.goto('/desk?view=overview')
-  await expect(page.getByRole('heading', { name: '你好，协作测试客服！' })).toBeVisible()
-  await page.getByRole('button', { name: '已解决', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '你好，协作测试客服' })).toBeVisible()
+  await page.locator('.staff-filter-tabs').getByRole('button', { name: /^已解决/ }).click()
   await expect(page.getByRole('link', { name: '线材更换完成', exact: true })).toHaveAttribute('href', '/cases/case-b')
   await expect(page.getByRole('link', { name: '电源无法启动', exact: true })).toHaveCount(0)
 })
@@ -70,13 +70,13 @@ test('overview query failure shows a retry and no invented case total', async ({
   await page.route('**/api/v1/cases', route => route.fulfill(failed
     ? { status: 503, json: { detail: '案例暂时不可用。' } } : { json: [] }))
   await page.goto('/desk?view=overview')
-  const casesPanel = page.locator('.case-table-panel')
+  const casesPanel = page.locator('.staff-queue')
   await expect(casesPanel.getByRole('alert')).toContainText('案例暂时不可用')
-  await expect(page.locator('.metric-card').first().locator('strong')).toHaveText('—')
+  await expect(page.locator('.staff-summary-card').nth(2).locator('strong')).toHaveText('—')
   failed = false
   await casesPanel.getByRole('button', { name: '重试', exact: true }).click()
   await expect(page.getByRole('heading', { name: '没有符合条件的案例' })).toBeVisible()
-  await expect(page.locator('.metric-card').first().locator('strong')).toHaveText('0')
+  await expect(page.locator('.staff-summary-card').nth(2).locator('strong')).toHaveText('0')
 })
 
 for (const mobile of [false, true]) {

@@ -47,13 +47,13 @@ test('logic audit: another logged-in actor cannot inherit the previous draft', a
   const state = await fixture(page)
   await page.goto('/desk')
   await page.getByLabel('回复客户').fill('上一位客服尚未发送的内部信息')
-  await page.getByLabel('仅客服可见的内部备注').check()
+  await page.getByRole('button', { name: '内部备注', exact: true }).click()
   state.actor.actor_id = crypto.randomUUID()
   state.actor.display_name = '新登录的客服'
   await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')))
   await expect(page.getByText('新登录的客服', { exact: false })).toBeVisible()
   await expect(page.getByLabel('回复客户')).toHaveValue('')
-  await expect(page.getByLabel('仅客服可见的内部备注')).not.toBeChecked()
+  await expect(page.getByRole('button', { name: '内部备注', exact: true })).toHaveAttribute('aria-pressed', 'false')
 })
 
 test('logic audit: unknown UI result keeps the same request across a new revision', async ({ page }) => {
@@ -113,7 +113,8 @@ test('logic audit: archived conversations expose no active collaboration command
   const state = await fixture(page)
   state.conversations[0].status = 'ARCHIVED'
   await page.goto('/desk')
-  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled()
+  await page.getByRole('button', { name: '人工协作与审批', exact: true }).click()
+  await expect(page.getByRole('button', { name: '发送回复', exact: true })).toBeDisabled()
   await expect(page.getByRole('button', { name: '切换策略', exact: true })).toBeDisabled()
   await expect(page.getByRole('button', { name: '批准', exact: true })).toBeDisabled()
 })

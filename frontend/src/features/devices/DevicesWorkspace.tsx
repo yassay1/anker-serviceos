@@ -8,6 +8,7 @@ import { StatusBadge } from '../../shared/StatusBadge'
 import { DeviceIcon } from '../../shared/DeviceIcon'
 import { isDemoRecord } from '../../shared/servicePresentation'
 import { CaseFactPanel } from './CaseFactPanel'
+import { StaffDevicesWorkspace } from './StaffDevicesWorkspace'
 
 const date = (value: string) => new Date(value).toLocaleDateString('zh-CN')
 const factValue = (value: unknown) => typeof value === 'string' ? value : JSON.stringify(value) ?? '未提供'
@@ -17,6 +18,10 @@ const sourceLabel = (value: string) => value.startsWith('staff:') ? '客服记�
 const factNames: Record<string, string> = { charging_watts: '充电功率（瓦）', firmware_version: '固件版本', model: '设备型号', port_type: '接口类型' }
 
 export function DevicesWorkspace({ actor }: { actor: Actor }) {
+  return actor.kind === 'STAFF' ? <StaffDevicesWorkspace actor={actor} /> : <CustomerDevicesWorkspace actor={actor} />
+}
+
+function CustomerDevicesWorkspace({ actor }: { actor: Actor }) {
   const { id } = useParams()
   const devices = useQuery({ queryKey: queryKeys.devices(actor.tenant_id, actor.actor_id), queryFn: listDevices })
   const selectedId = id ?? devices.data?.[0]?.id

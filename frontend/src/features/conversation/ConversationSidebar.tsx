@@ -2,9 +2,12 @@ import { useState } from 'react'
 import { MessageSquare, Plus, Search } from 'lucide-react'
 import { type Conversation } from '../../api/client'
 import { StatusBadge, statusLabel } from '../../shared/StatusBadge'
+import { CustomerAvatar, customerLabel } from '../../shared/StaffUI'
 
-export function ConversationSidebar({ desk, items, selectedId, loading, error, creating, createError, onCreate, onSelect }: {
-  desk: boolean, items: Conversation[] | undefined, selectedId: string | undefined,
+export type ConversationPreview = { id: string, text: string, created_at: string }
+
+export function ConversationSidebar({ desk, previews, items, selectedId, loading, error, creating, createError, onCreate, onSelect }: {
+  previews?: Record<string, ConversationPreview>, desk: boolean, items: Conversation[] | undefined, selectedId: string | undefined,
   loading: boolean, error?: string, creating: boolean, createError: string,
   onCreate: () => void, onSelect: (id: string) => void,
 }) {
@@ -25,10 +28,13 @@ export function ConversationSidebar({ desk, items, selectedId, loading, error, c
     {loading && <div className="skeleton-list" aria-label="正在加载会话"><span /><span /><span /></div>}
     {!loading && visible?.length === 0 && <div className="sidebar-empty"><MessageSquare aria-hidden="true" /><p>{search || filter !== 'ALL' ? '没有匹配的会话' : desk ? '当前暂无可处理的会话' : '还没有服务记录'}</p><small>{search || filter !== 'ALL' ? '试试其他编号或查看全部会话。' : desk ? '客户的会话会在这里出现。' : '新建会话，告诉我们遇到的问题。'}</small></div>}
     <ul>{visible?.map(item => <li key={item.id}>
-      <button type="button" className={selectedId === item.id ? 'selected' : ''} aria-current={selectedId === item.id ? 'page' : undefined} onClick={() => onSelect(item.id)}>
+      <button type="button" className={`${selectedId === item.id ? 'selected' : ''} ${desk ? 'staff-conversation-item' : ''}`} aria-label={desk ? `${customerLabel(item.customer_id)} ${item.title} 会话 #${item.id.slice(0, 8)} ${statusLabel(item.status)}` : undefined} aria-current={selectedId === item.id ? 'page' : undefined} onClick={() => onSelect(item.id)}>
+        {desk && <CustomerAvatar id={item.customer_id} />}
+        {desk ? <span className="staff-conversation-copy"><span className="conversation-item-top"><strong>{customerLabel(item.customer_id)}</strong><time dateTime={previews?.[item.id]?.created_at ?? item.created_at} title={previews?.[item.id] ? '最近已加载的公开消息' : '会话创建时间'}>{previews?.[item.id] ? '消息 ' : '建于 '}{new Date(previews?.[item.id]?.created_at ?? item.created_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</time></span><span className="staff-conversation-title" title={previews?.[item.id]?.text ?? item.title}>{previews?.[item.id]?.text || item.title || '新会话'}</span><span className="conversation-item-bottom"><span>{statusLabel(item.collaboration_mode)}</span><StatusBadge value={item.status} /></span></span> : <>
         <span className="conversation-item-top"><strong title={item.title}>{item.title || '新会话'}</strong><StatusBadge value={item.status} /></span>
         <span className="conversation-mode">{desk ? `客户 ${item.customer_id.slice(0, 8)} · ` : ''}{statusLabel(item.collaboration_mode)}</span>
         <span className="conversation-item-bottom"><span>#{item.id.slice(0, 8)}</span><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}</time></span>
+        </>}
       </button>
     </li>)}</ul>
   </aside>

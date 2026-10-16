@@ -9,15 +9,16 @@ import {
 import { queryKeys } from '../../app/queryKeys'
 import { readableError } from '../../shared/errors'
 import { ConnectionStatus } from '../../shared/ConnectionStatus'
-import { CollaborationPanel } from '../collaboration/CollaborationPanel'
 import { UIDocumentRenderer } from '../ui-document/UIDocumentRenderer'
 import { type AgentProgress, type SpecialistActivity, useConversationEvents } from './useConversationEvents'
-import { ConversationSidebar } from './ConversationSidebar'
+import { ConversationSidebar, type ConversationPreview } from './ConversationSidebar'
 import { MessageThread } from './MessageThread'
 import { MessageComposer } from './MessageComposer'
 import { ConversationAttachments } from './ConversationAttachments'
 import { AgentProgressNote, RelatedCases, SpecialistActivityNote } from './ConversationContext'
 import { StatusBadge, statusLabel } from '../../shared/StatusBadge'
+import { StaffConversationContext } from './StaffConversationContext'
+import { CustomerAvatar, customerLabel } from '../../shared/StaffUI'
 
 type Pending = {
   conversationId: string
@@ -33,6 +34,7 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
   const navigate = useNavigate()
   const [createError, setCreateError] = useState('')
   const [creating, setCreating] = useState(false)
+  const [previews, setPreviews] = useState<Record<string, ConversationPreview>>({})
   const [drafts, setDrafts] = useState<Record<string, { text: string, internal: boolean }>>({})
   const [mobilePanel, setMobilePanel] = useState<'list' | 'chat' | 'context'>('chat')
   const [pending, setPending] = useState<Pending[]>([])
@@ -117,6 +119,12 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
   // The guide reflects available UI context, never an inferred repair result.
   const diagnosisStage = relatedCaseIds.length ? 2 : uiDocument.data?.components?.some(item => ['QuestionForm', 'ChoiceGroup', 'EvidenceSummary'].includes(item.type)) ? 1 : 0
   const lastPublic = recorded.filter(message => message.visibility === 'PUBLIC').at(-1)
+  useEffect(() => {
+    if (!desk || !selected || !lastPublic || messages.hasNextPage || messages.isFetching || messages.isError) return
+    const preview = { id: lastPublic.id, created_at: lastPublic.created_at,
+      text: lastPublic.content.map(part => part.text).filter(Boolean).join(' ').slice(0, 180) || '[附件消息]' }
+    setPreviews(current => current[selected.id]?.id === preview.id ? current : { ...current, [selected.id]: preview })
+  }, [desk, selected?.id, lastPublic, messages.hasNextPage, messages.isFetching, messages.isError])
   const generating = Boolean(progress && selected && progress.conversationId === selected.id && !['COMPLETED', 'FAILED'].includes(progress.stage) &&
     !recorded.some(message => message.author_kind === 'AGENT' && message.client_message_id === progress.runId))
   const quickReplyMessageId = !desk && selected?.status === 'ACTIVE' && selected.collaboration_mode === 'AI_LEAD' &&
@@ -220,6 +228,11 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
       onRefresh={() => { void queryClient.invalidateQueries({ queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, selected.id) }) }} />
   </section>
 
+  const conversationList = <ConversationSidebar desk={desk} previews={previews} items={conversations.data} selectedId={selected?.id}
+    loading={conversations.isPending} error={conversations.isError ? readableError(conversations.error) : undefined}
+    creating={creating} createError={createError} onCreate={() => void startConversation()}
+    onSelect={(id) => { if (!desk && selectorRef.current) selectorRef.current.open = false; setSearchParams({ conversation: id }); setMobilePanel('chat') }} />
+
   return <div className={`workspace-page ${desk ? 'desk-view' : 'support-view'} mobile-${mobilePanel}`}>
     <div className="page-heading">
       <div>
@@ -237,15 +250,12 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
       <button type="button" aria-pressed={mobilePanel === 'context'} disabled={!selected} onClick={() => setMobilePanel('context')}><FileText size={17} aria-hidden="true" />{desk ? '资料' : '资料与协助'}</button>
     </div>
     <div className={`chat-layout ${selected ? 'has-context' : 'no-context'}`}>
-      <div className="conversation-selector"><details ref={selectorRef} open={desk || mobilePanel === 'list'}><summary><Inbox size={16} />{desk ? '我的服务会话' : '历史问答 · 点击切换会话'}<span>{conversations.data?.length ?? 0}</span><ChevronDown size={15} /></summary><ConversationSidebar desk={desk} items={conversations.data} selectedId={selected?.id}
-        loading={conversations.isPending} error={conversations.isError ? readableError(conversations.error) : undefined}
-        creating={creating} createError={createError} onCreate={() => void startConversation()}
-        onSelect={(id) => { if (!desk && selectorRef.current) selectorRef.current.open = false; setSearchParams({ conversation: id }); setMobilePanel('chat') }} /></details></div>
+      <div className="conversation-selector">{desk ? conversationList : <details ref={selectorRef} open={mobilePanel === 'list'}><summary><Inbox size={16} />历史问答 · 点击切换会话<span>{conversations.data?.length ?? 0}</span><ChevronDown size={15} /></summary>{conversationList}</details>}</div>
       <section className="chat-panel" aria-label="当前会话">
         {selected ? <>
           <div className="chat-heading">
-            <div className="chat-identity"><span className="chat-avatar"><Headphones size={22} aria-hidden="true" /></span><div><h2>{soleCase ? soleCase.case.problem_text : selected.title || (desk ? '与客户沟通' : '新会话')}</h2><p>会话 #{selected.id.slice(0, 8)} · {statusLabel(selected.status)} <span className={`stream-note ${streamState}`}><span className="status-dot" aria-hidden="true" />{streamState === 'connected' ? '实时更新已连接' : streamState === 'connecting' ? '正在连接实时更新' : '重连中，消息仍可查询'}</span></p>{soleCase && <div className="conversation-case-meta"><Link to={`/cases/${soleCase.case.id}`}>关联案例 #{soleCase.case.id.slice(0, 8)}</Link><span>版本 {soleCase.case.version}</span>{soleCase.device_ids.map(id => <Link key={id} to={`/devices/${id}`}>设备 #{id.slice(0, 8)}</Link>)}</div>}</div></div>
-            <StatusBadge value={soleCase ? soleCase.case.status : selected.status} />
+            <div className="chat-identity">{desk ? <CustomerAvatar id={selected.customer_id} /> : <span className="chat-avatar"><Headphones size={22} aria-hidden="true" /></span>}<div><h2>{desk ? customerLabel(selected.customer_id) : soleCase ? soleCase.case.problem_text : selected.title || '新会话'}</h2>{desk && <p className="chat-problem-title">{soleCase?.case.problem_text || selected.title}</p>}<p>{!desk && `会话 #${selected.id.slice(0, 8)} · ${statusLabel(selected.status)} `}<span className={`stream-note ${streamState}`}><span className="status-dot" aria-hidden="true" />{streamState === 'connected' ? '实时更新已连接' : streamState === 'connecting' ? '正在连接实时更新' : '重连中，消息仍可查询'}</span></p></div></div>
+            <StatusBadge value={!desk && soleCase ? soleCase.case.status : selected.status} />
           </div>
           <MessageThread key={`thread:${selected.id}`} actor={actor} desk={desk} messages={recorded} pending={visiblePending}
             quickReplyMessageId={quickReplyMessageId} onQuickReply={submitChoice}
@@ -272,40 +282,27 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
         </> : <div className="message-empty"><span className="empty-symbol"><Sparkles size={28} aria-hidden="true" /></span><h2>{conversations.isPending ? '正在加载会话…' : selectedId ? '会话不可访问' : '让我们一起找到问题所在'}</h2>
           <p>{conversations.isPending ? '正在查询当前账号的服务记录。' : selectedId ? '请从左侧选择有权限查看的会话。' : desk ? '从左侧打开客户会话。' : '告诉我们设备型号、遇到的现象和已尝试的方法。'}</p>{!desk && !conversations.isPending && <button type="button" className="primary-button" disabled={creating} onClick={() => void startConversation()}><Sparkles size={17} />{creating ? '正在建立会话…' : '开始新的诊断'}</button>}{createError && <p role="alert" className="form-error">{createError}</p>}</div>}
       </section>
-      {selected && <aside className="context-panel" aria-label={desk ? '案例与协作信息' : '服务辅助信息'}>
-        <div className="assistant-panel-heading"><Sparkles size={21} /><h2>{desk ? 'AI 助手' : '相关服务与帮助'}</h2></div>
-        {desk && <section className="case-summary" aria-label="关联案例摘要">
-          <div className="context-heading"><h3><FileText size={17} aria-hidden="true" />关联案例</h3></div>
-          {summaries.isPending && <p>正在加载案例…</p>}
-          {summaries.isError && <p className="form-error" role="alert">{readableError(summaries.error)}</p>}
-          {summaries.data?.length === 0 && <p>当前会话尚未关联案例；可继续查看消息。</p>}
-          {summaries.data?.map((summary) => <article key={summary.case.id}>
-            <h4><Link to={`/cases/${summary.case.id}`}>{summary.case.problem_text}</Link></h4>
-            <p><StatusBadge value={summary.case.status} /> <span>版本 {summary.case.version}</span></p>
-            {summary.device_ids.length > 0 && <div className="device-references">{summary.device_ids.map(id => <Link to={`/devices/${id}`} key={id}>设备档案 #{id.slice(0, 8)}</Link>)}</div>}
-            <ul>{summary.facts.map((fact, index) => <li key={`${fact.source}-${index}`}>
-              <strong>{fact.label}：</strong>{fact.value} <small>来源：{fact.source} · {fact.verification === 'VERIFIED' ? '已核验' : fact.verification === 'RETRACTED' ? '已撤销' : '待核验'}</small>
-            </li>)}</ul>
-          </article>)}
-        </section>}
-        {!desk && <RelatedCases key={selected.id} actor={actor} ids={relatedCaseIds} />}
-        {desk ? <CollaborationPanel key={selected.id} conversation={selected} actor={actor} desk /> :
-          <section className="collaboration-panel" aria-label="人机协作">
-            <h3><Headphones size={18} aria-hidden="true" />服务有人接续</h3>
-            <p className="policy-summary">{statusLabel(selected.collaboration_mode)} · {statusLabel(selected.reply_policy)}</p>
-            <p>补充信息与人工协助在会话中的交互卡处理，服务记录会继续保留。</p>
-            <button type="button" onClick={() => {
-              setMobilePanel('chat')
-              requestAnimationFrame(() => {
-                const cards = document.getElementById('conversation-interactions')
-                const assistance = cards?.querySelector<HTMLDetailsElement>('details.ui-ActionBar')
-                if (assistance) assistance.open = true
-                cards?.focus()
-                cards?.scrollIntoView({ block: 'nearest' })
-              })
-            }}>查看协助与补充信息</button>
-          </section>}
-        {desk && interactionCards}
+      {selected && desk && <StaffConversationContext key={`context:${selected.id}`} actor={actor} conversation={selected} summaries={summaries.data} messages={recorded}
+        summaryError={summaries.isError ? readableError(summaries.error) : undefined} loading={summaries.isPending} interactions={interactionCards}
+        onPhotoDraft={() => { setInternal(false); const text = '为了进一步核对问题，请补充设备外观、接口及型号标签的清晰照片，并说明出现问题时的具体情况。'; setDraft((draft ? `${draft}\n${text}` : text).slice(0, 8000)); document.getElementById('message-draft')?.focus() }} />}
+      {selected && !desk && <aside className="context-panel" aria-label="服务辅助信息">
+        <div className="assistant-panel-heading"><Sparkles size={21} /><h2>相关服务与帮助</h2></div>
+        <RelatedCases key={selected.id} actor={actor} ids={relatedCaseIds} />
+        <section className="collaboration-panel" aria-label="人机协作">
+          <h3><Headphones size={18} aria-hidden="true" />服务有人接续</h3>
+          <p className="policy-summary">{statusLabel(selected.collaboration_mode)} · {statusLabel(selected.reply_policy)}</p>
+          <p>补充信息与人工协助在会话中的交互卡处理，服务记录会继续保留。</p>
+          <button type="button" onClick={() => {
+            setMobilePanel('chat')
+            requestAnimationFrame(() => {
+              const cards = document.getElementById('conversation-interactions')
+              const assistance = cards?.querySelector<HTMLDetailsElement>('details.ui-ActionBar')
+              if (assistance) assistance.open = true
+              cards?.focus()
+              cards?.scrollIntoView({ block: 'nearest' })
+            })
+          }}>查看协助与补充信息</button>
+        </section>
       </aside>}
     </div>
     <div className="workspace-foot"><p>消息与协作状态以服务器记录为准；断线时仍可查询。</p><ConnectionStatus /></div>
