@@ -102,31 +102,35 @@ class CoverageVerifier:
         self._transport = transport
 
     def verify(self, customer_text: str, reply: str) -> dict | None:
-        try:
-            with httpx.Client(transport=self._transport, timeout=self.settings.llm_timeout_seconds) as client:
-                response = client.post(
-                    f"{self.settings.llm_base_url}/chat/completions",
-                    headers={"Authorization": f"Bearer {self.settings.llm_api_key}"},
-                    json={
-                        "model": self.settings.llm_model,
-                        "temperature": 0,
-                        "max_completion_tokens": 400,
-                        "messages": [
-                            {"role": "system", "content": VERIFIER_SYSTEM},
-                            {"role": "user", "content":
-                                f"CUSTOMER MESSAGE:\n{customer_text[:2000]}\n\nREPLY:\n{reply[:4000]}"},
-                        ],
-                    },
-                )
-            response.raise_for_status()
-            payload = response.json()
-            content = (payload.get("choices") or [{}])[0].get("message", {}).get("content") or ""
-            parsed = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip()))
-            if not isinstance(parsed, dict) or not isinstance(parsed.get("requests"), list):
+        for attempt in range(2):
+            try:
+                with httpx.Client(transport=self._transport, timeout=self.settings.llm_timeout_seconds) as client:
+                    response = client.post(
+                        f"{self.settings.llm_base_url}/chat/completions",
+                        headers={"Authorization": f"Bearer {self.settings.llm_api_key}"},
+                        json={
+                            "model": self.settings.llm_model,
+                            "temperature": 0,
+                            "max_completion_tokens": 400,
+                            "messages": [
+                                {"role": "system", "content": VERIFIER_SYSTEM},
+                                {"role": "user", "content":
+                                    f"CUSTOMER MESSAGE:\n{customer_text[:2000]}\n\nREPLY:\n{reply[:4000]}"},
+                            ],
+                        },
+                    )
+                response.raise_for_status()
+                payload = response.json()
+                content = (payload.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+                parsed = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip()))
+                if not isinstance(parsed, dict) or not isinstance(parsed.get("requests"), list):
+                    return None
+                return parsed
+            except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
+                if attempt == 0:
+                    continue
                 return None
-            return parsed
-        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
-            return None
+        return None
 
 
 class PublicationGuard:

@@ -252,7 +252,9 @@ class AgentRuntime:
             timeout=self.settings.llm_timeout_seconds,
             max_retries=0,
             temperature=0,
-            max_completion_tokens=2400,
+            # Thinking-mode providers spend part of the budget on reasoning; keep room
+            # for the customer-visible answer after the thought trace.
+            max_completion_tokens=4000,
             stream_usage=True,
             **model_provider_options(self.settings),
         )
