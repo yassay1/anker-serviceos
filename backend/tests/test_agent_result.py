@@ -19,6 +19,40 @@ def test_typed_output_uses_existing_ui_fallback_contract():
     assert result.ui_proposal is None and result.ui_fallback_code == "ui_proposal_invalid"
 
 
+def test_typed_output_preserves_validated_rich_reply():
+    payload = AgentFinalOutput.model_validate({
+        "text": "先检查电源连接。",
+        "rich": {
+            "schema_version": 1,
+            "blocks": [{"type": "steps", "items": [
+                {"title": "检查插座", "description": "确认插座供电正常。"},
+            ]}],
+            "quick_replies": [
+                {"id": "power-ok", "label": "插座有电", "message": "我确认插座有电。"},
+                {"id": "power-unknown", "label": "我不确定", "message": "我不确定插座是否有电。"},
+            ],
+        },
+    })
+
+    result = parse_agent_payload(payload)
+
+    assert result.text == "先检查电源连接。"
+    from serviceos_api.application.rich_reply import RichReply
+    assert result.rich_reply == RichReply.model_validate(payload.rich).model_dump(mode="json")
+    assert result.ui_fallback_code is None
+
+
+def test_typed_output_discards_invalid_rich_reply_but_keeps_safe_text():
+    result = parse_agent_payload(AgentFinalOutput.model_validate({
+        "text": "先断开电源。",
+        "rich": {"schema_version": 1, "blocks": [{"type": "actions"}]},
+    }))
+
+    assert result.text == "先断开电源。"
+    assert result.rich_reply is None
+    assert result.ui_fallback_code == "rich_reply_invalid"
+
+
 @pytest.mark.parametrize("payload", [
     {"text": "", "ui_proposal": None},
     {"text": "   ", "ui_proposal": None},

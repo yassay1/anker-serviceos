@@ -45,6 +45,7 @@ class AgentFinalOutput(BaseModel):
 
     text: str = Field(min_length=1, max_length=8000)
     ui_proposal: Any | None = None
+    rich: Any | None = None
 
     @field_validator("text")
     @classmethod
@@ -94,13 +95,7 @@ def parse_agent_result(content: str) -> AgentResult:
     if not isinstance(value, dict):
         raise ValueError("agent_result_invalid_shape")
     answer = _text(value.get("text"))
-    rich, rich_error = None, None
-    if value.get('rich') is not None:
-        from serviceos_api.application.rich_reply import RichReply
-        try:
-            rich = RichReply.model_validate(value['rich']).model_dump(mode='json')
-        except (ValueError, TypeError):
-            rich_error = 'rich_reply_invalid'
+    rich, rich_error = _rich_reply(value.get('rich'))
     candidate = value.get("ui_proposal")
     if candidate is None:
         return AgentResult(answer, ui_fallback_code=rich_error, rich_reply=rich)
@@ -115,17 +110,29 @@ def parse_agent_payload(payload: Any) -> AgentResult:
     """Convert a validated structured result while retaining the legacy UI fallback rules."""
     if isinstance(payload, BaseModel):
         payload = payload.model_dump(mode="python")
-    if not isinstance(payload, dict) or set(payload) - {"text", "ui_proposal"}:
+    if not isinstance(payload, dict) or set(payload) - {"text", "ui_proposal", "rich"}:
         raise ValueError("agent_result_invalid_shape")
     answer = _text(payload.get("text"))
+    rich, rich_error = _rich_reply(payload.get("rich"))
     candidate = payload.get("ui_proposal")
     if candidate is None:
-        return AgentResult(answer)
+        return AgentResult(answer, ui_fallback_code=rich_error, rich_reply=rich)
     try:
         proposal = _ui_proposal(candidate)
     except ValueError:
-        return AgentResult(answer, ui_fallback_code="ui_proposal_invalid")
-    return AgentResult(answer, ui_proposal=proposal)
+        return AgentResult(answer, ui_fallback_code="ui_proposal_invalid", rich_reply=rich)
+    return AgentResult(answer, ui_proposal=proposal, ui_fallback_code=rich_error, rich_reply=rich)
+
+
+def _rich_reply(value: Any) -> tuple[dict | None, str | None]:
+    if value is None:
+        return None, None
+    from serviceos_api.application.rich_reply import RichReply
+
+    try:
+        return RichReply.model_validate(value).model_dump(mode="json"), None
+    except (ValueError, TypeError):
+        return None, "rich_reply_invalid"
 
 
 # Internal keys that must never reach a customer, whatever the model does with formatting.

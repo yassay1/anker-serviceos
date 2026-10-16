@@ -4,7 +4,6 @@ import os
 from collections import Counter
 from contextlib import contextmanager
 from uuid import UUID
-from urllib.parse import urlsplit
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelCallLimitMiddleware, SummarizationMiddleware, ToolCallLimitMiddleware
@@ -231,7 +230,6 @@ class AgentRuntime:
                     with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
                         service.fail_diagnostic(task_id, specialist_run.id, "diagnostic_resume_failed")
                     raise RuntimeError("diagnostic_resume_failed") from error
-
         @tool
         def resolve_policy(country: str, channel: str, product_family: str,
                            warranty_state: str) -> str:
