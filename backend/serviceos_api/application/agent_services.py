@@ -658,6 +658,120 @@ class AgentToolService:
         self.session.commit()
         return envelope
 
+    def query_order_warranty(self, order_no: str) -> ToolResult:
+        if not isinstance(order_no, str) or not order_no.strip():
+            raise ValueError("order_no_required")
+        run, _, _, _ = self._active_execution()
+        key = order_no.strip().casefold()
+        segment = self.session.scalar(select(KnowledgeSegment).where(
+            KnowledgeSegment.attrs["order_no"].as_string() == key).limit(1))
+        if segment is None:
+            envelope = ToolResult(
+                status="NOT_FOUND", applicability="REFERENCE_ORDER",
+                notes=["参考数据中没有该订单号的记录；不得据此推断订单、物流或质保状态。"])
+        else:
+            attrs = segment.attrs or {}
+            warranty_end = attrs.get("warranty_end") or ""
+            in_warranty = "unknown"
+            if warranty_end:
+                try:
+                    in_warranty = ("yes" if date.fromisoformat(warranty_end) >=
+                                   datetime.now(timezone.utc).date() else "no")
+                except ValueError:
+                    in_warranty = "unknown"
+            source = (segment.curation or {}).get("source_ref", segment.title)
+            fields = [f"{name}: {attrs[name]}" for name in
+                      ("order_no", "sku", "description", "qty", "purchase_date", "warranty_end",
+                       "status", "carrier", "tracking", "logistics_status", "ship_date", "amount")
+                      if attrs.get(name)]
+            fields.append(f"in_warranty: {in_warranty}")
+            envelope = ToolResult(
+                status="OK", items=[" | ".join(fields)],
+                references=[{"source_ref": source, "entry_key": segment.entry_key, "path": "typed"}],
+                applicability="REFERENCE_ORDER",
+                notes=[f"只读脱敏订单参考数据。SOURCE: {source} | APPLICABILITY: REFERENCE_ORDER"])
+        self._audit(run, "query_order_warranty", envelope)
+        self.session.commit()
+        return envelope
+
+    def check_dealer_authorization(self, country: str, seller: str) -> ToolResult:
+        if not isinstance(country, str) or not country.strip():
+            raise ValueError("country_required")
+        seller_norm = normalize_seller(seller if isinstance(seller, str) else "")
+        if not seller_norm:
+            raise ValueError("seller_required")
+        run, _, _, _ = self._active_execution()
+        country_key = _normalize_country(country)
+        candidates = list(self.session.scalars(select(KnowledgeSegment).where(
+            KnowledgeSegment.attrs["country"].as_string() == country_key,
+            KnowledgeSegment.attrs["seller_norm"].is_not(None))).all())
+        exact = [row for row in candidates if (row.attrs or {}).get("seller_norm") == seller_norm]
+        pool = exact or [row for row in candidates
+                         if _seller_fuzzy_match(seller_norm, (row.attrs or {}).get("seller_norm", ""))]
+        references = [{"source_ref": (row.curation or {}).get("source_ref", row.title),
+                       "entry_key": row.entry_key, "path": "typed"} for row in pool[:5]]
+        if not pool:
+            envelope = ToolResult(
+                status="NOT_FOUND", applicability="REFERENCE_DEALER", references=references,
+                notes=[f"判定：UNAUTHORIZED。国家 {country_key} 的授权名录中无匹配经销商；"
+                       "按规则应引导客户自行联系商家售后，不得承诺寄修/补单。"])
+        elif len(pool) > 1:
+            names = "、".join(sorted({(row.attrs or {}).get("seller", "") for row in pool})[:5])
+            envelope = ToolResult(
+                status="DEGRADED", applicability="REFERENCE_DEALER", references=references,
+                notes=[f"判定：AMBIGUOUS。国家 {country_key} 下有多个近似授权经销商：{names}；"
+                       "需人工确认后决定寄修/补单或引导联系商家。"])
+        else:
+            attrs = pool[0].attrs or {}
+            source = (pool[0].curation or {}).get("source_ref", pool[0].title)
+            envelope = ToolResult(
+                status="OK", applicability="REFERENCE_DEALER", references=references,
+                notes=[f"判定：AUTHORIZED。命中授权经销商「{attrs.get('seller')}」（country 精准 + seller 匹配），"
+                       f"SOURCE: {source}；可按授权渠道流程继续寄修/补单判断。"])
+        self._audit(run, "check_dealer_authorization", envelope)
+        self.session.commit()
+        return envelope
+
+    def case_stage(self) -> ToolResult:
+        run, _, conversation, _ = self._active_execution()
+        case = self.session.scalar(select(ServiceCase).join(
+            CaseConversation, CaseConversation.case_id == ServiceCase.id,
+        ).where(CaseConversation.conversation_id == conversation.id,
+                ServiceCase.tenant_id == self.tenant_id,
+                ).order_by(ServiceCase.created_at.desc()).limit(1))
+        if case is None:
+            envelope = ToolResult(status="NOT_FOUND", applicability="CASE_STAGE",
+                                  notes=["当前会话尚未关联服务案例，无法投影阶段。"])
+            self._audit(run, "get_case_stage", envelope)
+            self.session.commit()
+            return envelope
+        def exists(model, **filters):
+            return self.session.scalar(select(model.id).where(
+                model.tenant_id == case.tenant_id, model.case_id == case.id, *[
+                    getattr(model, key) == value for key, value in filters.items()]).limit(1)) is not None
+        if case.status == "RESOLVED":
+            stage, waiting_on = "RESOLVED", ""
+        elif case.status == "CLOSED":
+            stage, waiting_on = "CLOSED", ""
+        elif exists(CaseAction, status="WAITING_APPROVAL"):
+            stage, waiting_on = "ACTION_PENDING_APPROVAL", "主管审批"
+        elif exists(CaseAction, status="EXECUTING") or exists(CaseAction, status="UNKNOWN"):
+            stage, waiting_on = "ACTION_EXECUTING", "外部回执/对账"
+        elif exists(CaseVerification, decision="PENDING"):
+            stage, waiting_on = "VERIFICATION", "客户确认与服务端核验"
+        elif case.status == "WAITING_CUSTOMER":
+            stage, waiting_on = "DIAGNOSIS", "客户证据或确认"
+        else:
+            stage, waiting_on = "DIAGNOSIS", ""
+        envelope = ToolResult(
+            status="OK", applicability="CASE_STAGE",
+            references=[{"case_id": str(case.id), "case_version": case.version, "path": "typed"}],
+            notes=[f"当前案例阶段：{stage}" + (f"；等待：{waiting_on}" if waiting_on else "")
+                   + f"（case_status={case.status}）"])
+        self._audit(run, "get_case_stage", envelope)
+        self.session.commit()
+        return envelope
+
     def record_proposal(self, proposal_type: str, summary: str) -> ToolResult:
         summary = summary.strip()[:1000]
         if not summary:

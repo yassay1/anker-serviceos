@@ -219,6 +219,8 @@ class AgentRuntime:
                     with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
                         service.fail_diagnostic(task_id, specialist_run.id, "diagnostic_resume_failed")
                     raise RuntimeError("diagnostic_resume_failed") from error
+
+        @tool
         def get_service_progress(case_id: str = '') -> dict:
             """Read current authorized linked cases and service records; never changes state."""
             from serviceos_api.application.agent_services import AgentContextBuilder

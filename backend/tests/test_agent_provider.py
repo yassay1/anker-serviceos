@@ -1,4 +1,4 @@
-from serviceos_api.agents.runtime import _provider_request_options
+from serviceos_api.agents.model_compat import model_provider_options as _provider_request_options
 from serviceos_api.settings import Settings
 
 
