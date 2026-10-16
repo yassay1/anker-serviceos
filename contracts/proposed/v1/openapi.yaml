@@ -4,7 +4,7 @@ info:
   title: Anker ServiceOS API
   version: 0.1.0
 x-serviceos-proposal-status: draft
-x-serviceos-implemented-sha256: 618679ec89c8cddd83e40f5e34fece0969e048c74ff95ca27137895b7cf6c934
+x-serviceos-implemented-sha256: cbdaa2a3769e43152b164a3b31aaa2e207251b74c865ae81a787651cdf0f0ae9
 x-serviceos-planned-source: contracts/proposed/v1/planned.yaml
 paths:
   /api/v1/actions/{id}:
@@ -4247,7 +4247,9 @@ components:
           title: Input Schema Ref
           type: string
         intent:
-          const: REQUEST_ASSISTANCE
+          enum:
+          - REQUEST_ASSISTANCE
+          - SUBMIT_DIAGNOSTIC_ANSWER
           title: Intent
           type: string
       required:
@@ -4260,7 +4262,9 @@ components:
       additionalProperties: false
       properties:
         action_id:
-          const: request-human-assistance
+          enum:
+          - request-human-assistance
+          - submit-diagnostic-answer
           title: Action Id
           type: string
         client_action_id:
@@ -4299,6 +4303,12 @@ components:
           format: uuid
           title: Client Action Id
           type: string
+        diagnostic_task_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Diagnostic Task Id
         replayed:
           title: Replayed
           type: boolean
@@ -4307,13 +4317,14 @@ components:
           title: Status
           type: string
         task_id:
-          format: uuid
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
           title: Task Id
-          type: string
       required:
       - client_action_id
       - status
-      - task_id
       - replayed
       title: UIActionResult
       type: object
@@ -4440,8 +4451,15 @@ components:
           - CASE_VIEW
           - TASK_VIEW
           - AGENT_RUN_VIEW
+          - DIAGNOSTIC_TASK_VIEW
           title: Kind
           type: string
+        question_revision:
+          anyOf:
+          - minimum: 1.0
+            type: integer
+          - type: 'null'
+          title: Question Revision
         resource_id:
           format: uuid
           title: Resource Id
