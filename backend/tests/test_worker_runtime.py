@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from serviceos_api.application.agent_services import AgentContextBuilder
+from serviceos_api.application.agent_services import AgentContextBuilder, MAX_AGENT_RUN_TOOL_EXECUTIONS
 from serviceos_api.application.agent_services import AgentToolService
 from serviceos_api.agents.result import AgentOutputInvalidError, AgentResult
 from serviceos_api.application.auth import Principal
@@ -58,6 +58,31 @@ def seed_message(session, *, with_case=False):
     session.add(job)
     session.flush()
     return tenant, customer, conversation, message, job, case
+
+
+def test_parent_agent_run_tool_budget_is_shared_and_persisted(database_engine):
+    with Session(database_engine) as session:
+        tenant, _, conversation, message, job, _ = seed_message(session)
+        token = uuid4()
+        now = datetime.now(timezone.utc)
+        job.status = "RUNNING"
+        job.lease_owner = "budget-test"
+        job.lease_token = token
+        job.lease_expires_at = now + timedelta(minutes=5)
+        run = AgentRun(tenant_id=tenant.id, job_id=job.id, conversation_id=conversation.id,
+                       message_id=message.id, thread_id=str(uuid4()), lease_token=token,
+                       provider="test", model="test", status="RUNNING")
+        session.add(run)
+        session.flush()
+        service = AgentToolService(session, tenant.id, conversation.id, run.id, token,
+                                   Settings(environment="test"))
+
+        for _ in range(MAX_AGENT_RUN_TOOL_EXECUTIONS):
+            service._active_execution(reserve_tool_call=True)
+        session.commit()
+        assert run.result_payload["tool_execution_count"] == MAX_AGENT_RUN_TOOL_EXECUTIONS
+        with pytest.raises(ValueError, match="agent_run_tool_limit_reached"):
+            service._active_execution(reserve_tool_call=True)
 
 
 def test_message_job_lease_is_fenced_and_serialized(database_engine):

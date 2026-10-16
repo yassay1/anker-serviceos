@@ -7,11 +7,14 @@ from uuid import UUID
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelCallLimitMiddleware, SummarizationMiddleware, ToolCallLimitMiddleware
+from langchain.agents.middleware.model_call_limit import ModelCallLimitExceededError
+from langchain.agents.middleware.tool_call_limit import ToolCallLimitExceededError
 from langchain.agents.structured_output import StructuredOutputError, ToolStrategy
 from langchain_core.messages import HumanMessage, RemoveMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
+from langgraph.errors import GraphRecursionError
 from psycopg import connect
 from psycopg.rows import dict_row
 from sqlalchemy.engine import make_url
@@ -20,6 +23,11 @@ from serviceos_api.application.agent_services import AgentToolService, estimate_
 from serviceos_api.application.skills import SERVICE_EXPRESSION_RESPONSE_GUIDANCE, needs_service_expression_guidance
 from serviceos_api.agents.result import (
     AgentFinalOutput, AgentOutputInvalidError, AgentResult, parse_agent_payload, parse_agent_result,
+)
+from serviceos_api.agents.loop_control import (
+    MAIN_LOOKUP_RUN_LIMIT, MAIN_LOOKUP_THREAD_LIMIT, MAIN_MODEL_RUN_LIMIT,
+    MAIN_MODEL_THREAD_LIMIT, MAIN_RECURSION_LIMIT, MAIN_TOOL_RUN_LIMIT,
+    MAIN_TOOL_THREAD_LIMIT, budget_exhaustion_fallback, suppress_repeated_manual_lookup,
 )
 from serviceos_api.agents.model_compat import model_provider_options
 from serviceos_api.persistence.database import configured_database_url
@@ -111,6 +119,7 @@ class AgentRuntime:
             raise RuntimeError("model_provider_unconfigured")
 
         system_prompt = build_system_prompt(current_text)
+        execution_termination: str | None = None
 
         @tool
         def lookup_manual(query: str) -> str:
@@ -188,15 +197,11 @@ class AgentRuntime:
                         task_id, specialist_run_id, result, stats, task_input,
                         set(stats.get("manual_source_refs", [])),
                     )
-            except Exception as error:
-                # Persist only a bounded error code if this parent execution still owns its lease.
+            except Exception:
                 with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
                     service.fail_diagnostic(task_id, specialist_run_id, "diagnostic_execution_failed")
-                # Degrade instead of failing the whole turn: the manager answers with its
-                # own tools or escalates; the specialist failure stays audited on the task.
                 return {"task_id": str(task_id), "status": "FAILED",
-                        "error_code": "diagnostic_execution_failed",
-                        "diagnostic_result": None,
+                        "error_code": "diagnostic_execution_failed", "diagnostic_result": None,
                         "note": "诊断专家本次执行失败；请基于现有工具与资料直接回答，或建议人工协助。"}
             return {"task_id": str(task_id), "status": "COMPLETED", "diagnostic_result": payload}
 
@@ -221,11 +226,10 @@ class AgentRuntime:
                         specialist_run_id=specialist_run.id, answer_text=answer.answer,
                     )
                     with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
-                        payload = service.complete_diagnostic(
+                        context["resumed_diagnostic_result"] = service.complete_diagnostic(
                             task_id, specialist_run.id, result, diagnostic_stats, task_input,
                             set(diagnostic_stats.get("manual_source_refs", [])),
                         )
-                    context["resumed_diagnostic_result"] = payload
                 except Exception as error:
                     with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
                         service.fail_diagnostic(task_id, specialist_run.id, "diagnostic_resume_failed")
@@ -243,7 +247,7 @@ class AgentRuntime:
             """Read current authorized linked cases and service records; never changes state."""
             from serviceos_api.application.agent_services import AgentContextBuilder
             with _tool_service(tenant_id, conversation_id, run_id, lease_token) as service:
-                _, _, _, message = service._active_execution()
+                _, _, _, message = service._active_execution(reserve_tool_call=True)
                 current = AgentContextBuilder(service.session, tenant_id).build(conversation_id, message.id)
                 allowed = {item['id'] for item in current.get('linked_cases', [])}
                 if case_id and case_id not in allowed:
@@ -288,8 +292,23 @@ class AgentRuntime:
                         SummarizationMiddleware(model, trigger=("tokens", 16000), keep=("messages", 8),
                                                 summary_prompt=RUN_SUMMARY_PROMPT,
                                                 trim_tokens_to_summarize=6000),
-                        ModelCallLimitMiddleware(run_limit=6, exit_behavior="error"),
-                        ToolCallLimitMiddleware(run_limit=12, exit_behavior="continue"),
+                        ModelCallLimitMiddleware(
+                            run_limit=MAIN_MODEL_RUN_LIMIT,
+                            thread_limit=MAIN_MODEL_THREAD_LIMIT,
+                            exit_behavior="error",
+                        ),
+                        ToolCallLimitMiddleware(
+                            run_limit=MAIN_LOOKUP_RUN_LIMIT,
+                            thread_limit=MAIN_LOOKUP_THREAD_LIMIT,
+                            tool_name="lookup_manual",
+                            exit_behavior="error",
+                        ),
+                        ToolCallLimitMiddleware(
+                            run_limit=MAIN_TOOL_RUN_LIMIT,
+                            thread_limit=MAIN_TOOL_THREAD_LIMIT,
+                            exit_behavior="error",
+                        ),
+                        suppress_repeated_manual_lookup,
                     ],
                     checkpointer=checkpointer,
                     name="serviceos_after_sales_agent",
@@ -317,9 +336,21 @@ class AgentRuntime:
                 # Some providers (DashScope thinking mode via the router) reject the
                 # tool_choice required by structured-output strategies. Degrade once to a
                 # plain agent and resubmit the full turn; the typed text contract still applies.
-                nonlocal plain_agent, use_plain
+                nonlocal plain_agent, use_plain, execution_termination
                 try:
                     return (plain_agent if use_plain else agent).invoke(payload, config=config)
+                except (ModelCallLimitExceededError, ToolCallLimitExceededError, GraphRecursionError) as error:
+                    execution_termination = type(error).__name__
+                    try:
+                        saved = agent.get_state(config)
+                        saved_messages = (saved.values or {}).get("messages", [])
+                    except Exception:
+                        saved_messages = []
+                    return {
+                        "structured_response": AgentFinalOutput(
+                            text=budget_exhaustion_fallback(context)),
+                        "messages": saved_messages,
+                    }
                 except Exception as exc:
                     if use_plain or not _thinking_tool_choice_rejected(exc):
                         raise
@@ -341,7 +372,13 @@ class AgentRuntime:
                 content=model_input,
                 additional_kwargs={"serviceos_message_id": str(message_id),
                                    "serviceos_output_contract": "typed_v1"})]}
-            config = {"configurable": {"thread_id": thread_id or str(run_id)}, "recursion_limit": 30}
+            config = {
+                "configurable": {"thread_id": thread_id or str(run_id)},
+                "recursion_limit": MAIN_RECURSION_LIMIT,
+                # Tool services audit through the parent AgentRun row. Serialize calls
+                # until all currently registered capabilities have concurrency-safe writes.
+                "max_concurrency": 1,
+            }
             checkpoint = agent.get_state(config)
             messages = checkpoint.values.get("messages", []) if checkpoint.values else []
             structured = (checkpoint.values or {}).get("structured_response")
@@ -408,6 +445,7 @@ class AgentRuntime:
             "context_digest_items": context.get("context_budget", {}).get("history_digest_items"),
             "context_build_duration_ms": context.get("context_budget", {}).get("build_duration_ms"),
             "tool_call_counts": dict(tool_calls),
+            "execution_termination": execution_termination,
         }
         return parsed, stats
 

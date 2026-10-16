@@ -160,6 +160,10 @@ class AgentProgress(BaseModel):
         return self
 
 
+# Parent-run budget shared by the manager and delegated Specialist tool services.
+MAX_AGENT_RUN_TOOL_EXECUTIONS = 18
+
+
 def validate_agent_execution(session: Session, tenant_id: UUID, conversation_id: UUID,
                              run_id: UUID, lease_token: UUID, *, statuses=("RUNNING",)):
     """Fence all tool/progress writes. Lock order is job, conversation, then run.
@@ -543,12 +547,23 @@ class AgentToolService:
         self.lease_token = lease_token
         self.settings = settings
 
-    def _active_execution(self):
-        return validate_agent_execution(self.session, self.tenant_id, self.conversation_id,
-                                        self.run_id, self.lease_token)
+    def _active_execution(self, *, reserve_tool_call: bool = False):
+        run, job, conversation, message = validate_agent_execution(
+            self.session, self.tenant_id, self.conversation_id, self.run_id, self.lease_token,
+        )
+        if reserve_tool_call:
+            payload = dict(run.result_payload or {})
+            used = payload.get("tool_execution_count", 0)
+            if not isinstance(used, int) or used < 0:
+                used = 0
+            if used >= MAX_AGENT_RUN_TOOL_EXECUTIONS:
+                raise ValueError("agent_run_tool_limit_reached")
+            payload["tool_execution_count"] = used + 1
+            run.result_payload = payload
+        return run, job, conversation, message
 
     def load_skill(self, skill_id: str, version: str) -> dict:
-        run, _, conversation, message = self._active_execution()
+        run, _, conversation, message = self._active_execution(reserve_tool_call=True)
         definition = SKILL_REGISTRY.get((skill_id, version))
         if definition is None:
             raise ValueError("skill_unavailable")
@@ -609,7 +624,7 @@ class AgentToolService:
         # Query is deliberately neither logged nor included in the fixed progress payload.
         if not isinstance(query, str) or not query.strip():
             raise ValueError("manual_query_required")
-        run, _, _, message = self._active_execution()
+        run, _, _, message = self._active_execution(reserve_tool_call=True)
         if specialist is None:
             self._progress("lookup_started")
         else:
@@ -685,7 +700,7 @@ class AgentToolService:
     def query_order_warranty(self, order_no: str) -> ToolResult:
         if not isinstance(order_no, str) or not order_no.strip():
             raise ValueError("order_no_required")
-        run, _, _, _ = self._active_execution()
+        run, _, _, _ = self._active_execution(reserve_tool_call=True)
         key = order_no.strip().casefold()
         segment = self.session.scalar(select(KnowledgeSegment).where(
             KnowledgeSegment.attrs["order_no"].as_string() == key).limit(1))
@@ -724,7 +739,7 @@ class AgentToolService:
         seller_norm = normalize_seller(seller if isinstance(seller, str) else "")
         if not seller_norm:
             raise ValueError("seller_required")
-        run, _, _, _ = self._active_execution()
+        run, _, _, _ = self._active_execution(reserve_tool_call=True)
         country_key = _normalize_country(country)
         candidates = list(self.session.scalars(select(KnowledgeSegment).where(
             KnowledgeSegment.attrs["country"].as_string() == country_key,
@@ -761,7 +776,7 @@ class AgentToolService:
         if not all(isinstance(value, str) and value.strip()
                    for value in (country, channel, product_family, warranty_state)):
             raise ValueError("policy_input_required")
-        run, _, _, _ = self._active_execution()
+        run, _, _, _ = self._active_execution(reserve_tool_call=True)
         row = resolve_policy_row(self.session, country=country, channel=channel,
                                  product_family=product_family, warranty_state=warranty_state)
         if row is None:
@@ -782,7 +797,7 @@ class AgentToolService:
         return envelope
 
     def case_stage(self) -> ToolResult:
-        run, _, conversation, _ = self._active_execution()
+        run, _, conversation, _ = self._active_execution(reserve_tool_call=True)
         case = self.session.scalar(select(ServiceCase).join(
             CaseConversation, CaseConversation.case_id == ServiceCase.id,
         ).where(CaseConversation.conversation_id == conversation.id,
@@ -827,7 +842,7 @@ class AgentToolService:
             raise ValueError("proposal_summary_required")
         if proposal_type not in ("MISSING_EVIDENCE", "ACTION"):
             raise ValueError("proposal_type_not_allowed")
-        run, _, _, _ = self._active_execution()
+        run, _, _, _ = self._active_execution(reserve_tool_call=True)
         key = hashlib.sha256(f"{proposal_type}:{summary.casefold()}".encode()).hexdigest()
         existing = self.session.scalar(select(AgentProposal).where(
             AgentProposal.tenant_id == self.tenant_id,
@@ -852,7 +867,7 @@ class AgentToolService:
 
     def start_diagnostic(self, goal: str, context: dict, current_text: str):
         """Create/resume a business-owned task under the parent AgentRun lease."""
-        run, _, conversation, message = self._active_execution()
+        run, _, conversation, message = self._active_execution(reserve_tool_call=True)
         goal = " ".join(goal.split()) if isinstance(goal, str) else ""
         if not 1 <= len(goal) <= 1000:
             raise ValueError("diagnostic_goal_invalid")

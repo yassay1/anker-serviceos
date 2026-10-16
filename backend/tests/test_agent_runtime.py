@@ -57,9 +57,16 @@ def test_service_agent_keeps_diagnostic_as_an_optional_manager_tool(monkeypatch)
         "resolve_policy", "load_skill", "request_missing_evidence", "propose_action",
         "delegate_diagnostic", "get_service_progress",
     }
-    assert captured["config"]["recursion_limit"] == 30
+    assert captured["config"]["recursion_limit"] == runtime.MAIN_RECURSION_LIMIT
+    assert captured["config"]["max_concurrency"] == 1
     assert any(getattr(middleware, "run_limit", None) == 6 for middleware in captured["middleware"])
     assert any(getattr(middleware, "run_limit", None) == 12 for middleware in captured["middleware"])
+    assert any(getattr(middleware, "tool_name", None) == "lookup_manual"
+               and getattr(middleware, "run_limit", None) == runtime.MAIN_LOOKUP_RUN_LIMIT
+               and getattr(middleware, "thread_limit", None) == runtime.MAIN_LOOKUP_THREAD_LIMIT
+               for middleware in captured["middleware"])
+    assert any(getattr(middleware, "thread_limit", None) == runtime.MAIN_MODEL_THREAD_LIMIT
+               for middleware in captured["middleware"])
     assert captured["response_format"].schema is AgentFinalOutput
     assert captured["model_kwargs"]["extra_body"] == {"thinking": {"type": "disabled"}}
 
@@ -86,6 +93,29 @@ def test_service_agent_reuses_structured_checkpoint_without_model_call(monkeypat
         message_id=uuid4(), context={"context_budget": {}}, current_text="继续",
     )
     assert result.text == "已保存的答复。"
+
+
+def test_service_agent_returns_safe_question_when_execution_budget_is_exhausted(monkeypatch):
+    class FakeGraph:
+        def get_state(self, _config):
+            return SimpleNamespace(values={"messages": []}, next=[])
+
+        def invoke(self, *_args, **_kwargs):
+            raise runtime.GraphRecursionError("recursion_limit")
+
+    install_fake_checkpointer(monkeypatch)
+    monkeypatch.setattr(runtime, "ChatOpenAI", lambda **_kwargs: object())
+    monkeypatch.setattr(runtime, "SummarizationMiddleware", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(runtime, "create_agent", lambda **_kwargs: FakeGraph())
+    settings = Settings(environment="test", llm_model="model", llm_api_key="test", llm_base_url="http://model")
+
+    result, stats = runtime.AgentRuntime(settings).invoke(
+        tenant_id=uuid4(), conversation_id=uuid4(), run_id=uuid4(), lease_token=uuid4(),
+        message_id=uuid4(), context={"context_budget": {}}, current_text="设备没反应",
+    )
+
+    assert result.text.startswith("为了避免把不同型号的资料用错")
+    assert stats["execution_termination"] == "GraphRecursionError"
 
 
 def test_openai_compatible_provider_options_are_configurable():
@@ -198,9 +228,17 @@ def test_diagnostic_agent_exposes_only_bounded_read_only_tools(monkeypatch):
     assert {tool.name for tool in captured["tools"]} == {"lookup_manual", "load_skill"}
     assert captured["response_format"].schema is DiagnosticResult
     assert captured["diagnostic_model_kwargs"]["extra_body"] == {"thinking": {"type": "disabled"}}
-    assert captured["config"]["recursion_limit"] == 16
+    assert captured["config"]["recursion_limit"] == diagnostic.SPECIALIST_RECURSION_LIMIT
+    assert captured["config"]["max_concurrency"] == 1
     assert any(getattr(middleware, "run_limit", None) == 3 for middleware in captured["middleware"])
     assert any(getattr(middleware, "run_limit", None) == 4 for middleware in captured["middleware"])
+    assert any(getattr(middleware, "run_limit", None) == diagnostic.SPECIALIST_TOOL_RUN_LIMIT
+               and getattr(middleware, "thread_limit", None) == diagnostic.SPECIALIST_TOOL_THREAD_LIMIT
+               for middleware in captured["middleware"])
+    assert any(getattr(middleware, "tool_name", None) == "lookup_manual"
+               and getattr(middleware, "run_limit", None) == diagnostic.SPECIALIST_LOOKUP_RUN_LIMIT
+               and getattr(middleware, "thread_limit", None) == diagnostic.SPECIALIST_LOOKUP_THREAD_LIMIT
+               for middleware in captured["middleware"])
 
 
 def test_customer_answer_resumes_persisted_task_before_manager_reply(monkeypatch):
