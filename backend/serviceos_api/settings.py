@@ -38,8 +38,9 @@ class Settings:
     llm_model: str = ""
     llm_api_key: str = field(default="", repr=False)
     llm_base_url: str = ""
-    llm_extra_body: dict = field(default_factory=dict, repr=False)
     llm_timeout_seconds: int = 60
+    fast_model: str = ""
+    llm_extra_body: dict = field(default_factory=dict, repr=False)
     embedding_model: str = ""
     embedding_api_key: str = field(default="", repr=False)
     embedding_base_url: str = ""
@@ -97,6 +98,11 @@ class Settings:
         return bool(self.llm_model and self.llm_api_key and self.llm_base_url)
 
     @property
+    def fast_or_llm_model(self) -> str:
+        """Cheap model for auxiliary calls (rewrite/verifier); falls back to the main model."""
+        return self.fast_model or self.llm_model
+
+    @property
     def embedding_configured(self) -> bool:
         return bool(self.embedding_model and self.embedding_api_key and self.embedding_base_url)
 
@@ -110,6 +116,7 @@ class Settings:
             llm_model=os.getenv("SERVICEOS_LLM_MODEL", ""),
             llm_api_key=environment_secret("SERVICEOS_LLM_API_KEY"),
             llm_base_url=os.getenv("SERVICEOS_LLM_BASE_URL", "").rstrip("/"),
+            fast_model=os.getenv("SERVICEOS_FAST_MODEL", ""),
             llm_extra_body=_llm_extra_body(os.getenv("SERVICEOS_LLM_EXTRA_BODY_JSON", "")),
             llm_timeout_seconds=max(10, min(int(os.getenv("SERVICEOS_LLM_TIMEOUT_SECONDS", "60")), 180)),
             embedding_model=os.getenv("SERVICEOS_EMBEDDING_MODEL", ""),

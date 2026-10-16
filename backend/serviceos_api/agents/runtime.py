@@ -1,6 +1,7 @@
 """LangChain Agent loop with a PostgreSQL checkpoint isolated by schema."""
 
 import os
+import time
 from collections import Counter
 from contextlib import contextmanager
 from uuid import UUID
@@ -332,7 +333,21 @@ class AgentRuntime:
                     current = current.__cause__ or current.__context__
                 return False
 
-            def invoke_agent(payload):
+            def _transient_provider_error(exc: BaseException) -> bool:
+                seen: set[int] = set()
+                current: BaseException | None = exc
+                while current is not None and id(current) not in seen:
+                    seen.add(id(current))
+                    name = type(current).__name__
+                    status = getattr(current, "status_code", None)
+                    if name in ("APITimeoutError", "APIConnectionError", "RateLimitError"):
+                        return True
+                    if status in (408, 429, 500, 502, 503, 504, 529):
+                        return True
+                    current = current.__cause__ or current.__context__
+                return False
+
+            def invoke_agent(payload, _retried=False):
                 # Some providers (DashScope thinking mode via the router) reject the
                 # tool_choice required by structured-output strategies. Degrade once to a
                 # plain agent and resubmit the full turn; the typed text contract still applies.
@@ -352,6 +367,10 @@ class AgentRuntime:
                         "messages": saved_messages,
                     }
                 except Exception as exc:
+                    if not _retried and _transient_provider_error(exc):
+                        # One bounded immediate retry hides provider blips from customers.
+                        time.sleep(1.0)
+                        return invoke_agent(payload, _retried=True)
                     if use_plain or not _thinking_tool_choice_rejected(exc):
                         raise
                     plain_agent = build_agent(None)

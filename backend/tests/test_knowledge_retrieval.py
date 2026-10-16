@@ -335,3 +335,28 @@ def test_lookup_manual_returns_disambiguation_conflict_without_verified_model(db
     assert run.result_payload["disambiguation_required"] is True
     resolved = service.lookup_manual("S1 Pro 加热耗电", verified_models={"t8d04"})
     assert resolved.applicability != "DISAMBIGUATION_REQUIRED"
+
+
+def test_rewrite_is_reactive_not_per_turn(db_session, monkeypatch):
+    from serviceos_api.application import agent_services as agent_services_module
+    from serviceos_api.application.query_rewrite import RewriteResult
+
+    calls = []
+
+    class FakeRewriter:
+        def __init__(self, settings, transport=None):
+            pass
+
+        def rewrite(self, query):
+            calls.append(query)
+            return RewriteResult(query, False, "test")
+
+    monkeypatch.setattr(agent_services_module, "QueryRewriter", FakeRewriter)
+    tenant, conversation, run = active_run(db_session)
+    service = AgentToolService(db_session, tenant.id, conversation.id, run.id, run.lease_token,
+                               settings=Settings(environment="test", llm_model="m",
+                                                 llm_api_key="k", llm_base_url="https://x.invalid"))
+    hit = service.lookup_manual("losing map after cleaning", verified_models={"t2352"})
+    assert hit.status == "OK" and calls == []
+    miss = service.lookup_manual("xyzzy plugh frobnicate", verified_models=set())
+    assert miss.status == "NOT_FOUND" and len(calls) == 1

@@ -21,6 +21,8 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from serviceos_api.integrations.http_clients import post_json
+
 from serviceos_api.persistence.knowledge_models import KnowledgeSegment
 from serviceos_api.persistence.models import (
     AgentRun, CaseConversation, CaseDevice, CaseEvidence, DeviceFact,
@@ -107,21 +109,22 @@ class CoverageVerifier:
     def verify(self, customer_text: str, reply: str) -> dict | None:
         for attempt in range(2):
             try:
-                with httpx.Client(transport=self._transport, timeout=self.settings.llm_timeout_seconds) as client:
-                    response = client.post(
-                        f"{self.settings.llm_base_url}/chat/completions",
-                        headers={"Authorization": f"Bearer {self.settings.llm_api_key}"},
-                        json={
-                            "model": self.settings.llm_model,
-                            "temperature": 0,
-                            "max_completion_tokens": 400,
-                            "messages": [
-                                {"role": "system", "content": VERIFIER_SYSTEM},
-                                {"role": "user", "content":
-                                    f"CUSTOMER MESSAGE:\n{customer_text[:2000]}\n\nREPLY:\n{reply[:4000]}"},
-                            ],
-                        },
-                    )
+                response = post_json(
+                    f"{self.settings.llm_base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {self.settings.llm_api_key}"},
+                    payload={
+                        "model": self.settings.fast_or_llm_model,
+                        "temperature": 0,
+                        "max_completion_tokens": 400,
+                        "messages": [
+                            {"role": "system", "content": VERIFIER_SYSTEM},
+                            {"role": "user", "content":
+                                f"CUSTOMER MESSAGE:\n{customer_text[:2000]}\n\nREPLY:\n{reply[:4000]}"},
+                        ],
+                    },
+                    timeout=self.settings.llm_timeout_seconds,
+                    transport=self._transport,
+                )
                 response.raise_for_status()
                 payload = response.json()
                 content = (payload.get("choices") or [{}])[0].get("message", {}).get("content") or ""

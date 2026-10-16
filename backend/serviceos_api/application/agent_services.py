@@ -670,12 +670,14 @@ class AgentToolService:
             self.session.commit()
             return envelope
         effective = query
-        rewritten = QueryRewriter(settings).rewrite(query)
-        if rewritten.applied:
-            effective = rewritten.query
-            if specialist is None:
+        # Reactive rewrite: pay the extra LLM hop only when the first pass found nothing.
+        result = retrieval.search(query, verified_models)
+        if not result.items:
+            rewritten = QueryRewriter(settings).rewrite(query)
+            if rewritten.applied:
+                effective = rewritten.query
                 self._progress("retrieval_rewrite")
-        result = retrieval.search(effective, verified_models)
+                result = retrieval.search(effective, verified_models)
         if specialist is None:
             for stage in result.stages:
                 self._progress(f"retrieval_{stage}")

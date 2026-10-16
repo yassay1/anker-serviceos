@@ -13,6 +13,7 @@ import re
 
 import httpx
 
+from serviceos_api.integrations.http_clients import post_json
 from serviceos_api.settings import Settings
 
 REWRITE_SYSTEM = (
@@ -41,20 +42,21 @@ class QueryRewriter:
         if not self.settings.llm_configured:
             return RewriteResult(query, False, "provider_unconfigured")
         try:
-            with httpx.Client(transport=self._transport, timeout=self.settings.llm_timeout_seconds) as client:
-                response = client.post(
-                    f"{self.settings.llm_base_url}/chat/completions",
-                    headers={"Authorization": f"Bearer {self.settings.llm_api_key}"},
-                    json={
-                        "model": self.settings.llm_model,
-                        "temperature": 0,
-                        "max_completion_tokens": 300,
-                        "messages": [
-                            {"role": "system", "content": REWRITE_SYSTEM},
-                            {"role": "user", "content": query[:2000]},
-                        ],
-                    },
-                )
+            response = post_json(
+                f"{self.settings.llm_base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {self.settings.llm_api_key}"},
+                payload={
+                    "model": self.settings.fast_or_llm_model,
+                    "temperature": 0,
+                    "max_completion_tokens": 300,
+                    "messages": [
+                        {"role": "system", "content": REWRITE_SYSTEM},
+                        {"role": "user", "content": query[:2000]},
+                    ],
+                },
+                timeout=self.settings.llm_timeout_seconds,
+                transport=self._transport,
+            )
             response.raise_for_status()
             payload = response.json()
             content = (payload.get("choices") or [{}])[0].get("message", {}).get("content") or ""
