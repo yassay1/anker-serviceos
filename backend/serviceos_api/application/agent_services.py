@@ -727,7 +727,8 @@ class AgentToolService:
             fields.append(f"in_warranty: {in_warranty}")
             envelope = ToolResult(
                 status="OK", items=[" | ".join(fields)],
-                references=[{"source_ref": source, "entry_key": segment.entry_key, "path": "typed"}],
+                references=[{"source_ref": source, "entry_key": segment.entry_key,
+                             "source_sha256_16": segment.content_sha256[:16], "path": "typed"}],
                 applicability="REFERENCE_ORDER",
                 notes=[f"只读脱敏订单参考数据。SOURCE: {source} | APPLICABILITY: REFERENCE_ORDER"])
         self._audit(run, "query_order_warranty", envelope)
