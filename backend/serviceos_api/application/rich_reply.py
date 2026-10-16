@@ -6,6 +6,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import select
 
+from serviceos_api.application.safety_policy import SafetyAssessment, assess_hardware_hazard
+
 
 class ContentModel(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
@@ -125,7 +127,7 @@ rich 格式：{"schema_version":1,"blocks":[],"quick_replies":[]}。简单问答
 blocks 的 type 仅有 summary/steps/table/image/image_focus/alert/timeline/status/reference/actions。
 每块可选 title/text。steps: items=[{"title":"标题","description":"说明"}]，最多6步。
 table: columns=["观察结果","可能方向","下一步"],rows=[["…","…","…"]]，最多5列8行；推测必须明确为待确认。
-alert: severity=info/warning/danger。鼓包、冒烟、漏液、异味或明显过热时优先停止使用/充电和现有人工协助，不拆机、不继续测试。
+alert: severity=info/warning/danger。鼓包、冒烟、焦味、漏液、明显过热或破损时必须停止使用/充电/测试并联系人工协助；爆裂或起火时先远离并联系当地紧急服务。不拆机、不继续测试。
 status/timeline: 只给从 get_service_progress 或上下文获得的 case_id，标题和真实状态/事件由服务器生成；不自行写 entries/status_code。
 image: 只给 image_evidence 中的 case_id/evidence_id。只有 VISION_INPUT 中的图片才真正可见，否则不得声称已查看图片或诊断外观。
 image_focus 可带 focus={x,y,width,height} 的0到1坐标；当前无人工核验定位链路，服务器会降级为原图，不能声称已经可靠裁切。
@@ -142,34 +144,33 @@ quick_replies 是客户的新问题，不是答案选项或执行动作；不要
 STATUS_LABELS = {'OPEN': '已建立', 'IN_PROGRESS': '处理中', 'WAITING_CUSTOMER': '等待客户补充',
                  'WAITING_EXTERNAL': '等待外部处理', 'RESOLVED': '已核验解决', 'CLOSED': '已关闭'}
 
-RISK = re.compile(r'(?<!没有)(?<!无)(?<!不)(鼓包|冒烟|漏液|烧焦|烫手|异味|异常发热|明显过热|过热)')
-
-
-def _safety_reply(reply: RichReply) -> RichReply:
-    """Keep only content that is replaced with server-owned facts or neutral copy."""
-    safe_types = {'image', 'image_focus', 'status', 'timeline', 'reference', 'actions'}
-    blocks = []
-    for item in reply.blocks:
-        if item.type not in safe_types:
-            continue
-        if item.type in ('image', 'image_focus'):
-            blocks.append(item.model_copy(update={
-                'type': 'image', 'title': '用户提供的图片',
-                'text': '已收到设备图片；无法据此确认故障原因。请先遵循安全提示。',
-                'focus': None,
-            }))
-        else:
-            blocks.append(item)
-    safety_alert = ReplyBlock(type='alert', title='先停止使用设备', text=SAFETY_TEXT,
-                              severity='danger', status_code='POLICY_SAFETY_STOP')
-    return reply.model_copy(update={'blocks': [safety_alert, *blocks], 'quick_replies': []})
-SAFETY_TEXT = '如果设备出现鼓包、冒烟、漏液、异味或明显过热，请停止使用和充电，保持安全距离，不要拆机、挤压或继续通电排查，并通过现有入口联系人工客服。单凭描述不能确认故障原因。'
+def safety_rich_reply(assessment: SafetyAssessment) -> dict:
+    """Build a fully server-owned safety projection; do not retain model-authored blocks."""
+    return {
+        'schema_version': 1,
+        'blocks': [
+            {'type': 'alert', 'title': '先停止使用设备', 'text': assessment.reply_text,
+             'severity': 'danger', 'status_code': 'POLICY_SAFETY_STOP'},
+            {'type': 'actions', 'title': '打开人工协助入口', 'action': 'request_assistance',
+             'text': '打开现有协助入口，由你确认后再提交。'},
+        ],
+        'quick_replies': [],
+    }
 
 
 def project_reply(session, conversation, run, draft, related_case_id=None, *, force_safety=False):
     """Bind model display requests to current authorized records at publication time."""
     from serviceos_api.persistence.models import (CaseAction, CaseConversation, CaseImageEvidence,
         CaseVerification, Message, ServiceCase, ServiceTask)
+
+    source_message = session.scalar(select(Message).where(Message.id == run.message_id,
+        Message.tenant_id == conversation.tenant_id, Message.conversation_id == conversation.id))
+    source_text = ' '.join(part.get('text', '') for part in source_message.content) if source_message else ''
+    assessment = assess_hardware_hazard(source_text)
+    if force_safety and not assessment.triggered:
+        assessment = SafetyAssessment('STOP_USE', ('diagnostic_safety_stop',))
+    if assessment.triggered:
+        return safety_rich_reply(assessment)
 
     try:
         reply = RichReply.model_validate(draft)
@@ -183,12 +184,6 @@ def project_reply(session, conversation, run, draft, related_case_id=None, *, fo
     retrieved = {item['source_id']: item for item in payload.get('retrieved_sources', []) if isinstance(item, dict) and 'source_id' in item}
     vision = set(payload.get('vision_evidence_ids', []))
     projected = []
-    source_message = session.scalar(select(Message).where(Message.id == run.message_id,
-        Message.tenant_id == conversation.tenant_id, Message.conversation_id == conversation.id))
-    safety = force_safety or bool(
-        source_message and RISK.search(' '.join(part.get('text', '') for part in source_message.content)))
-    if safety:
-        reply = _safety_reply(reply)
     for item in reply.blocks:
         block = item.model_dump(mode='json')
         case_id = item.case_id or (str(related_case_id) if related_case_id else next(iter(by_id), None) if len(by_id) == 1 else None)
@@ -197,11 +192,8 @@ def project_reply(session, conversation, run, draft, related_case_id=None, *, fo
         block['source_url'] = None
         block['entries'] = []
         block['status_code'] = None
-        if item.type == 'alert' and safety and item.status_code == 'POLICY_SAFETY_STOP':
-            block.update(title='先停止使用设备', text=SAFETY_TEXT, severity='danger',
-                         status_code='POLICY_SAFETY_STOP')
-        elif item.type == 'alert':
-            # Only the server risk policy can attach the reserved safety marker.
+        if item.type == 'alert':
+            # Only the server safety projection can attach the reserved marker.
             block['status_code'] = None
         if item.type in ('status', 'timeline'):
             if case is None:
@@ -255,12 +247,6 @@ def project_reply(session, conversation, run, draft, related_case_id=None, *, fo
                               'request_assistance': '打开人工协助入口'}[item.action]
             block['text'] = '将打开已有服务入口；不会直接批准或执行售后操作。'
         projected.append(block)
-    if safety:
-        projected = [{'type': 'alert', 'title': '先停止使用设备', 'text': SAFETY_TEXT, 'severity': 'danger',
-                      'status_code': 'POLICY_SAFETY_STOP'},
-                     {'type': 'actions', 'title': '打开人工协助入口', 'action': 'request_assistance',
-                      'text': '打开现有协助入口，由你确认后再提交。'},
-                     *[item for item in projected if item['type'] not in ('alert', 'actions')]][:8]
     quick = reply.quick_replies
     previous = session.scalars(select(Message).where(Message.conversation_id == conversation.id,
         Message.tenant_id == conversation.tenant_id, Message.visibility == 'PUBLIC')

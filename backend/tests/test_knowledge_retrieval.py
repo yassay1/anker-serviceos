@@ -18,7 +18,7 @@ from serviceos_api.knowledge_ingest import _content_sha, embed_missing, ingest, 
 from serviceos_api.persistence.knowledge_models import (
     KnowledgeDocument, KnowledgeDocumentVersion, KnowledgeEmbedding, KnowledgeSegment,
 )
-from serviceos_api.persistence.models import AgentRun
+from serviceos_api.persistence.models import AgentRun, Message
 from serviceos_api.settings import Settings
 from test_worker_runtime import seed_message
 
@@ -318,11 +318,37 @@ def test_detect_ambiguity_requires_two_unresolved_candidates():
     from serviceos_api.application.knowledge_retrieval import detect_ambiguity
     assert len(detect_ambiguity("我的 S1 Pro 吸力小", set())) == 2
     assert detect_ambiguity("我的 S1 Pro 吸力小", {"t8d04"}) == []
+    assert detect_ambiguity("我没说 S1 Pro，只说充电宝", set()) == []
     assert detect_ambiguity("我的 E28 丢地图", set()) == []
+
+
+def test_agent_query_cannot_introduce_unmentioned_ambiguous_product():
+    from serviceos_api.application.knowledge_retrieval import ground_retrieval_query
+
+    query, aliases = ground_retrieval_query(
+        "S1 Pro 吸力变小", "我的充电宝炸了", set(),
+    )
+    assert query == "我的充电宝炸了"
+    assert aliases == ("s1 pro",)
+
+    grounded, aliases = ground_retrieval_query(
+        "S1 Pro 吸力变小", "我的 S1 Pro 吸力变小", set(),
+    )
+    assert grounded == "S1 Pro 吸力变小"
+    assert aliases == ()
+
+    verified, aliases = ground_retrieval_query(
+        "S1 Pro 加热问题", "设备加热有问题", {"t8d04"},
+    )
+    assert verified == "S1 Pro 加热问题"
+    assert aliases == ()
 
 
 def test_lookup_manual_returns_disambiguation_conflict_without_verified_model(db_session):
     tenant, conversation, run = active_run(db_session)
+    source_message = db_session.get(Message, run.message_id)
+    source_message.content = [{"type": "text", "text": "S1 Pro 吸力变小是不是电池不行"}]
+    db_session.flush()
     service = AgentToolService(db_session, tenant.id, conversation.id, run.id, run.lease_token,
                                settings=Settings(environment="test"))
     envelope = service.lookup_manual("S1 Pro 吸力变小是不是电池不行", verified_models=set())
@@ -335,3 +361,16 @@ def test_lookup_manual_returns_disambiguation_conflict_without_verified_model(db
     assert run.result_payload["disambiguation_required"] is True
     resolved = service.lookup_manual("S1 Pro 加热耗电", verified_models={"t8d04"})
     assert resolved.applicability != "DISAMBIGUATION_REQUIRED"
+
+
+def test_lookup_manual_uses_customer_text_when_agent_invents_s1_pro(db_session):
+    tenant, conversation, run = active_run(db_session)
+    service = AgentToolService(db_session, tenant.id, conversation.id, run.id, run.lease_token,
+                               settings=Settings(environment="test"))
+
+    result = service.lookup_manual("S1 Pro 吸力变小是不是电池不行", verified_models=set())
+
+    assert result.applicability != "DISAMBIGUATION_REQUIRED"
+    db_session.refresh(run)
+    assert run.result_payload["query_identity_grounding"] == "CUSTOMER_TEXT_FALLBACK"
+    assert run.result_payload.get("disambiguation_required") is not True

@@ -31,16 +31,44 @@ AMBIGUOUS_PRODUCTS = {
 }
 
 
+_PRODUCT_DENIAL = re.compile(r"(?:没(?:有)?(?:说|提到|提及|问|提过)|未(?:说|提到|提及)|不(?:是|问|提到)|不是(?:在问)?)\s*$")
+
+
+def _customer_named_alias(text: str, alias: str) -> bool:
+    folded = text.casefold()
+    for match in re.finditer(re.escape(alias), folded):
+        prefix = folded[max(0, match.start() - 14):match.start()]
+        if not _PRODUCT_DENIAL.search(prefix):
+            return True
+    return False
+
+
 def detect_ambiguity(query: str, verified_models: set[str]) -> list[tuple[str, str]]:
     """Return conflicting (label, model) candidates visible to the agent, else []."""
-    folded = query.casefold()
     verified = {model.casefold() for model in verified_models}
     for name, candidates in AMBIGUOUS_PRODUCTS.items():
-        if name in folded:
+        if _customer_named_alias(query, name):
             unresolved = [candidate for candidate in candidates if candidate[1] not in verified]
             if len(unresolved) >= 2:
                 return list(unresolved)
     return []
+
+
+def ground_retrieval_query(query: str, customer_text: str,
+                           verified_models: set[str]) -> tuple[str, tuple[str, ...]]:
+    """Prevent a model-authored query from introducing a known ambiguous product alias.
+
+    Model-generated issue wording remains useful for retrieval, but a product alias is
+    grounded only when the customer said it or a matching candidate model is verified.
+    """
+    query_folded = query.casefold()
+    verified = {model.casefold() for model in verified_models}
+    ungrounded = tuple(
+        alias for alias, candidates in AMBIGUOUS_PRODUCTS.items()
+        if alias in query_folded and not _customer_named_alias(customer_text, alias)
+        and not any(model in verified for _, model in candidates)
+    )
+    return (customer_text.strip(), ungrounded) if ungrounded and customer_text.strip() else (query, ())
 
 
 def search_tokens(value: str) -> set[str]:

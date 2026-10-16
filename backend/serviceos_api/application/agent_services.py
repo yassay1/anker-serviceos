@@ -18,7 +18,9 @@ from serviceos_api.application.skills import (
 )
 from serviceos_api.application.contracts import ExperienceContent
 from serviceos_api.application.knowledge_pipeline import normalize_seller
-from serviceos_api.application.knowledge_retrieval import KnowledgeRetrieval, detect_ambiguity
+from serviceos_api.application.knowledge_retrieval import (
+    KnowledgeRetrieval, detect_ambiguity, ground_retrieval_query,
+)
 from serviceos_api.application.policies import resolve_policy_row
 from serviceos_api.application.query_rewrite import QueryRewriter
 from serviceos_api.application.tool_envelope import ToolResult
@@ -665,12 +667,20 @@ class AgentToolService:
                 self._progress("lookup_completed")
             self.session.commit()
             return envelope
-        candidates = detect_ambiguity(query, verified_models)
+        customer_text = "\n".join(
+            part.get("text", "") for part in message.content if part.get("type") == "text"
+        )
+        grounded_query, ungrounded_aliases = ground_retrieval_query(
+            query, customer_text, verified_models,
+        )
+        # Product disambiguation is based on the customer statement, never an alias
+        # invented by the Agent's tool arguments.
+        candidates = detect_ambiguity(customer_text, verified_models)
         if candidates:
             conflict_items = []
             conflict_refs = []
             for label, model in candidates:
-                probe = retrieval.search(query, {model})
+                probe = retrieval.search(grounded_query, {model})
                 head = probe.items[0] if probe.items else None
                 conflict_items.append(
                     f"冲突候选：{label}（型号 {model.upper()}）"
@@ -688,8 +698,8 @@ class AgentToolService:
                 self._progress("lookup_completed")
             self.session.commit()
             return envelope
-        effective = query
-        rewritten = QueryRewriter(settings).rewrite(query)
+        effective = grounded_query
+        rewritten = QueryRewriter(settings).rewrite(grounded_query)
         if rewritten.applied:
             effective = rewritten.query
             if specialist is None:
@@ -711,7 +721,8 @@ class AgentToolService:
             applicability=("verified_models:" + ",".join(sorted(verified_models))) if verified_models else "generic",
             notes=notes)
         self._audit(run, "lookup_manual", envelope, retrieval_path="corpus",
-                    knowledge_references=result.references, retrieval_stages=result.stages)
+                    knowledge_references=result.references, retrieval_stages=result.stages,
+                    query_identity_grounding=("CUSTOMER_TEXT_FALLBACK" if ungrounded_aliases else "GROUNDED"))
         if specialist is None:
             self._progress("lookup_completed")
         self.session.commit()

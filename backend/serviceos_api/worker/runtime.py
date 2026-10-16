@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session, aliased
 from serviceos_api.application.agent_services import AgentContextBuilder
 from serviceos_api.application.auth import Principal
 from serviceos_api.application.errors import ServiceError
+from serviceos_api.application.rich_reply import safety_rich_reply
+from serviceos_api.application.safety_policy import assess_hardware_hazard
 from serviceos_api.application.services import ConversationService
 from serviceos_api.agents.runtime import AgentRuntime
 from serviceos_api.agents.result import AgentOutputInvalidError, AgentResult
@@ -193,6 +195,7 @@ class MessageWorker:
                 checkpoint_thread_id = run.thread_id
                 related_case_id = message.related_case_id
                 current_text = "\n".join(part.get("text", "") for part in message.content if part.get("type") == "text")
+                safety_assessment = assess_hardware_hazard(current_text)
                 context_started = time.monotonic()
                 context = AgentContextBuilder(session, job.tenant_id).build(
                     conversation.id, message.id, run_id=run.id,
@@ -216,12 +219,30 @@ class MessageWorker:
             if lost.is_set():
                 raise RuntimeError("worker_lease_lost")
             if stored_result is None:
-                result, stats = self.runtime.invoke(
-                    tenant_id=tenant_id, conversation_id=conversation_id, run_id=run_id,
-                    lease_token=lease.token,
-                    message_id=message_id, context=context, current_text=current_text,
-                    thread_id=checkpoint_thread_id,
-                )
+                if safety_assessment.triggered:
+                    # Hazard handling is application-owned: do not enter the ReAct loop,
+                    # RAG, or diagnostic delegation for the first response.
+                    result = AgentResult(
+                        safety_assessment.reply_text,
+                        rich_reply=safety_rich_reply(safety_assessment),
+                    )
+                    stats = {
+                        "step_count": 0,
+                        "tool_call_counts": {},
+                        "execution_termination": "SAFETY_PREFLIGHT",
+                        "context_tokens_estimated": context.get("context_budget", {}).get("estimated_tokens"),
+                        "prompt_tokens_estimated": None,
+                        "context_history_messages": context.get("context_budget", {}).get("history_messages_included"),
+                        "context_digest_items": context.get("context_budget", {}).get("digest_items"),
+                        "context_build_duration_ms": context.get("context_budget", {}).get("build_duration_ms"),
+                    }
+                else:
+                    result, stats = self.runtime.invoke(
+                        tenant_id=tenant_id, conversation_id=conversation_id, run_id=run_id,
+                        lease_token=lease.token,
+                        message_id=message_id, context=context, current_text=current_text,
+                        thread_id=checkpoint_thread_id,
+                    )
                 if lost.is_set():
                     raise RuntimeError("worker_lease_lost")
                 if isinstance(result, str):  # Existing local test adapters return text only.
@@ -263,6 +284,8 @@ class MessageWorker:
                         "tool_call_counts": stats.get("tool_call_counts", {}),
                         "execution_termination": stats.get("execution_termination"),
                     }
+                    if safety_assessment.triggered:
+                        stored_payload["safety_assessment"] = safety_assessment.audit_value()
                     run.result_text = result.text
                     run.result_payload = stored_payload
                     run.step_count = int(stats.get("step_count", 0))

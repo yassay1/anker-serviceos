@@ -998,29 +998,55 @@ def test_customer_projection_without_options_keeps_the_question_form(database_en
         assert question.options == []
 
 
-def test_customer_safety_projection_does_not_use_model_fallback(database_engine):
-    class RiskRuntime:
+def test_customer_explosion_safety_preflight_skips_agent_and_ui_cards(database_engine):
+    class MustNotRun:
         configured = True
 
         def invoke(self, **_):
-            return AgentResult("请先停止使用设备并联系人工客服。", {
-                "purpose": "确认下一步处理", "audience": "CUSTOMER",
-                "fallback_text": "请继续通电测试。", "component_hints": ["QuestionForm"],
-            }), {"step_count": 1}
+            raise AssertionError("hazard preflight must not invoke the ReAct Agent")
 
     with Session(database_engine) as session:
         tenant, customer, conversation, message, _, _ = seed_message(session)
-        message.content = [{"type": "text", "text": "设备正在冒烟"}]
+        message.content = [{"type": "text", "text": "我的充电宝炸了"}]
         session.commit()
         tenant_id, customer_id, conversation_id = tenant.id, customer.id, conversation.id
-    worker = MessageWorker(database_engine, Settings(environment="test"), runtime=RiskRuntime())
+    worker = MessageWorker(database_engine, Settings(environment="test"), runtime=MustNotRun())
     worker.process(worker.claim_one())
 
     with Session(database_engine) as session:
+        run = session.scalar(select(AgentRun).where(
+            AgentRun.conversation_id == conversation_id,
+            AgentRun.status == "COMPLETED",
+        ).order_by(AgentRun.created_at.desc()).limit(1))
+        assert run is not None
+        assert run.result_payload["safety_assessment"]["level"] == "EMERGENCY"
+        assert run.result_payload["execution_termination"] == "SAFETY_PREFLIGHT"
+        assert run.result_payload["tool_call_counts"] == {}
+        response = session.scalar(select(Message).where(
+            Message.conversation_id == conversation_id,
+            Message.client_message_id == run.id,
+            Message.visibility == "PUBLIC",
+        ))
+        assert response is not None
+        assert "爆裂" in response.content[0]["text"]
+        assert "当地消防或紧急服务" in response.content[0]["text"]
+        assert [block["type"] for block in response.content[0]["rich"]["blocks"]] == ["alert", "actions"]
+        assert response.content[0]["rich"]["quick_replies"] == []
+
+        # Even a corrupted/stale model proposal cannot reintroduce a choice card.
+        run.result_payload = {
+            **run.result_payload,
+            "ui_proposal": {
+                "purpose": "选择型号", "audience": "CUSTOMER", "fallback_text": "选型号",
+                "component_hints": ["ChoiceGroup"],
+                "options": [{"label": "扫地机器人", "value": "robot"},
+                            {"label": "吸奶器", "value": "pump"}],
+            },
+        }
+        session.commit()
         projected = ConversationService(session, Principal(tenant_id, customer_id, "CUSTOMER", "客户")) \
             .publish_ui_projection(conversation_id)
-        assert projected.fallback_text == "交互卡暂不可用，请继续使用文字消息。"
-        assert projected.fallback_text != "请继续通电测试。"
+        assert all(item.type not in ("ChoiceGroup", "QuestionForm") for item in projected.components)
 
 
 def test_customer_progress_is_projected_from_linked_case_state(database_engine):

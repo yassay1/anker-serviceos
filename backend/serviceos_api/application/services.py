@@ -13,6 +13,7 @@ from serviceos_api.application.contracts import (
 from serviceos_api.application.diagnostic_contracts import DiagnosticQuestion
 from serviceos_api.application.business import BusinessService
 from serviceos_api.application.errors import ServiceError
+from serviceos_api.application.safety_policy import SafetyAssessment, assess_hardware_hazard
 from serviceos_api.application.ui_catalog import CATALOG_VERSION, SCHEMA_VERSION, safe_text, validate_components
 from serviceos_api.application.ui_visualizations import (
     case_process_flow, customer_case_progress, knowledge_metric_chart, knowledge_source_used_in_run,
@@ -326,7 +327,16 @@ class ConversationService(BusinessService):
                                    "data_source": {"kind": "CASE_VIEW", "resource_id": str(case.id),
                                                    "resource_version": case.version, "binding": "progress"},
                                    "actions": [], "children": []})
-            if conversation.collaboration_mode == "AI_LEAD" and conversation.reply_policy == "AI_AUTO":
+            latest_customer_message = self.session.scalar(select(Message).where(
+                Message.tenant_id == self.actor.tenant_id,
+                Message.conversation_id == conversation.id,
+                Message.author_kind == "CUSTOMER",
+                Message.visibility == "PUBLIC",
+            ).order_by(Message.created_at.desc(), Message.id.desc()).limit(1))
+            safety_active = bool(latest_customer_message and assess_hardware_hazard(
+                " ".join(part.get("text", "") for part in latest_customer_message.content)).triggered)
+            if (conversation.collaboration_mode == "AI_LEAD" and conversation.reply_policy == "AI_AUTO"
+                    and not safety_active):
                 waiting_diagnostic = self.session.scalar(select(DiagnosticTask).where(
                     DiagnosticTask.tenant_id == self.actor.tenant_id,
                     DiagnosticTask.conversation_id == conversation.id,
@@ -369,8 +379,6 @@ class ConversationService(BusinessService):
                         DevicePassport.archived_at.is_(None),
                     )
                 ).all() if model}
-                from serviceos_api.application.rich_reply import RISK
-
                 for run in runs:
                     proposal = (run.result_payload or {}).get("ui_proposal")
                     source_message = self.session.get(Message, run.message_id)
@@ -381,10 +389,12 @@ class ConversationService(BusinessService):
                     ).order_by(DiagnosticTask.created_at.desc(), DiagnosticTask.id).limit(1))
                     safety_triggered = bool(
                         (diagnostic and ((diagnostic.result_payload or {}).get("next_step") or {}).get("kind") == "SAFETY_STOP")
-                        or (source_message and RISK.search(" ".join(
+                        or (source_message and assess_hardware_hazard(" ".join(
                             part.get("text", "") for part in source_message.content
-                        )))
+                        )).triggered)
                     )
+                    if safety_triggered:
+                        continue
                     public_message = self.session.scalar(select(Message.id).where(
                         Message.tenant_id == self.actor.tenant_id,
                         Message.conversation_id == conversation.id,
@@ -973,14 +983,16 @@ class ConversationService(BusinessService):
             conversation.collaboration_mode == "AI_LEAD"
             and conversation.reply_policy == "AI_AUTO"
         ) else "INTERNAL"
-        from serviceos_api.application.rich_reply import RISK, SAFETY_TEXT
         source_message = self.session.scalar(select(Message).where(Message.id == run.message_id,
             Message.tenant_id == tenant_id, Message.conversation_id == conversation.id))
-        safety = next_kind == "SAFETY_STOP" or bool(
-            source_message and RISK.search(' '.join(part.get('text', '') for part in source_message.content)))
+        assessment = assess_hardware_hazard(
+            ' '.join(part.get('text', '') for part in source_message.content) if source_message else '')
+        safety = next_kind == "SAFETY_STOP" or assessment.triggered
         if safety:
             # A language model must not override the user's stop-use safety boundary.
-            text = SAFETY_TEXT
+            if not assessment.triggered:
+                assessment = SafetyAssessment("STOP_USE", ("diagnostic_safety_stop",))
+            text = assessment.reply_text
         guard_decision = None
         if visibility == "PUBLIC" and self.settings.publication_guard:
             from serviceos_api.application.publication_guard import PublicationGuard
