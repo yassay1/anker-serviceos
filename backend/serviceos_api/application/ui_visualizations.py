@@ -16,6 +16,9 @@ def knowledge_metric_chart(source_id: str, verified_models: set[str]) -> dict | 
         text = raw.decode("utf-8")
     except (OSError, UnicodeError):
         return None
+    # Git may check out this packaged source with Windows CRLF line endings.
+    # Normalize before the line-anchored metric parser runs.
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     required_markers = (
         f"Source ID: `{HEATING_SOURCE_ID}`", "Applicability: verified model `T8D04` only",
         "Publication status: Published", "Consumer visibility: Visible",
