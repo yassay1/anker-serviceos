@@ -15,7 +15,7 @@ from serviceos_api.application.auth import Principal
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.services import ConversationService
 from serviceos_api.agents.runtime import AgentRuntime
-from serviceos_api.agents.result import AgentResult
+from serviceos_api.agents.result import AgentOutputInvalidError, AgentResult
 from serviceos_api.persistence.database import build_engine
 from serviceos_api.persistence.models import (
     AgentProposal, AgentRun, Conversation, Message, MessageJob, OutboxEvent,
@@ -317,7 +317,8 @@ class MessageWorker:
             ).with_for_update())
             if job is None:
                 return
-            terminal = job.attempt_count >= min(job.max_attempts, self.settings.worker_max_attempts)
+            terminal = (job.attempt_count >= min(job.max_attempts, self.settings.worker_max_attempts)
+                        or error_code == AgentOutputInvalidError.error_code)
             session.scalar(select(Conversation).where(
                 Conversation.id == job.conversation_id, Conversation.tenant_id == job.tenant_id,
             ).with_for_update())
@@ -348,6 +349,10 @@ class MessageWorker:
     def _error_code(error: Exception) -> str:
         if isinstance(error, ServiceError):
             return "conversation_policy_rejected"
+        if isinstance(error, AgentOutputInvalidError) or error.__class__.__name__ in {
+            "StructuredOutputError", "ModelCallLimitExceededError",
+        }:
+            return AgentOutputInvalidError.error_code
         if str(error) in {"worker_lease_lost", "agent_run_lease_lost"}:
             return "lease_lost"
         return "agent_execution_failed"

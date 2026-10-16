@@ -2,9 +2,12 @@ from contextlib import contextmanager
 from types import ModuleType, SimpleNamespace
 from uuid import uuid4
 
-from langchain_core.messages import AIMessage
+import pytest
+from langchain_core.messages import AIMessage, HumanMessage
 
 from serviceos_api.agents import diagnostic, runtime
+from serviceos_api.agents.model_compat import model_provider_options
+from serviceos_api.agents.result import AgentFinalOutput
 from serviceos_api.application.diagnostic_contracts import DiagnosticResult, DiagnosticTaskInput
 from serviceos_api.settings import Settings
 
@@ -31,17 +34,17 @@ def test_service_agent_keeps_diagnostic_as_an_optional_manager_tool(monkeypatch)
 
         def invoke(self, _state, config):
             captured["config"] = config
-            return {"messages": [AIMessage(content='{"text":"已有资料足够回答。"}') ]}
+            return {"structured_response": AgentFinalOutput(text="已有资料足够回答。"), "messages": []}
 
     def fake_create_agent(**kwargs):
         captured.update(kwargs)
         return FakeGraph()
 
     install_fake_checkpointer(monkeypatch)
-    monkeypatch.setattr(runtime, "ChatOpenAI", lambda **_kwargs: object())
+    monkeypatch.setattr(runtime, "ChatOpenAI", lambda **kwargs: captured.setdefault("model_kwargs", kwargs) or object())
     monkeypatch.setattr(runtime, "SummarizationMiddleware", lambda *_args, **_kwargs: object())
     monkeypatch.setattr(runtime, "create_agent", fake_create_agent)
-    settings = Settings(environment="test", llm_model="model", llm_api_key="test", llm_base_url="http://model")
+    settings = Settings(environment="test", llm_model="model", llm_api_key="test", llm_base_url="https://api.deepseek.com")
 
     result, _ = runtime.AgentRuntime(settings).invoke(
         tenant_id=uuid4(), conversation_id=uuid4(), run_id=uuid4(), lease_token=uuid4(),
@@ -55,6 +58,100 @@ def test_service_agent_keeps_diagnostic_as_an_optional_manager_tool(monkeypatch)
     assert captured["config"]["recursion_limit"] == 30
     assert any(getattr(middleware, "run_limit", None) == 6 for middleware in captured["middleware"])
     assert any(getattr(middleware, "run_limit", None) == 12 for middleware in captured["middleware"])
+    assert captured["response_format"].schema is AgentFinalOutput
+    assert captured["model_kwargs"]["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+def test_service_agent_reuses_structured_checkpoint_without_model_call(monkeypatch):
+    expected = AgentFinalOutput(text="已保存的答复。")
+    captured = {}
+
+    class FakeGraph:
+        def get_state(self, _config):
+            return SimpleNamespace(values={"structured_response": expected, "messages": []}, next=[])
+
+        def invoke(self, *_args, **_kwargs):
+            raise AssertionError("a completed structured checkpoint must be reused")
+
+    install_fake_checkpointer(monkeypatch)
+    monkeypatch.setattr(runtime, "ChatOpenAI", lambda **_kwargs: object())
+    monkeypatch.setattr(runtime, "SummarizationMiddleware", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(runtime, "create_agent", lambda **_kwargs: FakeGraph())
+    settings = Settings(environment="test", llm_model="model", llm_api_key="test", llm_base_url="http://model")
+
+    result, _ = runtime.AgentRuntime(settings).invoke(
+        tenant_id=uuid4(), conversation_id=uuid4(), run_id=uuid4(), lease_token=uuid4(),
+        message_id=uuid4(), context={"context_budget": {}}, current_text="继续",
+    )
+    assert result.text == "已保存的答复。"
+
+
+def test_openai_compatible_provider_options_are_configurable():
+    deepseek = model_provider_options(Settings(
+        environment="test", llm_model="model", llm_api_key="test", llm_base_url="https://api.deepseek.com",
+    ))
+    generic = model_provider_options(Settings(
+        environment="test", llm_model="model", llm_api_key="test", llm_base_url="https://provider.example/v1",
+        llm_extra_body={"thinking": {"type": "disabled"}, "provider_flag": True},
+    ))
+    assert deepseek == {"extra_body": {"thinking": {"type": "disabled"}}}
+    assert generic == {"extra_body": {"thinking": {"type": "disabled"}, "provider_flag": True}}
+
+
+def test_new_typed_run_never_falls_back_to_unstructured_model_text(monkeypatch):
+    class FakeGraph:
+        def get_state(self, _config):
+            return SimpleNamespace(values={}, next=[])
+
+        def invoke(self, state, config=None):
+            user_message = state["messages"][-1]
+            assert user_message.additional_kwargs["serviceos_output_contract"] == "typed_v1"
+            return {"messages": [AIMessage(content="unstructured model text")]}
+
+    install_fake_checkpointer(monkeypatch)
+    monkeypatch.setattr(runtime, "ChatOpenAI", lambda **_kwargs: object())
+    monkeypatch.setattr(runtime, "SummarizationMiddleware", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(runtime, "create_agent", lambda **_kwargs: FakeGraph())
+    settings = Settings(environment="test", llm_model="model", llm_api_key="test", llm_base_url="https://provider.example")
+
+    with pytest.raises(runtime.AgentOutputInvalidError):
+        runtime.AgentRuntime(settings).invoke(
+            tenant_id=uuid4(), conversation_id=uuid4(), run_id=uuid4(), lease_token=uuid4(),
+            message_id=uuid4(), context={"context_budget": {}}, current_text="请回复。",
+        )
+
+
+def test_legacy_checkpoint_output_is_accepted_only_when_valid(monkeypatch):
+    install_fake_checkpointer(monkeypatch)
+    monkeypatch.setattr(runtime, "ChatOpenAI", lambda **_kwargs: object())
+    monkeypatch.setattr(runtime, "SummarizationMiddleware", lambda *_args, **_kwargs: object())
+    settings = Settings(environment="test", llm_model="model", llm_api_key="test", llm_base_url="https://provider.example")
+    message_id = uuid4()
+    legacy_user = HumanMessage(content="legacy input", additional_kwargs={"serviceos_message_id": str(message_id)})
+
+    class FakeGraph:
+        def __init__(self, output):
+            self.output = output
+
+        def get_state(self, _config):
+            return SimpleNamespace(values={"messages": [legacy_user, AIMessage(content=self.output)]}, next=[])
+
+        def invoke(self, *_args, **_kwargs):
+            raise AssertionError("completed legacy checkpoints are read, not rerun")
+
+    monkeypatch.setattr(runtime, "create_agent", lambda **_kwargs: FakeGraph('{"text":"旧版已保存答复。"}'))
+    result, _ = runtime.AgentRuntime(settings).invoke(
+        tenant_id=uuid4(), conversation_id=uuid4(), run_id=uuid4(), lease_token=uuid4(),
+        message_id=message_id, context={"context_budget": {}}, current_text="继续",
+    )
+    assert result.text == "旧版已保存答复。"
+
+    monkeypatch.setattr(runtime, "create_agent", lambda **_kwargs: FakeGraph('{"text":"旧版坏答复":'))
+    with pytest.raises(runtime.AgentOutputInvalidError):
+        runtime.AgentRuntime(settings).invoke(
+            tenant_id=uuid4(), conversation_id=uuid4(), run_id=uuid4(), lease_token=uuid4(),
+            message_id=message_id, context={"context_budget": {}}, current_text="继续",
+        )
 
 
 def test_diagnostic_agent_exposes_only_bounded_read_only_tools(monkeypatch):
@@ -78,9 +175,9 @@ def test_diagnostic_agent_exposes_only_bounded_read_only_tools(monkeypatch):
         return FakeGraph()
 
     install_fake_checkpointer(monkeypatch)
-    monkeypatch.setattr(diagnostic, "ChatOpenAI", lambda **_kwargs: object())
+    monkeypatch.setattr(diagnostic, "ChatOpenAI", lambda **kwargs: captured.setdefault("diagnostic_model_kwargs", kwargs) or object())
     monkeypatch.setattr(diagnostic, "create_agent", fake_create_agent)
-    settings = Settings(environment="test", llm_model="model", llm_api_key="test", llm_base_url="http://model")
+    settings = Settings(environment="test", llm_model="model", llm_api_key="test", llm_base_url="https://api.deepseek.com")
 
     result, _ = diagnostic.DiagnosticAgentRuntime(settings).invoke(
         task=task, tenant_id=uuid4(), conversation_id=task.conversation_id, parent_run_id=uuid4(),
@@ -91,6 +188,7 @@ def test_diagnostic_agent_exposes_only_bounded_read_only_tools(monkeypatch):
     assert result == expected
     assert {tool.name for tool in captured["tools"]} == {"lookup_manual", "load_skill"}
     assert captured["response_format"].schema is DiagnosticResult
+    assert captured["diagnostic_model_kwargs"]["extra_body"] == {"thinking": {"type": "disabled"}}
     assert captured["config"]["recursion_limit"] == 16
     assert any(getattr(middleware, "run_limit", None) == 3 for middleware in captured["middleware"])
     assert any(getattr(middleware, "run_limit", None) == 4 for middleware in captured["middleware"])
@@ -127,7 +225,7 @@ def test_customer_answer_resumes_persisted_task_before_manager_reply(monkeypatch
 
         def invoke(self, state, config):
             captured["manager_input"] = state["messages"][-1].content
-            return {"messages": [AIMessage(content='{"text":"我已收到补充信息。"}') ]}
+            return {"structured_response": AgentFinalOutput(text="我已收到补充信息。"), "messages": []}
 
     def fake_create_agent(**kwargs):
         captured.update(kwargs)
