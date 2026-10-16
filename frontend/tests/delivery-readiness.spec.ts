@@ -274,6 +274,7 @@ test('delivery UI: an older revision cannot enable new actions after reconnect',
   state.document.revision = 3
   await page.getByRole('button', { name: '刷新交互卡' }).click()
   await expect(page.getByText('交互卡修订 3', { exact: true })).toBeVisible()
+  await page.locator('details.ui-ActionBar > summary').click()
   await expect(page.getByRole('button', { name: '请求人工协助' })).toBeEnabled()
 })
 
@@ -282,6 +283,7 @@ test('delivery UI: expiry disables the displayed action without waiting for snap
   const state = await fixture(page, false)
   state.document.expires_at = new Date(Date.now() + 4_000).toISOString()
   await page.goto('/support')
+  await page.locator('details.ui-ActionBar > summary').click()
   await expect(page.getByRole('button', { name: '请求人工协助' })).toBeEnabled()
   await expect(page.getByRole('button', { name: '刷新交互卡' })).toBeVisible({ timeout: 6_000 })
   await expect(page.getByRole('button', { name: '请求人工协助' })).toHaveCount(0)
@@ -291,6 +293,7 @@ test('delivery UI: a failed refresh removes stale actions but keeps text messagi
   await controlledStream(page)
   await fixture(page, false)
   await page.goto('/support')
+  await page.locator('details.ui-ActionBar > summary').click()
   await expect(page.getByRole('button', { name: '请求人工协助' })).toBeEnabled()
   await page.route('**/ui-document/refresh', route => route.fulfill({ status: 403, json: { detail: '当前身份不能读取交互卡。' } }))
   await emit(page, { ...event(12), type: 'ui.document.published' }, '12')
@@ -439,6 +442,7 @@ test('delivery UI: clicking a choice sends it as an ordinary customer message', 
   })
   expect(state.sent.at(-1)?.client_message_id).toMatch(/^[0-9a-f-]{36}$/)
   // The choice path must not touch the assistance action surface.
+  await region.locator('details.ui-ActionBar > summary').click()
   expect(await region.getByRole('button', { name: '请求人工协助' }).count()).toBe(1)
 })
 
@@ -485,6 +489,7 @@ test('delivery UI: an archived conversation disables every card control and the 
   state.conversations[0].status = 'ARCHIVED'
   await page.goto('/support')
   const region = page.getByRole('region', { name: '服务交互卡', exact: true })
+  await region.locator('details.ui-ActionBar > summary').click()
   await expect(region.getByRole('button', { name: '请求人工协助' })).toBeDisabled()
   await expect(region.getByRole('button', { name: '填写回复' })).toBeDisabled()
   await expect(page.getByLabel('描述你的问题')).toBeDisabled()

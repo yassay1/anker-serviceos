@@ -44,7 +44,7 @@ export function KnowledgePanel({ actor }: { actor: Actor }) {
     {reprocess.isError && <p className="form-error" role="alert">{readableError(reprocess.error)}</p>}
     {documents.isPending && <p className="empty-note">正在读取知识文档…</p>}
     {documents.isError && <p className="form-error" role="alert">{readableError(documents.error)} <button onClick={() => void documents.refetch()}>重试</button></p>}
-    <div className="table-scroll"><table className="case-table"><thead><tr><th>文档</th><th>来源</th><th>状态</th><th>版本</th><th><span className="visually-hidden">操作</span></th></tr></thead>
+    <div className="table-scroll" role="region" aria-label="知识文档列表" tabIndex={0}><table className="case-table"><thead><tr><th>文档</th><th>来源</th><th>状态</th><th>版本</th><th><span className="visually-hidden">操作</span></th></tr></thead>
       <tbody>{documents.data?.items.map(item => <tr key={item.document_id}>
         <td>{item.title}<small>{item.filename ?? item.document_id.slice(0, 8)}{item.error_code ? `　·　${item.error_code}` : ''}</small></td>
         <td><small>{item.source_kind}</small></td>
