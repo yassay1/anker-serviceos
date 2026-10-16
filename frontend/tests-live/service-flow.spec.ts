@@ -26,16 +26,21 @@ test('real API: persisted conversation, human handoff and PUBLIC/INTERNAL separa
     // The rebuilt customer workspace keeps its conversation list inside a closed <details>
     // disclosure (the staff desk opens it by default), so it has to be expanded first.
     await customer.locator('.conversation-selector summary').click()
+    await expect.poll(() => new URL(customer.url()).searchParams.get('conversation')).toMatch(/^[0-9a-f-]{36}$/)
+    const previousConversationId = new URL(customer.url()).searchParams.get('conversation')
     await customer.getByRole('button', { name: '新建会话', exact: true }).click()
     await expect(customer.getByLabel('描述你的问题')).toBeVisible()
     await expect.poll(() => new URL(customer.url()).searchParams.get('conversation')).toMatch(/^[0-9a-f-]{36}$/)
+    await expect.poll(() => new URL(customer.url()).searchParams.get('conversation')).not.toBe(previousConversationId)
     const conversationId = new URL(customer.url()).searchParams.get('conversation')!
     expect(conversationId).toMatch(/^[0-9a-f-]{36}$/)
     const problem = `真实 API 验收：充电连接不稳定 ${Date.now()}`
     await customer.getByLabel('描述你的问题').fill(problem)
-    const receipt = customer.waitForResponse(r => r.url().endsWith(`/conversations/${conversationId}/messages`) && r.request().method() === 'POST')
+    const receipt = customer.waitForResponse(r => r.request().method() === 'POST' && /\/api\/v1\/conversations\/[^/]+\/messages$/.test(new URL(r.url()).pathname), { timeout: 15_000 })
     await customer.getByRole('button', { name: '发送消息', exact: true }).click()
-    expect((await receipt).status()).toBe(202)
+    const messageReceipt = await receipt
+    expect(messageReceipt.status()).toBe(202)
+    expect((await messageReceipt.json() as S['MessageReceipt']).message.conversation_id).toBe(conversationId)
     await customer.reload()
     await expect(customer.getByText(problem, { exact: true })).toBeVisible()
     await expect(customer.getByText('实时更新已连接', { exact: true })).toBeVisible()
@@ -54,7 +59,7 @@ test('real API: persisted conversation, human handoff and PUBLIC/INTERNAL separa
     await staff.getByLabel('原因', { exact: true }).fill('真实联调人工接续处理')
     await staff.getByRole('button', { name: '切换策略', exact: true }).click()
     await expect(staff.getByText(/当前：真人主导 · 发言策略：仅人工回复/)).toBeVisible()
-    await expect(customer.getByText(/当前：真人主导 · 发言策略：仅人工回复/)).toBeVisible()
+    await expect(customer.getByRole('region', { name: '人机协作' }).getByText('真人主导 · 仅人工回复')).toBeVisible()
 
     const internal = `仅内部审阅的联调备注 ${Date.now()}`
     await staff.getByLabel('仅客服可见的内部备注').check()
@@ -166,7 +171,7 @@ test('real API: separate mock request, supervisor approval, worker receipt and c
     await verification.getByLabel('现在的实际情况').selectOption('WORKING')
     await verification.getByLabel('补充说明').fill('客户测试后确认原问题已解决')
     await verification.getByRole('button', { name: '保存观察结果' }).click()
-    await expect(verification.getByText('客户确认已保存，案例已核验解决。')).toBeVisible()
+    await expect(verification.getByText(/已恢复 · 已核验解决/)).toBeVisible()
     const resolvedCase = await customerContext.request.get(`/api/v1/cases/${serviceCase.id}`)
     expect((await resolvedCase.json() as S['CaseRead']).status).toBe('RESOLVED')
     const customerRead = await customerContext.request.get(`/api/v1/actions/${action.id}`)
@@ -208,6 +213,7 @@ test('real API: customer consent precedes staff follow-up schedule', async ({ br
     await expect(staffPanel.getByRole('button', { name: '保存预约' })).toBeDisabled()
     await customer.goto(`/cases/${serviceCase.id}`)
     const panel = customer.getByRole('region', { name: '回访安排' })
+    await panel.locator('details.secondary-form > summary').click()
     await panel.getByLabel('回访目的').fill('确认设备充电恢复情况')
     await panel.getByRole('button', { name: '同意此目的的回访' }).click()
     await expect(panel.getByText('同意已保存，客服现在可以预约此次回访。')).toBeVisible()
