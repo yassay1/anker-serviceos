@@ -138,7 +138,7 @@ def validate_components(components: list[dict], audience: str,
             if not any(node["id"] == "case" for node in flow["nodes"]):
                 raise ServiceError(422, "流程图缺少案例节点。")
             case_node = next(node for node in flow["nodes"] if node["id"] == "case")
-            if case_node["resource_id"] != str(resource_id) or case_node["resource_version"] != source["resource_version"]:
+            if UUID(str(case_node["resource_id"])) != resource_id or case_node["resource_version"] != source["resource_version"]:
                 raise ServiceError(422, "流程图案例节点必须与组件来源一致。")
         actions = item["actions"]
         if not isinstance(actions, list) or len(actions) > 1:

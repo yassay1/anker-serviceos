@@ -135,6 +135,9 @@ def test_case_process_flow_is_staff_only_and_validates_authorized_dag():
                  "edges": [{"source": "case", "target": "human-task"}]}}
     result = validate_components([value], "STAFF", allowed)[0]
     assert result["flow"]["edges"] == [{"source": "case", "target": "human-task"}]
+    server_owned = deepcopy(value)
+    server_owned["flow"]["nodes"][0]["resource_id"] = case_id
+    validate_components([server_owned], "STAFF", allowed)
     with pytest.raises(ServiceError):
         validate_components([value], "CUSTOMER", allowed)
     cyclic = deepcopy(value)

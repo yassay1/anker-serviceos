@@ -723,7 +723,7 @@ def test_customer_projection_renders_agent_options_as_a_choice_group(database_en
     with Session(database_engine) as session:
         principal = Principal(tenant_id, customer_id, "CUSTOMER", "客户")
         projected = ConversationService(session, principal).publish_ui_projection(conversation_id)
-        assert projected.catalog_version == 2
+        assert projected.catalog_version == 3
         assert projected.components[0].type == "ActionBar", "the assistance action stays first"
         choice = next(item for item in projected.components if item.type == "ChoiceGroup")
         assert choice.id == "agent-choice"
