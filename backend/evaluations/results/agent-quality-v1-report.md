@@ -7,7 +7,7 @@
 - Each turn is recorded in the corresponding `case-results.jsonl`, including Job and AgentRun state, error code, timing, token usage, tool calls, proposals, specialist runs, persisted event types/visibility, and whether an actual public reply was visible. The result ledger stores sanitized final public replies and no model reasoning.
 - Retries were limited to one attempt per message to control Provider usage. Embeddings, workbook attachments, and action workers were disabled; no external Anker action was executed. The workbook's hackathon labels are reference data, not verified Anker policy.
 - The dataset manifest records 63 source tickets, 15 supplemental cases, the content hash, redaction counts, and a zero residual scan for emails, URLs, and long numeric identifiers.
-- These measurements were collected from the evaluation worktree based on commit `e676bba`; the later interaction-contract changes on `main` are outside this recorded Provider run. The combined tree requires its own integration validation.
+- These measurements were collected from the evaluation worktree based on commit `e676bba`; the later interaction-contract changes on `main` are outside this recorded Provider run. The combined tree passed backend integration tests after merge, but the Provider dataset was not rerun on it.
 
 The run design records complete tool and message trajectories in addition to task outcomes, following the trajectory-level evaluation approach in [τ-bench](https://openreview.net/pdf?id=roNSXZpUDN) and the trace-oriented evaluation model in [LangSmith](https://docs.langchain.com/langsmith/evaluation).
 
@@ -45,5 +45,6 @@ The 12 post-fix internal replies are persisted with `visibility=INTERNAL`; they 
 - Full backend suite after the fix — `pytest backend/tests`: 352 passed, 0 failed, 2 existing PostgreSQL migration warnings.
 - Full repaired evaluation: same command as baseline — run `20261017T055239`, completed with all 84 conversations and 93 turns successful.
 - Follow-up undefined-name guardrail: Ruff F821/F823 added to the backend dev lock and CI; active backend scan passed, both rules rejected a temporary negative probe, targeted PostgreSQL tests passed (5), and the full backend suite passed (352, with the same 2 migration warnings).
+- Merged `main` integration: Ruff, dataset `--validate-only` and OpenAPI drift checks passed. The first local full suite exposed that `SERVICEOS_ENV=test` loaded the developer `.env` and invoked the configured Provider during a specialist publication test (1 failed, 356 passed). After restricting local dotenv loading to development and adding an isolation test, the full PostgreSQL suite passed: 358 passed, 2 existing migration warnings.
 
 The baseline ledger is `20261017T050210/case-results.jsonl`; the repaired ledger is `20261017T055239/case-results.jsonl`. Each is accompanied by `run-metadata.json`. An early pilot was stopped after its first two repeated Agent failures to avoid further retries; its two-case ledger is retained in `20261017T045806`. The short diagnostic replays and setup attempts are also retained; setup failures happened before any model request.

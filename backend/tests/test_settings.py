@@ -1,6 +1,25 @@
+import os
+
 import pytest
 
+from serviceos_api import settings as settings_module
 from serviceos_api.settings import Settings, _llm_extra_body
+
+
+def test_local_dotenv_is_loaded_only_in_development(monkeypatch, tmp_path):
+    package_dir = tmp_path / "serviceos_api"
+    package_dir.mkdir()
+    (tmp_path / ".env").write_text("SERVICEOS_LLM_MODEL=local-only-model\n", encoding="utf-8")
+    monkeypatch.setattr(settings_module, "__file__", str(package_dir / "settings.py"))
+    monkeypatch.delenv("SERVICEOS_LLM_MODEL", raising=False)
+
+    monkeypatch.setenv("SERVICEOS_ENV", "test")
+    settings_module.load_environment()
+    assert os.getenv("SERVICEOS_LLM_MODEL") is None
+
+    monkeypatch.setenv("SERVICEOS_ENV", "development")
+    settings_module.load_environment()
+    assert os.getenv("SERVICEOS_LLM_MODEL") == "local-only-model"
 
 
 def test_provider_extra_body_is_optional_json_object():

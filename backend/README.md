@@ -87,12 +87,15 @@ Agent 工具通过应用服务提交业务命令；公开消息和事件由 Conv
 
 ```powershell
 $env:SERVICEOS_TEST_DATABASE_URL='postgresql+psycopg://serviceos_local:serviceos_local_only@127.0.0.1:55432/serviceos_dev'
+$env:SERVICEOS_ENV='test'
+$env:SERVICEOS_AUTH_MODE='disabled'
 uv run --project backend --locked ruff check backend/serviceos_api backend/tests
 uv run --project backend --locked pytest backend/tests --require-postgres
 uv run --project backend --locked python -m serviceos_api.export_openapi --check
 ```
 
 Ruff F821/F823 检查活动后端源码和测试中的未定义名称与未绑定局部变量；评测数据、文档和归档不在扫描范围内。
+测试环境不会自动读取本地 `backend/.env`；数据库和测试所需变量需在运行前显式提供。
 
 跨模块功能先由前后端核对[V1 接口提案](../contracts/proposed/v1/README.md)，按[协作开发指南](../docs/contributing.md)共同确认[拟定功能契约](../docs/templates/feature-contract.md)，再并行实现。接口由真实路由、Pydantic Schema 和应用服务实现后才导出 `contracts/openapi.json`；前端再生成 `src/api/schema.d.ts`。开发计划和阶段验收记录决定完成状态；工作区中的代码、草案或测试替身不自动构成已交付能力。
 

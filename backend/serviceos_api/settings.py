@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 
 def load_environment() -> None:
-    if os.getenv("SERVICEOS_ENV") != "production":
+    if os.getenv("SERVICEOS_ENV", "development") == "development":
         load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 
 
