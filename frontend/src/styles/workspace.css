@@ -264,8 +264,8 @@
   .page-heading h1, .support-view .page-heading h1 { font-size: 23px; }
   .page-heading p { font-size: 12px; }
   .page-heading .scope-note { margin-top: 10px; }
-  .mobile-navigation { display: flex; gap: 5px; margin-bottom: 12px; padding: 4px; background: #e9edf4; border-radius: 10px; }
-  .mobile-navigation button { flex: 1; border: 0; background: transparent; color: #526176; padding: 8px; font-size: 13px; }
+  .mobile-navigation { display: flex; gap: 5px; margin-bottom: 12px; padding: 4px; background: #eef3fa; border-radius: 10px; }
+  .mobile-navigation button { flex: 1; min-height: 44px; border: 0; background: transparent; color: var(--muted); padding: 8px; font-size: 13px; }
   .mobile-navigation button[aria-pressed=true] { background: white; color: var(--accent-hover); }
   .chat-layout, .chat-layout.no-context { display: block; height: auto; min-height: 0; }
   .mobile-chat .conversation-list, .mobile-chat .context-panel, .mobile-list .chat-panel, .mobile-list .context-panel, .mobile-context .chat-panel, .mobile-context .conversation-list { display: none; }

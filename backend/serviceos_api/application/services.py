@@ -1170,7 +1170,7 @@ class ConversationService(BusinessService):
 
             customer_text = " ".join(part.get("text", "") for part in
                                      (source_message.content if source_message else []))
-            outcome = PublicationGuard(self.session, self.settings, tenant_id).check(
+            outcome = PublicationGuard(self.session, tenant_id).check(
                 text, run, conversation.id, customer_text)
             outcome.verifier["latency_ms"] = outcome.latency_ms
             guard_decision = PublicationGuardDecision(
@@ -1296,7 +1296,7 @@ class ConversationService(BusinessService):
             from serviceos_api.persistence.models import PublicationGuardDecision
 
             customer_text = " ".join(part.get("text", "") for part in source_message.content)
-            outcome = PublicationGuard(self.session, self.settings, tenant_id).check(
+            outcome = PublicationGuard(self.session, tenant_id).check(
                 text, run, conversation.id, customer_text,
             )
             outcome.verifier["latency_ms"] = outcome.latency_ms

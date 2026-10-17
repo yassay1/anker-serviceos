@@ -4,7 +4,7 @@ info:
   title: Anker ServiceOS API
   version: 0.1.0
 x-serviceos-proposal-status: draft
-x-serviceos-implemented-sha256: e7e071f207c5540bca502c97db5854877d7f94ccc2cbe54cf20b08a1d7eb8111
+x-serviceos-implemented-sha256: 2afa907745a7304ad49a0c709d0b50062d0980b31b489b914bcf9f9916da337d
 x-serviceos-planned-source: contracts/proposed/v1/planned.yaml
 paths:
   /api/v1/actions/{id}:
@@ -438,6 +438,38 @@ paths:
       - approvals
       x-serviceos-status: implemented
   /api/v1/cases/{id}/conversations:
+    get:
+      operationId: list_case_conversations
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/LinkedConversationRead'
+                title: Response List Case Conversations
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Case Conversations
+      tags:
+      - cases
+      x-serviceos-status: implemented
     post:
       operationId: attach_conversation
       parameters:
@@ -1313,6 +1345,39 @@ paths:
       summary: List Customer Assistance
       tags:
       - collaboration
+      x-serviceos-status: implemented
+  /api/v1/conversations/{id}/customer-cases:
+    get:
+      operationId: list_customer_case_links
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/CustomerCaseLinkRead'
+                title: Response List Customer Case Links
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Customer Case Links
+      tags:
+      - cases
       x-serviceos-status: implemented
   /api/v1/conversations/{id}/event-history:
     get:
@@ -3925,6 +3990,22 @@ components:
       - created_at
       title: CustomerAssistanceRead
       type: object
+    CustomerCaseLinkRead:
+      additionalProperties: false
+      properties:
+        case:
+          $ref: '#/components/schemas/CaseRead'
+        device_ids:
+          items:
+            format: uuid
+            type: string
+          title: Device Ids
+          type: array
+      required:
+      - case
+      - device_ids
+      title: CustomerCaseLinkRead
+      type: object
     DeskCaseSummary:
       additionalProperties: false
       properties:
@@ -5054,6 +5135,30 @@ components:
       - document
       - deduplicated
       title: KnowledgeUploadResult
+      type: object
+    LinkedConversationRead:
+      additionalProperties: false
+      properties:
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        status:
+          title: Status
+          type: string
+        title:
+          title: Title
+          type: string
+      required:
+      - id
+      - title
+      - status
+      - created_at
+      title: LinkedConversationRead
       type: object
     LocalLogin:
       additionalProperties: false

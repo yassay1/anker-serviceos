@@ -177,7 +177,18 @@ def test_case_device_conversation_are_independent_and_versioned(app):
     assert customer.post(f"/api/v1/conversations/{conv1['id']}/messages", json=message_body(
         related_case_id=case["id"],
     )).status_code == 202
+    case_links = customer.get(f"/api/v1/conversations/{conv1['id']}/customer-cases")
+    assert case_links.status_code == 200, case_links.text
+    assert case_links.json()[0]["case"]["id"] == case["id"]
+    assert case_links.json()[0]["case"]["version"] == 4
+    assert case_links.json()[0]["device_ids"] == [device["id"]]
+    linked_conversations = customer.get(f"/api/v1/cases/{case['id']}/conversations")
+    assert linked_conversations.status_code == 200, linked_conversations.text
+    assert [row["id"] for row in linked_conversations.json()] == [conv2["id"], conv1["id"]]
+    assert set(linked_conversations.json()[0]) == {"id", "title", "status", "created_at"}
     assert customer.get(f"/api/v1/devices/{device['id']}/cases").json()[0]["id"] == case["id"]
+    assert customer.get(f"/api/v1/conversations/{conv2['id']}/customer-cases").json()[0]["case"]["id"] == case["id"]
+    assert customer.get(f"/api/v1/conversations/{conv1['id']}/customer-cases").json()[0]["device_ids"] == [device["id"]]
     assert customer.delete(f"/api/v1/cases/{case['id']}").status_code == 409
     assert customer.delete(f"/api/v1/devices/{device['id']}").status_code == 409
 
@@ -212,6 +223,24 @@ def test_desk_case_summary_sources_and_visibility(app, database_engine):
     assert all(item["verification"] in ("CANDIDATE", "UNVERIFIED") for item in facts)
     for client in (owner, other, outside):
         assert client.get(path).status_code in (403, 404)
+
+
+def test_customer_case_link_reads_enforce_resource_ownership_and_return_empty_lists(app):
+    owner, other, outside, staff = (login(app), login(app, "customer-b"),
+                                    login(app, "other-tenant"), login(app, "staff"))
+    conv = conversation(owner)
+    case = owner.post("/api/v1/cases", json={"problem_text": "仅为关联读取测试"}).json()
+
+    assert owner.get(f"/api/v1/conversations/{conv['id']}/customer-cases").json() == []
+    assert owner.get(f"/api/v1/cases/{case['id']}/conversations").json() == []
+    assert staff.get(f"/api/v1/conversations/{conv['id']}/customer-cases").json() == []
+    assert staff.get(f"/api/v1/cases/{case['id']}/conversations").json() == []
+    for client in (other, outside):
+        assert client.get(f"/api/v1/conversations/{conv['id']}/customer-cases").status_code == 404
+        assert client.get(f"/api/v1/cases/{case['id']}/conversations").status_code == 404
+    anonymous = TestClient(app)
+    assert anonymous.get(f"/api/v1/conversations/{conv['id']}/customer-cases").status_code == 401
+    assert anonymous.get(f"/api/v1/cases/{case['id']}/conversations").status_code == 401
 
 
 def test_mode_transition_latest_policy_and_task_claim(app, database_engine):

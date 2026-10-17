@@ -7,7 +7,8 @@ from fastapi import APIRouter, Response, status
 from serviceos_api.api.dependencies import Business
 from serviceos_api.application.contracts import (
     ArchiveCaseFact, AttachConversation, AttachDevice, CandidateFact, CaseRead, CreateCase, CreateDevice,
-    DeviceRead, FactDecision, FactRead, TransitionCase, UpdateCase, UpdateDevice,
+    CustomerCaseLinkRead, DeviceRead, FactDecision, FactRead, LinkedConversationRead, TransitionCase,
+    UpdateCase, UpdateDevice,
 )
 from serviceos_api.persistence.models import Conversation, DevicePassport, ServiceCase
 
@@ -27,6 +28,12 @@ def list_cases(service: Business):
 @router.get("/cases/{id}", response_model=CaseRead, tags=["cases"], operation_id="read_case")
 def read_case(id: UUID, service: Business):
     return CaseRead.model_validate(service.resource(ServiceCase, id))
+
+
+@router.get("/cases/{id}/conversations", response_model=list[LinkedConversationRead], tags=["cases"],
+            operation_id="list_case_conversations")
+def list_case_conversations(id: UUID, service: Business):
+    return service.linked_conversations(id)
 
 
 @router.patch("/cases/{id}", response_model=CaseRead, tags=["cases"], operation_id="update_case")
@@ -53,6 +60,12 @@ def attach_device(id: UUID, body: AttachDevice, service: Business):
 @router.post("/cases/{id}/conversations", response_model=CaseRead, tags=["cases"], operation_id="attach_conversation")
 def attach_conversation(id: UUID, body: AttachConversation, service: Business):
     return CaseRead.model_validate(service.attach(id, body, Conversation))
+
+
+@router.get("/conversations/{id}/customer-cases", response_model=list[CustomerCaseLinkRead], tags=["cases"],
+            operation_id="list_customer_case_links")
+def list_customer_case_links(id: UUID, service: Business):
+    return service.customer_case_links(id)
 
 
 @router.post("/devices", response_model=DeviceRead, status_code=201, tags=["devices"], operation_id="create_device")

@@ -227,7 +227,7 @@ export function CasesWorkspace({ actor }: { actor: Actor }) {
             <ActionPanel key={`${actor.actor_id}:${record.id}`} actor={actor} serviceCase={record} />
           </div>
           <div className="case-side-column">
-            <section className="surface service-help"><span className="round-icon"><MessageSquare size={23} /></span><div><h2>继续服务沟通</h2><p>在服务中心查看原会话，补充问题或请求人工协助。</p></div>{actor.kind === 'STAFF' ? <CaseConversationPicker key={record.id} actor={actor} serviceCase={record} label="进入服务会话" className="button-link" /> : <Link className="button-link" to={supportPath}>前往服务会话<ArrowRight size={16} /></Link>}</section>
+            <section className="surface service-help"><span className="round-icon"><MessageSquare size={23} /></span><div><h2>继续服务沟通</h2><p>查看此服务记录真实关联的对话；一个服务记录可以关联多段会话。</p></div><CaseConversationPicker key={record.id} actor={actor} serviceCase={record} label="查看关联对话" className="button-link" /></section>
             {!finished(record.status) && <CaseEvidencePanel key={`evidence:${actor.actor_id}:${record.id}`} actor={actor} serviceCase={record} />}
             {!finished(record.status) && <div id="case-result"><VerificationPanel key={`verification:${actor.actor_id}:${record.id}`} actor={actor} serviceCase={record} /></div>}
             <FollowUpPanel key={`follow-up:${actor.actor_id}:${record.id}`} actor={actor} serviceCase={record} />

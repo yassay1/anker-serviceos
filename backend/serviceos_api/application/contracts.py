@@ -162,6 +162,18 @@ class CaseRead(Schema):
     created_at: datetime
 
 
+class CustomerCaseLinkRead(Schema):
+    case: CaseRead
+    device_ids: list[UUID]
+
+
+class LinkedConversationRead(Schema):
+    id: UUID
+    title: str
+    status: str
+    created_at: datetime
+
+
 class SummaryFact(Schema):
     label: str
     value: str

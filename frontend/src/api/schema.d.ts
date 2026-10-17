@@ -184,7 +184,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List Case Conversations */
+        get: operations["list_case_conversations"];
         put?: never;
         /** Attach Conversation */
         post: operations["attach_conversation"];
@@ -429,6 +430,23 @@ export interface paths {
         };
         /** List Customer Assistance */
         get: operations["list_customer_assistance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/conversations/{id}/customer-cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Customer Case Links */
+        get: operations["list_customer_case_links"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1508,6 +1526,12 @@ export interface components {
             /** Version */
             version: number;
         };
+        /** CustomerCaseLinkRead */
+        CustomerCaseLinkRead: {
+            case: components["schemas"]["CaseRead"];
+            /** Device Ids */
+            device_ids: string[];
+        };
         /** DeskCaseSummary */
         DeskCaseSummary: {
             case: components["schemas"]["CaseRead"];
@@ -2140,6 +2164,23 @@ export interface components {
             /** Deduplicated */
             deduplicated: boolean;
             document: components["schemas"]["KnowledgeDocumentRead"];
+        };
+        /** LinkedConversationRead */
+        LinkedConversationRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Status */
+            status: string;
+            /** Title */
+            title: string;
         };
         /** LocalLogin */
         LocalLogin: {
@@ -3542,6 +3583,37 @@ export interface operations {
             };
         };
     };
+    list_case_conversations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedConversationRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     attach_conversation: {
         parameters: {
             query?: never;
@@ -4445,6 +4517,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CustomerAssistancePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_customer_case_links: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerCaseLinkRead"][];
                 };
             };
             /** @description Validation Error */

@@ -254,15 +254,14 @@ test('delivery SSE: switching conversations closes and ignores late old handlers
 test('delivery UI: only real message case references become customer case links', async ({ page }) => {
   const state = await fixture(page, false)
   state.messages[0].related_case_id = ids.second
-  await page.route(`**/api/v1/cases/${ids.second}`, route => route.fulfill({ json: {
+  state.customerCaseLinks.push({ case: {
     id: ids.second, customer_id: ids.customer, problem_text: '已关联的充电问题', user_goal: '恢复稳定供电',
     status: 'WAITING_CUSTOMER', version: 3, created_at: '2026-10-14T01:00:00Z',
-  } satisfies S['CaseRead'] }))
+  } satisfies S['CaseRead'], device_ids: [] })
   await page.goto('/support')
   await expect(page.getByRole('link', { name: '已关联的充电问题', exact: true })).toHaveAttribute('href', `/cases/${ids.second}`)
-  await page.getByText('服务目标与下一步', { exact: true }).click()
   await expect(page.getByText('恢复稳定供电', { exact: true })).toBeVisible()
-  await expect(page.getByRole('link', { name: '证据与处理记录' })).toHaveAttribute('href', `/cases/${ids.second}`)
+  await expect(page.getByRole('link', { name: '查看证据、动作与核验记录' })).toHaveAttribute('href', `/cases/${ids.second}`)
   await expect(page.locator('.message-list-wrap .ui-document')).toHaveCount(1)
   await expect(page.locator('.context-panel .ui-QuestionForm')).toHaveCount(0)
   await expect(page.locator('.context-panel .ui-ActionBar')).toHaveCount(1)
@@ -274,10 +273,10 @@ test('delivery UI: only real message case references become customer case links'
 test('delivery UI: inaccessible associated cases show refusal rather than another case', async ({ page }) => {
   const state = await fixture(page, false)
   state.messages[0].related_case_id = ids.second
-  await page.route(`**/api/v1/cases/${ids.second}`, route => route.fulfill({ status: 403, json: { detail: '当前账号不能查看此案例。' } }))
+  await page.route(`**/api/v1/conversations/${ids.conversation}/customer-cases`, route => route.fulfill({ status: 403, json: { detail: '当前账号不能查看此案例。' } }))
   await page.goto('/support')
   await expect(page.getByRole('alert')).toContainText('当前账号不能查看此案例。')
-  await expect(page.getByRole('link', { name: '证据与处理记录' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: '查看证据、动作与核验记录' })).toHaveCount(0)
   await expect(page.getByLabel('描述你的问题')).toBeEnabled()
 })
 

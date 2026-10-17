@@ -15,6 +15,7 @@ function entitySummary(entities: Record<string, unknown>): string {
 
 function verifierSummary(verifier: Record<string, unknown>): string {
   const v = verifier as { status?: string, unaddressed?: string[], promises?: string[] }
+  if (v.status === 'not_run_live') return '实时发布不运行语义覆盖/承诺判断；仅执行确定性实体依据检查'
   return v.status === 'ok'
     ? `未交代: ${(v.unaddressed ?? []).join('；') || '无'}；无据承诺: ${(v.promises ?? []).join('；') || '无'}`
     : String(v.status)
@@ -37,7 +38,7 @@ export function GuardPanel({ actor }: { actor: Actor }) {
   const canOverride = actor.role === 'SUPERVISOR' || actor.role === 'ADMIN'
   return <section className="surface knowledge-panel guard-panel">
     <div className="table-toolbar"><span>发布守卫</span>
-      <small>答复发布前的接地/覆盖检查；被拦草稿须人工复核</small></div>
+      <small>答复发布前执行确定性实体依据检查；语义覆盖与承诺判断不参与实时拦截</small></div>
     <div className="guard-stats">
       <span><ShieldCheck size={16} /> 放行 {stats.data?.passed ?? '—'}</span>
       <span><ShieldAlert size={16} /> 拦截 {stats.data?.blocked ?? '—'}</span>
@@ -57,7 +58,7 @@ export function GuardPanel({ actor }: { actor: Actor }) {
         {open === item.id && <tr className="guard-detail"><td colSpan={5}>
           <p><strong>被检答复：</strong>{item.reply_text}</p>
           <p><strong>实体接地：</strong>{entitySummary(item.entities)}</p>
-          <p><strong>覆盖检查：</strong>{verifierSummary(item.verifier)}</p>
+          <p><strong>语义检查：</strong>{verifierSummary(item.verifier)}</p>
           {item.decision === 'BLOCKED' && canOverride
             && <button type="button" disabled={override.isPending}
               onClick={() => override.mutate(item.id)}>复核并发布（主管）</button>}

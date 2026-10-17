@@ -138,6 +138,7 @@ body:has(.staff-app) { background: var(--canvas); }
 .staff-shell .desk-view .chat-layout.no-context .chat-panel { grid-column: 2 / -1; }
 .staff-shell .desk-view .conversation-selector, .staff-shell .desk-view .conversation-selector > details { height: 100%; min-height: 0; }
 .staff-shell .desk-view .conversation-selector .conversation-list { min-height: 0; height: 100%; padding: 18px 10px; border: 1px solid #eeefed; border-radius: 13px; background: white; }
+.staff-task-queue { display: none; }
 .staff-shell .desk-view .conversation-list .section-heading { padding: 0 8px 15px; }
 .staff-shell .desk-view .conversation-list h2 { font-size: 21px; }
 .staff-shell .desk-view .sidebar-search { margin: 0 5px 14px; }
@@ -401,11 +402,27 @@ body:has(.staff-app) { background: var(--canvas); }
   .case-summary-grid .summary-icon { width: 38px; height: 38px; }
 }
 @media (max-width: 1180px) {
+  .staff-shell .desk-view .composer { padding-bottom: calc(13px + env(safe-area-inset-bottom, 0px)); }
+  .staff-task-queue { display: block; margin: 0 0 12px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: #fff; }
+  .staff-task-queue-heading { display: flex; align-items: start; justify-content: space-between; gap: 8px; }
+  .staff-task-queue-heading h2 { margin: 0; font-size: 17px; }
+  .staff-task-queue-heading p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+  .staff-task-queue-heading a { min-height: 44px; display: inline-flex; align-items: center; color: var(--accent-hover); font-size: 12px; white-space: nowrap; }
+  .staff-task-queue-tabs { display: flex; gap: 6px; margin: 10px 0; padding: 3px; background: var(--canvas); border-radius: 9px; }
+  .staff-task-queue-tabs button { flex: 1; min-height: 44px; border: 0; background: transparent; border-radius: 7px; color: var(--muted); }
+  .staff-task-queue-tabs button[aria-pressed=true] { background: white; color: var(--accent-hover); }
+  .staff-task-row { display: flex; justify-content: space-between; gap: 10px; padding: 12px 0; border-top: 1px solid #edf0f4; }
+  .staff-task-row > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+  .staff-task-row strong { font-size: 13px; }
+  .staff-task-row p { margin: 5px 0; font-size: 12px; }
+  .staff-task-row small { color: var(--muted); }
+  .staff-task-actions { display: flex; flex-direction: column; align-items: stretch; gap: 5px; }
+  .staff-task-actions button, .staff-task-queue > button { min-height: 44px; padding: 7px 10px; white-space: nowrap; }
   .staff-shell { grid-template-columns: 150px minmax(0, 1fr); }
   .staff-shell .staff-navigation { width: 150px; padding-inline: 8px; }
   .staff-shell .staff-navigation nav a { padding-inline: 12px; gap: 10px; font-size: 15px; }
   .staff-shell .desk-view .mobile-navigation { display: flex; gap: 8px; margin: 0 0 10px; }
-  .staff-shell .desk-view .mobile-navigation button { min-height: 34px; font-size: 14px; }
+  .staff-shell .desk-view .mobile-navigation button { min-height: 44px; font-size: 14px; }
   .staff-shell .desk-view .chat-layout, .staff-shell .desk-view .chat-layout.no-context { grid-template-columns: 270px minmax(0, 1fr); height: calc(100dvh - 158px); min-height: 540px; }
   .staff-shell .desk-view .context-panel.staff-conversation-context { display: none; }
   .staff-shell .desk-view.mobile-context .context-panel.staff-conversation-context { display: flex; grid-column: 2; grid-row: 1; }
@@ -423,7 +440,18 @@ body:has(.staff-app) { background: var(--canvas); }
   .staff-device-hero-actions { max-width: 145px; }
   .staff-device-fields { grid-template-columns: 1fr 1fr; }
 }
+@media (max-width: 1000px) and (min-width: 761px) {
+  .staff-shell .desk-view .mobile-navigation { display: flex; gap: 8px; margin: 0 0 10px; }
+  .staff-shell .desk-view .mobile-navigation button { min-height: 44px; }
+  .staff-shell .desk-view .chat-layout, .staff-shell .desk-view .chat-layout.no-context { display: block; height: auto; min-height: 0; }
+  .staff-shell .desk-view.mobile-list .chat-panel, .staff-shell .desk-view.mobile-context .chat-panel { display: none; }
+  .staff-shell .desk-view.mobile-chat .conversation-selector,
+  .staff-shell .desk-view.mobile-context .conversation-selector { display: none; }
+  .staff-shell .desk-view.mobile-context .context-panel.staff-conversation-context { height: auto; display: flex; }
+  .staff-shell .desk-view .chat-panel { min-height: 620px; }
+}
 @media (max-width: 760px) {
+  .staff-shell:has(.desk-view) .staff-navigation { display: none; }
   .staff-app .header-inner { height: 64px; min-height: 64px; padding: 0 16px; flex-wrap: nowrap; }
   .staff-app .brand span { font-size: 26px; }
   .staff-app .brand small { display: none; }
@@ -450,6 +478,7 @@ body:has(.staff-app) { background: var(--canvas); }
   .queue-table { min-width: 650px; }
   .staff-case-table { min-width: 700px; }
   .staff-shell .desk-view { padding: 12px 10px; }
+  .staff-shell .desk-view .mobile-navigation button { min-height: 44px; }
   .staff-shell .desk-view .chat-layout, .staff-shell .desk-view .chat-layout.no-context { display: block; height: calc(100dvh - 222px); min-height: 530px; }
   .staff-shell .desk-view .chat-panel { height: 100%; min-height: 530px; display: flex; }
   .staff-shell .desk-view.mobile-list .chat-panel, .staff-shell .desk-view.mobile-context .chat-panel { display: none; }
@@ -467,7 +496,7 @@ body:has(.staff-app) { background: var(--canvas); }
   .staff-shell .desk-view .composer-tools > span { display: none; }
   .staff-shell .desk-view .composer-tabs { gap: 20px; }
   .staff-shell .desk-view .composer-foot p { max-width: 130px; line-height: 1.5; }
-  .staff-shell .desk-view .composer-foot > button { min-height: 40px; padding-inline: 12px; }
+  .staff-shell .desk-view .composer-foot > button { min-height: 44px; padding-inline: 12px; }
   .staff-app .reply-templates > summary { min-height: 34px; }
   .staff-cases-page > .case-summary-grid { gap: 0; }
   .case-summary-grid .staff-summary-card { min-height: 85px; padding: 15px; }

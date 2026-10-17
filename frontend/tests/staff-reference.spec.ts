@@ -88,7 +88,7 @@ test('staff references: four workspaces preserve navigation, replies and record 
   await expect(page.locator('.staff-conversation-context')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.getByRole('button', { name: '资料', exact: true }).click()
+  await page.getByRole('button', { name: '服务资料', exact: true }).click()
   await expect(page.locator('.staff-conversation-context')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   expect(errors).toEqual([])
@@ -96,20 +96,19 @@ test('staff references: four workspaces preserve navigation, replies and record 
 
 for (const count of [0, 1, 2]) {
   test(`case conversation navigation resolves ${count} actual associations`, async ({ page }) => {
-    await fixture(page)
+    const state = await fixture(page)
     const record: components['schemas']['CaseRead'] = { id: ids.second, customer_id: ids.customer,
       problem_text: '充电接口不稳定', user_goal: '恢复稳定充电', status: 'WAITING_CUSTOMER', version: 2, created_at: '2026-10-14T01:00:00Z' }
     await page.route('**/api/v1/cases', route => route.fulfill({ json: [record] }))
-    await page.route('**/case-summaries', route => route.fulfill({ json:
-      count === 2 || count === 1 && route.request().url().includes(ids.conversation)
-        ? [{ case: record, device_ids: [], facts: [] }] : [] }))
+    if (count >= 1) state.linkedConversations.push({ id: ids.conversation, title: '当前服务会话', status: 'ACTIVE', created_at: record.created_at })
+    if (count >= 2) state.linkedConversations.push({ id: ids.second, title: '后续服务会话', status: 'ACTIVE', created_at: record.created_at })
     await page.goto('/cases')
     await page.getByRole('button', { name: '进入服务会话', exact: true }).click()
     if (count === 1) await expect(page).toHaveURL(new RegExp(`conversation=${ids.conversation}`))
     else {
       const options = page.getByRole('region', { name: '选择关联服务会话' })
       if (count === 0) {
-        await expect(options).toContainText('没有此案例的关联记录')
+        await expect(options).toContainText('此服务记录当前没有关联的服务会话')
         await expect(page).toHaveURL(/\/cases$/)
       } else {
         await expect(options.getByRole('link')).toHaveCount(2)

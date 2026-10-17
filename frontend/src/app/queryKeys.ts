@@ -7,6 +7,7 @@ export const queryKeys = {
   caseFactReview: (tenantId: string, actorId: string, id: string) => ['case-fact-review', tenantId, actorId, id] as const,
   cases: (tenantId: string, actorId: string) => ['cases', tenantId, actorId] as const,
   case: (tenantId: string, actorId: string, id: string) => ['case', tenantId, actorId, id] as const,
+  caseConversations: (tenantId: string, actorId: string, id: string) => ['case-conversations', tenantId, actorId, id] as const,
   caseActions: (tenantId: string, actorId: string, id: string) => ['case-actions', tenantId, actorId, id] as const,
   caseEvidence: (tenantId: string, actorId: string, id: string) => ['case-evidence', tenantId, actorId, id] as const,
   resolutionContract: (tenantId: string, actorId: string, id: string) => ['resolution-contract', tenantId, actorId, id] as const,
@@ -19,6 +20,8 @@ export const queryKeys = {
     ['messages', tenantId, actorId, conversationId] as const,
   summaries: (tenantId: string, conversationId: string) =>
     ['case-summaries', tenantId, conversationId] as const,
+  customerCaseLinks: (tenantId: string, actorId: string, conversationId: string) =>
+    ['customer-case-links', tenantId, actorId, conversationId] as const,
   tasks: (tenantId: string, conversationId: string) => ['tasks', tenantId, conversationId] as const,
   customerAssistance: (tenantId: string, actorId: string, conversationId: string) =>
     ['customer-assistance', tenantId, actorId, conversationId] as const,

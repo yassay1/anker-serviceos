@@ -7,7 +7,10 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from serviceos_api.application.auth import Principal
-from serviceos_api.application.contracts import DeviceRead, VerifiedDeviceFact
+from serviceos_api.application.contracts import (
+    CaseRead, CustomerCaseLinkRead, DeviceRead, LinkedConversationRead, VerifiedDeviceFact,
+)
+from serviceos_api.application.conversation_titles import conversation_reads
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.persistence.models import (
     CaseAction, CaseConversation, CaseDevice, Conversation, Customer, DeviceFact,
@@ -187,6 +190,44 @@ class BusinessService:
             raise ServiceError(409, "设备已关联，变更关联角色需要独立的版本化操作。")
         self.session.commit()
         return case
+
+    def customer_case_links(self, conversation_id: UUID) -> list[CustomerCaseLinkRead]:
+        conversation = self.resource(Conversation, conversation_id)
+        cases = self.session.scalars(select(ServiceCase).join(
+            CaseConversation, and_(CaseConversation.case_id == ServiceCase.id,
+                                   CaseConversation.tenant_id == ServiceCase.tenant_id),
+        ).where(ServiceCase.tenant_id == self.actor.tenant_id,
+                ServiceCase.customer_id == conversation.customer_id,
+                ServiceCase.archived_at.is_(None),
+                CaseConversation.conversation_id == conversation.id,
+                CaseConversation.tenant_id == self.actor.tenant_id)
+            .order_by(ServiceCase.created_at, ServiceCase.id)).all()
+        links = []
+        for case in cases:
+            device_ids = self.session.scalars(select(DevicePassport.id).join(
+                CaseDevice, and_(CaseDevice.device_id == DevicePassport.id,
+                                 CaseDevice.tenant_id == DevicePassport.tenant_id),
+            ).where(CaseDevice.tenant_id == self.actor.tenant_id,
+                    CaseDevice.case_id == case.id,
+                    DevicePassport.customer_id == case.customer_id,
+                    DevicePassport.archived_at.is_(None))
+                .order_by(DevicePassport.id)).all()
+            links.append(CustomerCaseLinkRead(case=CaseRead.model_validate(case), device_ids=device_ids))
+        return links
+
+    def linked_conversations(self, case_id: UUID) -> list[LinkedConversationRead]:
+        case = self.resource(ServiceCase, case_id)
+        conversations = self.session.scalars(select(Conversation).join(
+            CaseConversation, and_(CaseConversation.conversation_id == Conversation.id,
+                                   CaseConversation.tenant_id == Conversation.tenant_id),
+        ).where(Conversation.tenant_id == self.actor.tenant_id,
+                Conversation.customer_id == case.customer_id,
+                CaseConversation.case_id == case.id,
+                CaseConversation.tenant_id == self.actor.tenant_id)
+            .order_by(Conversation.created_at.desc(), Conversation.id)).all()
+        reads = conversation_reads(self.session, self.actor.tenant_id, conversations)
+        return [LinkedConversationRead(id=row.id, title=row.title, status=row.status,
+                                       created_at=row.created_at) for row in reads]
 
     def device_cases(self, device_id):
         dev = self.resource(DevicePassport, device_id)

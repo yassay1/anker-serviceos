@@ -24,7 +24,8 @@ export function CollaborationPanel({ conversation, actor, desk, compact = false 
   const proposals = useQuery({ queryKey: queryKeys.proposals(actor.tenant_id, conversation.id), queryFn: () => listProposals(conversation.id), enabled: desk, refetchInterval: 10_000 })
   const replyDrafts = useQuery({ queryKey: queryKeys.replyDrafts(actor.tenant_id, conversation.id), queryFn: () => listReplyDrafts(conversation.id), enabled: desk, refetchInterval: 10_000 })
   const queuePage = useQuery({ queryKey: [...queryKeys.taskQueue(actor.tenant_id, actor.actor_id, queue), queueCursor],
-    queryFn: () => listTaskQueue(queue, queueCursor), enabled: desk && compact, refetchInterval: 10_000 })
+    queryFn: () => listTaskQueue(queue, queueCursor), enabled: desk && compact,
+    refetchInterval: query => query.state.status === 'error' ? false : 10_000 })
 
   async function refreshState() {
     await Promise.all([
@@ -113,7 +114,7 @@ export function CollaborationPanel({ conversation, actor, desk, compact = false 
         <button type="button" aria-pressed={queue === 'MINE'} onClick={() => { setQueue('MINE'); setQueueCursor(undefined) }}>我已接手</button>
       </div>
       {queuePage.isPending && <p>正在读取任务队列…</p>}
-      {queuePage.isError && <p className="form-error">{readableError(queuePage.error)}</p>}
+      {queuePage.isError && <div className="form-error" role="alert"><p>{readableError(queuePage.error)}</p><button type="button" onClick={() => void queuePage.refetch()}>重试任务队列</button></div>}
       {queuePage.data?.items?.map(task => <div className="collaboration-item" key={task.id}>
         <span>{task.reason} · {statusLabel(task.status)} · 版本 {task.version}</span>
         <button type="button" onClick={() => navigate(`/desk?conversation=${task.conversation_id}`)}>打开会话</button>

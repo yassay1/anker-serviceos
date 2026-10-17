@@ -82,7 +82,7 @@ async function openDesk(page: Page) {
     await route.fulfill({ json: data })
   })
   await page.goto(`/desk?conversation=${conversationId}`)
-  const contextButton = page.getByRole('button', { name: '资料', exact: true })
+  const contextButton = page.getByRole('button', { name: '服务资料', exact: true })
   if (await page.evaluate(() => window.matchMedia('(max-width: 760px)').matches)) {
     await expect(contextButton).toBeVisible()
     await contextButton.click()

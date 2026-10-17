@@ -807,6 +807,28 @@
         "title": "CustomerAssistanceRead",
         "type": "object"
       },
+      "CustomerCaseLinkRead": {
+        "additionalProperties": false,
+        "properties": {
+          "case": {
+            "$ref": "#/components/schemas/CaseRead"
+          },
+          "device_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Device Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "case",
+          "device_ids"
+        ],
+        "title": "CustomerCaseLinkRead",
+        "type": "object"
+      },
       "DeskCaseSummary": {
         "additionalProperties": false,
         "properties": {
@@ -2368,6 +2390,37 @@
           "deduplicated"
         ],
         "title": "KnowledgeUploadResult",
+        "type": "object"
+      },
+      "LinkedConversationRead": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status",
+          "created_at"
+        ],
+        "title": "LinkedConversationRead",
         "type": "object"
       },
       "LocalLogin": {
@@ -5424,6 +5477,56 @@
       }
     },
     "/api/v1/cases/{id}/conversations": {
+      "get": {
+        "operationId": "list_case_conversations",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LinkedConversationRead"
+                  },
+                  "title": "Response List Case Conversations",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "List Case Conversations",
+        "tags": [
+          "cases"
+        ]
+      },
       "post": {
         "operationId": "attach_conversation",
         "parameters": [
@@ -6830,6 +6933,58 @@
         "summary": "List Customer Assistance",
         "tags": [
           "collaboration"
+        ]
+      }
+    },
+    "/api/v1/conversations/{id}/customer-cases": {
+      "get": {
+        "operationId": "list_customer_case_links",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CustomerCaseLinkRead"
+                  },
+                  "title": "Response List Customer Case Links",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "summary": "List Customer Case Links",
+        "tags": [
+          "cases"
         ]
       }
     },

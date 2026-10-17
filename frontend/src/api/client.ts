@@ -18,6 +18,8 @@ export type UIActionBody = components['schemas']['UIActionRequest']
 export type Device = components['schemas']['DeviceRead']
 export type DeviceFact = components['schemas']['FactRead']
 export type ServiceCase = components['schemas']['CaseRead']
+export type CustomerCaseLink = components['schemas']['CustomerCaseLinkRead']
+export type LinkedConversation = components['schemas']['LinkedConversationRead']
 export type CaseAction = components['schemas']['CaseActionRead']
 export type ActionApproval = components['schemas']['ActionApprovalRead']
 export type CaseImageEvidence = components['schemas']['EvidenceRead']
@@ -266,6 +268,20 @@ export async function retractFact(deviceId: string, factId: string,
 export async function listCases(): Promise<ServiceCase[]> {
   const { data, error, response } = await api.GET('/api/v1/cases')
   return requireData(data, error, response, '案例列表加载失败。')
+}
+
+export async function listCustomerCaseLinks(conversationId: string): Promise<CustomerCaseLink[]> {
+  const { data, error, response } = await api.GET('/api/v1/conversations/{id}/customer-cases', {
+    params: { path: { id: conversationId } },
+  })
+  return requireData(data, error, response, '无法读取会话关联的服务记录。')
+}
+
+export async function listCaseConversations(caseId: string): Promise<LinkedConversation[]> {
+  const { data, error, response } = await api.GET('/api/v1/cases/{id}/conversations', {
+    params: { path: { id: caseId } },
+  })
+  return requireData(data, error, response, '无法读取此服务记录关联的会话。')
 }
 
 export async function readCase(id: string): Promise<ServiceCase> {

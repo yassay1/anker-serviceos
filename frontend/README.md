@@ -58,7 +58,7 @@ npm run build
 npm run test:browser
 ```
 
-首次执行浏览器回归前运行 `npm exec -- playwright install chromium`。本机已有 Chrome 时，可使用 `$env:PLAYWRIGHT_CHANNEL='chrome'; npm run test:browser`。测试自行启动独立的 5174 测试服务，不复用日常 5173 页面。
+首次执行浏览器回归前运行 `npm exec -- playwright install chromium`。本机已有 Chrome 时，可使用 `$env:PLAYWRIGHT_CHANNEL='chrome'; npm run test:browser`。测试默认自行启动独立的 5175 服务，不复用日常页面；需要替换端口时设置 `PLAYWRIGHT_PORT`。
 
 这些命令检查 API 类型同步、应用及测试的 TypeScript、生产构建和前端冲突恢复。浏览器回归在测试目录内拦截 HTTP，使用当前生成类型构造受控响应；不需要数据库，也不证明真实后端权限、并发或 SSE 恢复已通过。业务流程仍须在真实 API、PostgreSQL 与当前身份下实际验收。
 

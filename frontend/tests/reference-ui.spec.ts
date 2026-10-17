@@ -1,25 +1,21 @@
 import { expect, test } from '@playwright/test'
-import { fixture } from './workspace-fixture'
+import { fixture, ids } from './workspace-fixture'
 import AxeBuilder from '@axe-core/playwright'
 
-test('customer home creates a separate conversation with a draft without sending it', async ({ page }) => {
+test('customer home enters support by navigation without creating a conversation', async ({ page }) => {
   const state = await fixture(page, false)
-  state.conversations[1].status = 'ACTIVE'
-  const creates: unknown[] = []
-  await page.route('**/api/v1/conversations', route => {
-    if (route.request().method() === 'GET') return route.fulfill({ json: { items: state.conversations } })
-    creates.push(route.request().postDataJSON())
-    return route.fulfill({ json: state.conversations[1] })
-  })
-  await page.route('**/api/v1/cases', route => route.fulfill({ json: [] }))
+  let creates = 0
+  page.on('request', request => { if (request.method() === 'POST' && /\/api\/v1\/conversations$/.test(request.url())) creates++ })
   await page.goto('/')
-  await page.getByLabel('问题描述').fill('指示灯没有亮，请帮我检查')
-  await page.getByRole('button', { name: '开始新的诊断', exact: true }).click()
-  await expect(page).toHaveURL(/\/support\?conversation=/)
-  await expect(page.getByLabel('描述你的问题')).toHaveValue('指示灯没有亮，请帮我检查')
+  await expect(page.getByRole('navigation', { name: '主要导航' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: '历史对话' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '服务记录' })).toBeVisible()
+  await expect(page.getByRole('link', { name: /设备档案/ })).toHaveAttribute('href', '/devices')
+  await page.getByRole('link', { name: '进入对话', exact: true }).click()
+  await expect(page).toHaveURL(/\/support(?:\?conversation=.+)?$/)
+  await expect(page.getByLabel('描述你的问题')).toBeVisible()
   expect(state.sent).toHaveLength(0)
-  expect(creates).toEqual([{}])
-  await expect(page).toHaveURL(new RegExp(state.conversations[1].id))
+  expect(creates).toBe(0)
 })
 
 test('staff overview filters real case rows and opens the original case route', async ({ page }) => {
@@ -35,25 +31,19 @@ test('staff overview filters real case rows and opens the original case route', 
   await expect(page.getByRole('link', { name: '电源无法启动', exact: true })).toHaveCount(0)
 })
 
-test('customer home keeps the draft after a failed conversation creation', async ({ page }) => {
+test('customer home keeps Conversation history separate from Service Case history', async ({ page }) => {
   const state = await fixture(page, false)
-  await page.route('**/api/v1/cases', route => route.fulfill({ json: [] }))
-  let creates = 0
-  await page.route('**/api/v1/conversations', route => {
-    if (route.request().method() === 'GET') return route.fulfill({ json: { items: state.conversations } })
-    creates += 1
-    return route.fulfill({ status: 503, json: { detail: '会话暂时无法建立，请稍后重试。' } })
-  })
+  const serviceCase = { id: ids.second, customer_id: ids.customer,
+    problem_text: '电源连接需要核查', user_goal: '恢复稳定供电', status: 'WAITING_CUSTOMER' as const, version: 2, created_at: '2026-10-14T01:00:00Z' }
+  state.cases.push(serviceCase)
   await page.goto('/')
-  await page.getByRole('button', { name: '开始新的诊断', exact: true }).click()
-  expect(creates).toBe(0)
-  await page.getByLabel('问题描述').fill('保留这个尚未发送的问题')
-  await page.getByRole('button', { name: '开始新的诊断', exact: true }).click()
-  await expect(page.getByRole('alert')).toContainText('暂时无法建立')
-  await expect(page.getByLabel('问题描述')).toHaveValue('保留这个尚未发送的问题')
-  await expect(page).toHaveURL('/')
-  expect(creates).toBe(1)
-  expect(state.sent).toHaveLength(0)
+  const conversationLink = page.getByRole('link', { name: /充电设备服务咨询/ }).first()
+  const caseLink = page.getByRole('link', { name: /电源连接需要核查/ })
+  await expect(conversationLink).toHaveAttribute('href', `/support?conversation=${state.conversations[0].id}`)
+  await expect(caseLink).toHaveAttribute('href', `/cases/${serviceCase.id}`)
+  await expect(page.getByRole('heading', { name: '历史对话' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '服务记录' })).toBeVisible()
+  expect(state.unexpected).toEqual([])
 })
 
 test('customer cannot open staff overview or trigger its aggregate queries', async ({ page }) => {

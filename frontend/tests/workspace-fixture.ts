@@ -30,6 +30,10 @@ export async function fixture(page: Page, staff = true) {
     proposals: [] as S['ProposalRead'][],
     replyDrafts: [] as S['StaffReplyDraftRead'][],
     assistance: [] as S['CustomerAssistanceRead'][],
+    cases: [] as S['CaseRead'][],
+    customerCaseLinks: [] as S['CustomerCaseLinkRead'][],
+    linkedConversations: [] as S['LinkedConversationRead'][],
+    taskQueue: [] as S['TaskRead'][],
   }
   const device: S['DeviceRead'] = { id: ids.device, customer_id: ids.customer, model: 'Anker 737',
     serial_number: 'PRIVATE-SERIAL-0921', identity_status: 'UNVERIFIED', revision: 2, created_at: createdAt,
@@ -72,6 +76,15 @@ export async function fixture(page: Page, staff = true) {
       state.actions.push(body)
       return route.fulfill({ status: 200, json: { client_action_id: body.client_action_id, status: 'ACCEPTED',
         task_id: null, diagnostic_task_id: ids.second, replayed: false } satisfies S['UIActionResult'] })
+    }
+    if (method === 'POST' && /\/tasks\/[^/]+\/claim$/.test(path)) {
+      const id = path.split('/').at(-2)!
+      const task = state.taskQueue.find(item => item.id === id)
+      if (!task) return route.fulfill({ status: 404, json: { detail: '任务不存在或无权访问。' } })
+      task.status = 'ASSIGNED'
+      task.assignee_id = actor.actor_id
+      task.version++
+      return route.fulfill({ json: task })
     }
     if (method === 'POST' && /\/proposals\/[^/]+\/reply-drafts$/.test(path)) {
       const proposalId = path.split('/')[4]
@@ -117,13 +130,19 @@ export async function fixture(page: Page, staff = true) {
     }
     const json = method === 'GET' && path.endsWith('/auth/me') ? actor
       : method === 'GET' && path.endsWith('/health') ? health
+      : method === 'GET' && /\/conversations\/[^/]+\/customer-cases$/.test(path) ? state.customerCaseLinks
+      : method === 'GET' && /\/cases\/[^/]+\/conversations$/.test(path) ? state.linkedConversations
+      : method === 'GET' && path === '/api/v1/cases' ? state.cases
       : method === 'GET' && path.endsWith('/conversations') ? { items: state.conversations }
       : method === 'GET' && path.endsWith('/messages') ? { items: state.messages.filter(item => path.includes(item.conversation_id)), next_cursor: null }
       : method === 'GET' && path.endsWith('/event-history') ? { items: [], next_after: 0 }
       : method === 'GET' && path.endsWith('/case-summaries') ? [summary]
       : method === 'GET' && path.endsWith('/customer-assistance') ? { items: state.assistance }
       : method === 'GET' && path.endsWith('/reply-drafts') ? state.replyDrafts
-      : method === 'GET' && path === '/api/v1/tasks' ? { items: [], next_cursor: null }
+      : method === 'GET' && path === '/api/v1/tasks' ? { items: state.taskQueue.filter(task =>
+        new URL(route.request().url()).searchParams.get('queue') === 'MINE'
+          ? task.assignee_id === actor.actor_id && task.status === 'ASSIGNED'
+          : task.status === 'OPEN'), next_cursor: null }
       : method === 'GET' && path.endsWith('/tasks') ? []
       : method === 'GET' && path.endsWith('/proposals') ? state.proposals
       : method === 'GET' && path.endsWith('/knowledge/documents') ? { items: [], next_cursor: null }
