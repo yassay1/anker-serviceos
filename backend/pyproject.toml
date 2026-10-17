@@ -20,7 +20,11 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=9.1,<10", "httpx>=0.28,<1"]
+dev = [
+    "pytest>=9.1,<10",
+    "httpx>=0.28,<1",
+    "ruff>=0.15.20,<0.16",
+]
 
 [build-system]
 requires = ["setuptools>=80,<81"]
@@ -36,3 +40,9 @@ serviceos_api = ["knowledge/*.md", "knowledge/corpus/*.jsonl"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["F821", "F823"]

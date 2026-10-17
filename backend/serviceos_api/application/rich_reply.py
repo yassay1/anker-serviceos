@@ -261,7 +261,7 @@ def project_reply(session, conversation, run, draft, related_case_id=None, *, fo
                 if isinstance(option, dict):
                     used.update((option.get('label', '').strip().casefold(), option.get('message', '').strip().casefold()))
     quick = [item for item in quick if item.label.strip().casefold() not in used and item.message.strip().casefold() not in used]
-    if safety or conversation.collaboration_mode != 'AI_LEAD' or conversation.reply_policy != 'AI_AUTO' or (
+    if conversation.collaboration_mode != 'AI_LEAD' or conversation.reply_policy != 'AI_AUTO' or (
         cases and all(case.status in ('RESOLVED', 'CLOSED') for case in cases)):
         quick = []
     if len(quick) < 2:

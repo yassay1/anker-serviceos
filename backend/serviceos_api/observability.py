@@ -18,6 +18,7 @@ class SafeJsonFormatter(logging.Formatter):
         }
         for key in (
             "request_id", "method", "route", "status_code", "duration_ms", "error_code", "exception_type",
+            "exception_symbol",
             "active_connections", "poll_count", "empty_poll_count", "event_count", "total_query_ms",
             "max_event_age_ms", "close_reason", "event_type", "outbox_delay_ms",
         ):

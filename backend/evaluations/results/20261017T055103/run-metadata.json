@@ -1,0 +1,27 @@
+{
+  "started_at": "2026-10-16T21:51:03.988847+00:00",
+  "dataset_sha256": "0c803ec727949314c5f5b4fb265bd297975177cd79b8988decb2bfbfcbfab0f8",
+  "dataset_cases": 1,
+  "repeats": 0,
+  "model": "deepseek-flash",
+  "provider_host": "api.deepseek.com",
+  "database": "serviceos_agent_eval_20261017055101_92f62f",
+  "database_host": "127.0.0.1",
+  "database_port": 55432,
+  "database_setup": {
+    "database": "serviceos_agent_eval_20261017055101_92f62f",
+    "server_address": "172.17.0.2/32",
+    "knowledge_documents": 6,
+    "knowledge_segments": 1235,
+    "policy_rows_created": 7
+  },
+  "api_base": "http://127.0.0.1:52214",
+  "timeout_seconds": 150,
+  "worker_max_attempts_per_message": 1,
+  "embedding_enabled": false,
+  "attachments_used": false,
+  "status": "COMPLETED",
+  "ended_at": "2026-10-16T21:51:26.920016+00:00",
+  "attempted_runs": 1,
+  "results_file": "D:\\codex_worktrees\\agent-dataset-eval\\Anker SreviceOS\\backend\\evaluations\\results\\20261017T055103\\case-results.jsonl"
+}

@@ -1,0 +1,31 @@
+{
+  "dataset": "agent-quality-v1",
+  "cases": 78,
+  "source_tickets": 63,
+  "source_sha256": "0279f939182e84526c05dfc5e1b5a694248ab5acfe4bec7ea4857f9504051f94",
+  "dataset_sha256": "0c803ec727949314c5f5b4fb265bd297975177cd79b8988decb2bfbfcbfab0f8",
+  "source_scenario_counts": {
+    "shipping": 11,
+    "troubleshooting": 52
+  },
+  "supplemental_cases": 15,
+  "redactions": {
+    "email": 0,
+    "url": 5,
+    "phone": 7,
+    "named_self": 7,
+    "order_label": 21,
+    "long_identifier": 46,
+    "long_number": 1
+  },
+  "source_text_retention_min": 0.429,
+  "source_text_retention_median": 1.0,
+  "residual_pattern_scan": {
+    "email": 0,
+    "url": 0,
+    "long_number": 0
+  },
+  "attachments_used": false,
+  "notes": "Source email text de-identified; workbook attachments excluded. Hackathon labels are reference labels, not verified Anker policy.",
+  "multi_turn_cases": 3
+}
