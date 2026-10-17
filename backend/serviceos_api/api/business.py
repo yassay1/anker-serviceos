@@ -19,6 +19,8 @@ from serviceos_api.application.contracts import (
     ActorRead, ConversationList, ConversationRead, DeskCaseSummary, CreateConversation, LocalLogin, MessagePage,
     MessageReceipt, SendMessage, ModeTransition, AssistanceRequest, ClaimTask, TaskRead, ProposalRead,
     ProposalDecision, EventPage, UIDocumentRead, UIActionRequest, UIActionResult,
+    CustomerAssistancePage, TaskQueuePage, CreateReplyDraft, UpdateReplyDraft,
+    ApproveReplyDraft, SendReplyDraft, StaffReplyDraftRead,
 )
 from serviceos_api.persistence.models import Conversation
 
@@ -122,6 +124,18 @@ def list_tasks(id: UUID, service: ConversationBusiness):
     return service.tasks(id)
 
 
+@router.get("/conversations/{id}/customer-assistance", response_model=CustomerAssistancePage,
+            tags=["collaboration"], operation_id="list_customer_assistance")
+def list_customer_assistance(id: UUID, service: ConversationBusiness):
+    return service.customer_assistance(id)
+
+
+@router.get("/tasks", response_model=TaskQueuePage, tags=["collaboration"], operation_id="list_task_queue")
+def list_task_queue(service: ConversationBusiness, queue: str = Query(default="OPEN", pattern="^(OPEN|MINE)$"),
+                    cursor: UUID | None = None, limit: int = Query(default=50, ge=1, le=100)):
+    return service.task_queue(queue, cursor, limit)
+
+
 @router.post("/tasks/{id}/claim", response_model=TaskRead,
              tags=["collaboration"], operation_id="claim_task")
 def claim_task(id: UUID, body: ClaimTask, service: ConversationBusiness):
@@ -138,6 +152,36 @@ def list_proposals(id: UUID, service: ConversationBusiness):
              tags=["collaboration"], operation_id="decide_proposal")
 def decide_proposal(id: UUID, body: ProposalDecision, service: ConversationBusiness):
     return service.decide_proposal(id, body)
+
+
+@router.post("/proposals/{id}/reply-drafts", response_model=StaffReplyDraftRead,
+             status_code=status.HTTP_201_CREATED, tags=["collaboration"], operation_id="create_reply_draft")
+def create_reply_draft(id: UUID, body: CreateReplyDraft, service: ConversationBusiness):
+    return service.create_reply_draft(id, body)
+
+
+@router.get("/conversations/{id}/reply-drafts", response_model=list[StaffReplyDraftRead],
+            tags=["collaboration"], operation_id="list_reply_drafts")
+def list_reply_drafts(id: UUID, service: ConversationBusiness):
+    return service.reply_drafts(id)
+
+
+@router.patch("/reply-drafts/{id}", response_model=StaffReplyDraftRead,
+              tags=["collaboration"], operation_id="update_reply_draft")
+def update_reply_draft(id: UUID, body: UpdateReplyDraft, service: ConversationBusiness):
+    return service.update_reply_draft(id, body)
+
+
+@router.post("/reply-drafts/{id}/approval", response_model=StaffReplyDraftRead,
+             tags=["collaboration"], operation_id="approve_reply_draft")
+def approve_reply_draft(id: UUID, body: ApproveReplyDraft, service: ConversationBusiness):
+    return service.approve_reply_draft(id, body)
+
+
+@router.post("/reply-drafts/{id}/send", response_model=MessageReceipt,
+             status_code=status.HTTP_202_ACCEPTED, tags=["collaboration"], operation_id="send_reply_draft")
+def send_reply_draft(id: UUID, body: SendReplyDraft, service: ConversationBusiness):
+    return service.send_reply_draft(id, body)
 
 
 @router.get("/conversations/{id}/event-history", response_model=EventPage,

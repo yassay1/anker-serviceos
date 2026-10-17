@@ -24,7 +24,8 @@ from serviceos_api.api.business import _read_authorized_event_page, stream_event
 import serviceos_api.api.business as business_api
 from serviceos_api.main import create_app
 from serviceos_api.persistence.models import (
-    AuthSession, CaseEvidence, DeviceFact, Message, MessageJob, OutboxEvent, StaffUser, TenantMembership,
+    AuthSession, AgentProposal, AgentRun, CaseEvidence, DeviceFact, Message, MessageJob, OutboxEvent,
+    StaffUser, TenantMembership,
 )
 from serviceos_api.settings import Settings
 from serviceos_api.observability import SafeJsonFormatter
@@ -233,12 +234,36 @@ def test_mode_transition_latest_policy_and_task_claim(app, database_engine):
     }).status_code == 409
     task = owner.post(f"{url}/assistance-requests", json={"reason": "请求人工协助"})
     assert task.status_code == 201, task.text
+    duplicate = owner.post(f"{url}/assistance-requests", json={"reason": "再次提交相同协助"})
+    assert duplicate.status_code == 201 and duplicate.json()["id"] == task.json()["id"]
+    assert duplicate.json()["reason"] == task.json()["reason"]
     assert owner.get(f"{url}/tasks").status_code == 403
+    customer_tasks = owner.get(f"{url}/customer-assistance")
+    assert customer_tasks.status_code == 200
+    assert customer_tasks.json()["items"] == [{
+        "id": task.json()["id"], "status": "OPEN", "version": 1,
+        "created_at": task.json()["created_at"],
+    }]
+    assert staff.get(f"{url}/customer-assistance").status_code == 403
+    assert login(app, "customer-b").get(f"{url}/customer-assistance").status_code == 404
+    queue = staff.get("/api/v1/tasks", params={"queue": "OPEN"})
+    assert queue.status_code == 200 and queue.json()["items"][0]["id"] == task.json()["id"]
     assert len(staff.get(f"{url}/tasks").json()) == 1
     task_id = task.json()["id"]
     first = staff.post(f"/api/v1/tasks/{task_id}/claim", json={"expected_version": 1})
     assert first.status_code == 200, first.text
     assert first.json()["version"] == 2
+    mine = staff.get("/api/v1/tasks", params={"queue": "MINE"})
+    assert mine.status_code == 200 and [item["id"] for item in mine.json()["items"]] == [task_id]
+    assert staff.get("/api/v1/tasks", params={"queue": "OPEN"}).json()["items"] == []
+    assert owner.get(f"{url}/customer-assistance").json()["items"][0]["status"] == "ASSIGNED"
+    OutboxDispatcher(database_engine).dispatch_batch(100)
+    public_assistance = [event for event in owner.get(f"{url}/event-history").json()["items"]
+                         if event["type"] == "assistance.status_changed"]
+    assert [(event["data"]["status"], event["visibility"]) for event in public_assistance] == [
+        ("OPEN", "PUBLIC"), ("ASSIGNED", "PUBLIC"),
+    ]
+    assert set(public_assistance[0]["data"]) == {"task_id", "status", "version"}
     assert staff.post(f"/api/v1/tasks/{task_id}/claim", json={"expected_version": 1}).status_code == 409
     restored = staff.post(f"{url}/mode-transitions", json={
         "target_mode": "AI_LEAD", "reply_policy": "AI_AUTO", "expected_version": 2,
@@ -246,6 +271,60 @@ def test_mode_transition_latest_policy_and_task_claim(app, database_engine):
     })
     assert restored.status_code == 200
     assert restored.json()["collaboration_mode"] == "AI_LEAD"
+
+
+def test_persisted_reply_draft_requires_edit_approval_then_public_send(app, database_engine):
+    customer, staff = login(app), login(app, "staff")
+    conv = conversation(customer)
+    submitted = customer.post(f"/api/v1/conversations/{conv['id']}/messages", json=message_body())
+    assert submitted.status_code == 202
+    staff_view = staff.get("/api/v1/auth/me").json()
+    with Session(database_engine) as session:
+        job = session.scalar(select(MessageJob).where(MessageJob.message_id == submitted.json()["message"]["id"]))
+        run = AgentRun(tenant_id=UUID(staff_view["tenant_id"]), job_id=job.id, conversation_id=UUID(conv["id"]),
+                       message_id=UUID(submitted.json()["message"]["id"]), thread_id="draft-test",
+                       lease_token=uuid4(), provider="test", model="test")
+        session.add(run)
+        session.flush()
+        source = Message(tenant_id=run.tenant_id, conversation_id=run.conversation_id, author_kind="AGENT",
+                         visibility="INTERNAL", content=[{"type": "text", "text": "AI 初稿内容"}],
+                         client_message_id=run.id, request_hash="a" * 64)
+        session.add(source)
+        session.flush()
+        proposal = AgentProposal(tenant_id=run.tenant_id, agent_run_id=run.id, conversation_id=run.conversation_id,
+                                 proposal_type="REPLY", idempotency_key="reply-test",
+                                 payload={"summary": "测试摘要", "source_message_id": str(source.id)})
+        session.add(proposal)
+        session.commit()
+        proposal_id = proposal.id
+    created = staff.post(f"/api/v1/proposals/{proposal_id}/reply-drafts", json={"draft_id": str(uuid4())})
+    assert created.status_code == 201, created.text
+    draft = created.json()
+    assert draft["status"] == "IN_COMPOSER" and draft["content"] == "AI 初稿内容"
+    assert staff.patch(f"/api/v1/reply-drafts/{draft['id']}", json={
+        "expected_version": 1, "content": "客服编辑后的公开答复",
+    }).json()["status"] == "EDITED"
+    approved = staff.post(f"/api/v1/reply-drafts/{draft['id']}/approval", json={
+        "approval_id": str(uuid4()), "expected_version": 2,
+    })
+    assert approved.status_code == 200 and approved.json()["status"] == "APPROVED"
+    before_send = customer.get(f"/api/v1/conversations/{conv['id']}/messages").json()["items"]
+    assert len(before_send) == 1 and before_send[0]["content"][0]["text"] == "我的充电器无法充电"
+    key = str(uuid4())
+    send = staff.post(f"/api/v1/reply-drafts/{draft['id']}/send", json={
+        "client_message_id": key, "expected_version": 3,
+    })
+    assert send.status_code == 202, send.text
+    assert send.json()["message"]["visibility"] == "PUBLIC"
+    assert send.json()["message"]["author_kind"] == "STAFF"
+    replay = staff.post(f"/api/v1/reply-drafts/{draft['id']}/send", json={
+        "client_message_id": key, "expected_version": 3,
+    })
+    assert replay.status_code == 202 and replay.json()["replayed"] is True
+    visible = customer.get(f"/api/v1/conversations/{conv['id']}/messages").json()["items"]
+    assert len(visible) == 2
+    assert visible[-1]["content"][0]["text"] == "客服编辑后的公开答复"
+    assert staff.get(f"/api/v1/conversations/{conv['id']}/reply-drafts").json()[0]["status"] == "SENT"
 
 
 def test_two_staff_claim_same_version_only_one_wins(app, database_engine):
@@ -524,6 +603,11 @@ def test_ui_revision_isolation_and_low_risk_intent(app, database_engine):
     replay = owner.post(f"{url}/ui-actions", json=body)
     assert replay.status_code == 200 and replay.json()["replayed"] is True
     assert replay.json()["task_id"] == first.json()["task_id"]
+    second_action = {**body, "client_action_id": str(uuid4())}
+    reused = owner.post(f"{url}/ui-actions", json=second_action)
+    assert reused.status_code == 200 and reused.json()["task_id"] == first.json()["task_id"]
+    assert owner.get(f"{url}/customer-assistance").json()["items"] and len(
+        owner.get(f"{url}/customer-assistance").json()["items"]) == 1
     changed = {**body, "input": {"reason": "不同原因"}}
     assert owner.post(f"{url}/ui-actions", json=changed).status_code == 409
     assert staff.post(f"{url}/ui-actions", json={**body, "client_action_id": str(uuid4())}).status_code == 403

@@ -79,7 +79,13 @@ export function useConversationEvents(actor: Actor, conversationId: string | und
         void queryClient.invalidateQueries({ queryKey: ['case', actor.tenant_id, actor.actor_id] })
         void queryClient.invalidateQueries({ queryKey: queryKeys.cases(actor.tenant_id, actor.actor_id) })
       }
-      if (desk && targets.has('tasks')) void queryClient.invalidateQueries({ queryKey: queryKeys.tasks(actor.tenant_id, conversationId) })
+      if (desk && targets.has('tasks')) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.tasks(actor.tenant_id, conversationId) })
+        void queryClient.invalidateQueries({ queryKey: ['task-queue', actor.tenant_id, actor.actor_id] })
+      }
+      if (!desk && targets.has('assistance')) void queryClient.invalidateQueries({
+        queryKey: queryKeys.customerAssistance(actor.tenant_id, actor.actor_id, conversationId),
+      })
       if (desk && targets.has('proposals')) void queryClient.invalidateQueries({ queryKey: queryKeys.proposals(actor.tenant_id, conversationId) })
       if (desk && targets.has('summaries')) void queryClient.invalidateQueries({ queryKey: queryKeys.summaries(actor.tenant_id, conversationId) })
       if (targets.has('uiDocument')) void queryClient.invalidateQueries({ queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, conversationId) })
@@ -94,6 +100,7 @@ export function useConversationEvents(actor: Actor, conversationId: string | und
         'collaboration.mode_changed': ['conversations', 'tasks', 'proposals', 'summaries', 'uiDocument'],
         'assistance.requested': ['conversations', 'tasks', 'summaries', 'uiDocument'],
         'assistance.assigned': ['conversations', 'tasks', 'uiDocument'],
+        'assistance.status_changed': ['conversations', 'tasks', 'assistance', 'uiDocument'],
         'approval.decided': ['conversations', 'proposals', 'uiDocument'],
         'ui.document.published': ['uiDocument'],
         'ui.action.accepted': ['messages', 'uiDocument'],

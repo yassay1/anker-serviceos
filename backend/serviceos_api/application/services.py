@@ -8,7 +8,8 @@ from sqlalchemy import and_, or_, select, true
 
 from serviceos_api.application.contracts import (
     CaseRead, DeskCaseSummary, EventPage, EventRead, MessagePage, MessageRead, MessageReceipt, ProposalRead,
-    SummaryFact, TaskRead, UIActionResult, UIDocumentRead,
+    SummaryFact, TaskRead, UIActionResult, UIDocumentRead, CustomerAssistanceRead, CustomerAssistancePage,
+    TaskQueuePage, StaffReplyDraftRead, SendMessage,
 )
 from serviceos_api.application.diagnostic_contracts import DiagnosticQuestion
 from serviceos_api.application.business import BusinessService
@@ -21,7 +22,7 @@ from serviceos_api.application.ui_visualizations import (
 from serviceos_api.persistence.models import (
     AgentProposal, AgentRun, CaseAction, CaseConversation, CaseDevice, CaseEvidence, CaseVerification, Conversation, ConversationEvent, DeviceFact,
     DevicePassport, DiagnosticAnswer, DiagnosticTask, Message, MessageJob, OutboxEvent, ServiceCase, ServiceTask, SpecialistRun, TaskAssignment,
-    UIActionInvocation, UIDocument,
+    UIActionInvocation, UIDocument, StaffReplyDraft,
 )
 
 
@@ -142,7 +143,7 @@ class ConversationService(BusinessService):
             "message.created", "conversations.created", "collaboration.mode_changed",
             "ui.document.published", "ui.action.accepted",
             "evidence.received", "evidence.inspected", "action.state_changed", "verification.recorded",
-            "follow_up.consented", "agent.progress", "specialist.activity",
+            "follow_up.consented", "agent.progress", "specialist.activity", "assistance.status_changed",
         ):
             raise ServiceError(422, "公开事件类型未获授权。")
         visibility = event.visibility
@@ -192,6 +193,22 @@ class ConversationService(BusinessService):
             if (conversation.status != "ACTIVE" or conversation.collaboration_mode != "AI_LEAD"
                     or conversation.reply_policy != "AI_AUTO"):
                 visibility = "INTERNAL"
+        elif event.type == "assistance.status_changed":
+            task_id = data.get("task_id") if isinstance(data, dict) else None
+            status = data.get("status") if isinstance(data, dict) else None
+            version = data.get("version") if isinstance(data, dict) else None
+            try:
+                task_uuid = UUID(task_id)
+            except (ValueError, TypeError):
+                raise ServiceError(422, "协助状态事件引用无效。") from None
+            task = session.scalar(select(ServiceTask).where(
+                ServiceTask.id == task_uuid, ServiceTask.tenant_id == event.tenant_id,
+                ServiceTask.conversation_id == conversation.id,
+                ServiceTask.requester_customer_id.is_not(None),
+            ))
+            if task is None or status not in ("OPEN", "ASSIGNED", "CLOSED") or type(version) is not int or version < 1:
+                raise ServiceError(422, "协助状态事件字段或任务引用无效。")
+            data = {"task_id": str(task.id), "status": status, "version": version}
         if event.id is not None:
             existing = session.scalar(select(ConversationEvent).where(
                 ConversationEvent.id == event.id, ConversationEvent.tenant_id == event.tenant_id,
@@ -254,14 +271,29 @@ class ConversationService(BusinessService):
             case = self.resource(ServiceCase, request.case_id)
             if case.customer_id != conversation.customer_id or self.session.get(CaseConversation, (case.id, conversation.id)) is None:
                 raise ServiceError(409, "案例未关联到当前会话。")
+        requester_customer_id = self.actor.actor_id if self.actor.kind == "CUSTOMER" else None
+        if requester_customer_id is not None:
+            active = self.session.scalar(select(ServiceTask).where(
+                ServiceTask.tenant_id == self.actor.tenant_id,
+                ServiceTask.conversation_id == conversation.id,
+                ServiceTask.requester_customer_id == requester_customer_id,
+                ServiceTask.case_id == request.case_id,
+                ServiceTask.status.in_(("OPEN", "ASSIGNED")),
+            ).order_by(ServiceTask.created_at.desc(), ServiceTask.id.desc()).with_for_update().limit(1))
+            if active is not None:
+                return self._task_read(active)
         task = ServiceTask(tenant_id=self.actor.tenant_id, conversation_id=conversation.id,
                            case_id=request.case_id,
-                           requester_customer_id=self.actor.actor_id if self.actor.kind == "CUSTOMER" else None,
+                           requester_customer_id=requester_customer_id,
                            reason=request.reason)
         self.session.add(task)
         self.session.flush()
         self.record_event("assistance.requested", {"task_id": str(task.id)},
                           visibility="INTERNAL", conversation_id=conversation.id)
+        if task.requester_customer_id is not None:
+            self.record_event("assistance.status_changed", {
+                "task_id": str(task.id), "status": task.status, "version": task.version,
+            }, visibility="PUBLIC", conversation_id=conversation.id)
         if commit:
             self.session.commit()
         return self._task_read(task)
@@ -733,6 +765,48 @@ class ConversationService(BusinessService):
         ).order_by(ServiceTask.created_at, ServiceTask.id)).all()
         return [self._task_read(row) for row in rows]
 
+    def customer_assistance(self, conversation_id):
+        if self.actor.kind != "CUSTOMER":
+            raise ServiceError(403, "客户协助状态仅供本人查看。")
+        conversation = self.resource(Conversation, conversation_id)
+        rows = self.session.scalars(select(ServiceTask).where(
+            ServiceTask.tenant_id == self.actor.tenant_id,
+            ServiceTask.conversation_id == conversation.id,
+            ServiceTask.requester_customer_id == self.actor.actor_id,
+        ).order_by(ServiceTask.created_at, ServiceTask.id)).all()
+        return CustomerAssistancePage(items=[CustomerAssistanceRead.model_validate(row) for row in rows])
+
+    def task_queue(self, queue, cursor, limit):
+        if self.actor.kind != "STAFF":
+            raise ServiceError(403, "客服任务队列仅供客服查看。")
+        query = select(ServiceTask).where(ServiceTask.tenant_id == self.actor.tenant_id)
+        if queue == "OPEN":
+            query = query.where(ServiceTask.status == "OPEN", ~select(TaskAssignment.id).where(
+                TaskAssignment.tenant_id == ServiceTask.tenant_id,
+                TaskAssignment.task_id == ServiceTask.id,
+                TaskAssignment.ended_at.is_(None),
+            ).exists())
+        else:
+            query = query.join(TaskAssignment, and_(
+                TaskAssignment.tenant_id == ServiceTask.tenant_id,
+                TaskAssignment.task_id == ServiceTask.id,
+                TaskAssignment.staff_user_id == self.actor.actor_id,
+                TaskAssignment.ended_at.is_(None),
+            )).where(ServiceTask.status == "ASSIGNED")
+        if cursor is not None:
+            last = self.session.scalar(select(ServiceTask).where(
+                ServiceTask.id == cursor, ServiceTask.tenant_id == self.actor.tenant_id,
+            ))
+            if last is None:
+                raise ServiceError(409, "任务队列游标已失效，请刷新队列。")
+            query = query.where(or_(ServiceTask.created_at > last.created_at,
+                                    and_(ServiceTask.created_at == last.created_at, ServiceTask.id > last.id)))
+        rows = self.session.scalars(query.order_by(ServiceTask.created_at, ServiceTask.id).limit(limit + 1)).all()
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        return TaskQueuePage(items=[self._task_read(row) for row in rows],
+                             next_cursor=rows[-1].id if has_more and rows else None)
+
     def claim_task(self, task_id, request):
         if self.actor.kind != "STAFF":
             raise ServiceError(403, "只有客服可接管任务。")
@@ -749,6 +823,10 @@ class ConversationService(BusinessService):
                                         staff_user_id=self.actor.actor_id))
         self.record_event("assistance.assigned", {"task_id": str(task.id), "version": task.version},
                           visibility="INTERNAL", conversation_id=task.conversation_id)
+        if task.requester_customer_id is not None:
+            self.record_event("assistance.status_changed", {
+                "task_id": str(task.id), "status": task.status, "version": task.version,
+            }, visibility="PUBLIC", conversation_id=task.conversation_id)
         self.session.commit()
         return self._task_read(task)
 
@@ -776,7 +854,7 @@ class ConversationService(BusinessService):
                 raise ServiceError(409, "草稿已经决定，不能重复或改变审阅结果。")
             return ProposalRead.model_validate(proposal)
         if proposal.proposal_type == "REPLY" and request.decision == "APPROVED":
-            self._publish_reviewed_reply(proposal)
+            raise ServiceError(409, "回复建议必须先进入客服草稿，再分别编辑、审批和发送。")
         proposal.status = request.decision
         proposal.decision_key = request.decision_id
         proposal.decision_hash = digest
@@ -787,39 +865,129 @@ class ConversationService(BusinessService):
         self.session.commit()
         return ProposalRead.model_validate(proposal)
 
-    def _publish_reviewed_reply(self, proposal):
-        conversation = self.session.scalar(select(Conversation).where(
-            Conversation.id == proposal.conversation_id,
-            Conversation.tenant_id == proposal.tenant_id,
-        ).with_for_update())
-        if conversation is None or conversation.status != "ACTIVE" or (
-            conversation.collaboration_mode == "HUMAN_LEAD" or conversation.reply_policy == "HUMAN_ONLY"
-        ):
-            raise ServiceError(409, "当前发言策略禁止 Agent 公开回复。")
+    def _staff_reply_draft(self, draft_id, *, lock=False):
+        if self.actor.kind != "STAFF":
+            raise ServiceError(403, "客服回复草稿仅供客服查看。")
+        query = select(StaffReplyDraft).where(
+            StaffReplyDraft.id == draft_id, StaffReplyDraft.tenant_id == self.actor.tenant_id,
+        )
+        if lock:
+            query = query.with_for_update()
+        draft = self.session.scalar(query)
+        if draft is None:
+            raise ServiceError(404, "草稿不存在或无权访问。")
+        return draft
+
+    def create_reply_draft(self, proposal_id, request):
+        if self.actor.kind != "STAFF":
+            raise ServiceError(403, "客服回复草稿仅供客服使用。")
+        existing = self.session.scalar(select(StaffReplyDraft).where(
+            StaffReplyDraft.id == request.draft_id, StaffReplyDraft.tenant_id == self.actor.tenant_id,
+        ))
+        if existing:
+            if existing.source_proposal_id != proposal_id or existing.created_by != self.actor.actor_id:
+                raise ServiceError(409, "草稿编号已用于其他来源。")
+            return StaffReplyDraftRead.model_validate(existing)
+        proposal = self.session.scalar(select(AgentProposal).where(
+            AgentProposal.id == proposal_id, AgentProposal.tenant_id == self.actor.tenant_id,
+        ))
+        if proposal is None:
+            raise ServiceError(404, "回复建议不存在或无权访问。")
+        if proposal.proposal_type != "REPLY" or proposal.status != "DRAFT":
+            raise ServiceError(409, "仅可取用尚未决定的回复建议。")
+        conversation = self.resource(Conversation, proposal.conversation_id, lock=True)
         try:
             source_id = UUID(proposal.payload["source_message_id"])
         except (KeyError, ValueError, TypeError):
-            raise ServiceError(409, "回复草稿缺少有效来源。") from None
-        draft = self.session.scalar(select(Message).where(
-            Message.id == source_id, Message.tenant_id == proposal.tenant_id,
-            Message.conversation_id == conversation.id,
-            Message.author_kind == "AGENT", Message.visibility == "INTERNAL",
-            Message.client_message_id == proposal.agent_run_id,
+            raise ServiceError(409, "回复建议缺少有效来源。") from None
+        source = self.session.scalar(select(Message).where(
+            Message.id == source_id, Message.tenant_id == self.actor.tenant_id,
+            Message.conversation_id == conversation.id, Message.author_kind == "AGENT",
+            Message.visibility == "INTERNAL", Message.client_message_id == proposal.agent_run_id,
         ))
-        if draft is None:
-            raise ServiceError(409, "内部回复草稿不可用。")
-        fingerprint = hashlib.sha256(json.dumps({"proposal_id": str(proposal.id),
-                                                  "content": draft.content}, sort_keys=True,
-                                                 ensure_ascii=False).encode()).hexdigest()
-        published = Message(tenant_id=proposal.tenant_id, conversation_id=conversation.id,
-                            author_kind="AGENT", visibility="PUBLIC", content=draft.content,
-                            related_case_id=draft.related_case_id,
-                            client_message_id=proposal.id, request_hash=fingerprint)
-        self.session.add(published)
-        self.session.flush()
-        self.record_event("message.created", {"message_id": str(published.id),
-                                              "conversation_id": str(conversation.id)},
-                          visibility="PUBLIC", conversation_id=conversation.id)
+        if source is None:
+            raise ServiceError(409, "内部回复建议不可用。")
+        draft = StaffReplyDraft(tenant_id=self.actor.tenant_id, id=request.draft_id,
+                                conversation_id=conversation.id, source_proposal_id=proposal.id,
+                                created_by=self.actor.actor_id,
+                                content="\n".join(part.get("text", "") for part in source.content).strip())
+        if not draft.content:
+            raise ServiceError(409, "回复建议没有可编辑文本。")
+        self.session.add(draft)
+        self.session.commit()
+        return StaffReplyDraftRead.model_validate(draft)
+
+    def reply_drafts(self, conversation_id):
+        if self.actor.kind != "STAFF":
+            raise ServiceError(403, "客服回复草稿仅供客服查看。")
+        conversation = self.resource(Conversation, conversation_id)
+        rows = self.session.scalars(select(StaffReplyDraft).where(
+            StaffReplyDraft.tenant_id == self.actor.tenant_id,
+            StaffReplyDraft.conversation_id == conversation.id,
+        ).order_by(StaffReplyDraft.created_at, StaffReplyDraft.id)).all()
+        return [StaffReplyDraftRead.model_validate(row) for row in rows]
+
+    def update_reply_draft(self, draft_id, request):
+        draft = self._staff_reply_draft(draft_id, lock=True)
+        if draft.created_by != self.actor.actor_id:
+            raise ServiceError(403, "只有草稿创建者可以编辑。")
+        if draft.version != request.expected_version or draft.status not in ("IN_COMPOSER", "EDITED"):
+            raise ServiceError(409, "草稿版本或状态已变化，请刷新后重试。")
+        draft.content = request.content.strip()
+        if not draft.content:
+            raise ServiceError(422, "回复内容不能为空。")
+        draft.status = "EDITED"
+        draft.version += 1
+        self.session.commit()
+        return StaffReplyDraftRead.model_validate(draft)
+
+    def approve_reply_draft(self, draft_id, request):
+        draft = self._staff_reply_draft(draft_id, lock=True)
+        digest = hashlib.sha256(request.model_dump_json().encode()).hexdigest()
+        if draft.approval_key is not None:
+            if draft.approval_key != request.approval_id or draft.approval_hash != digest:
+                raise ServiceError(409, "审批请求已处理，不能用不同内容重复审批。")
+            return StaffReplyDraftRead.model_validate(draft)
+        if draft.version != request.expected_version or draft.status not in ("IN_COMPOSER", "EDITED"):
+            raise ServiceError(409, "草稿版本或状态已变化，请刷新后重试。")
+        draft.status = "APPROVED"
+        draft.version += 1
+        draft.approval_key = request.approval_id
+        draft.approval_hash = digest
+        draft.approved_by = self.actor.actor_id
+        self.session.commit()
+        return StaffReplyDraftRead.model_validate(draft)
+
+    def send_reply_draft(self, draft_id, request):
+        draft = self._staff_reply_draft(draft_id, lock=True)
+        send_hash = hashlib.sha256(json.dumps({"draft_id": str(draft.id), "content": draft.content,
+                                               "visibility": "PUBLIC", "author": str(self.actor.actor_id),
+                                               "expected_version": request.expected_version},
+                                              sort_keys=True).encode()).hexdigest()
+        if draft.send_key is not None:
+            if draft.send_key != request.client_message_id or draft.send_hash != send_hash:
+                raise ServiceError(409, "发送请求已处理，不能使用不同内容重试。")
+            message = self.session.scalar(select(Message).where(
+                Message.id == draft.sent_message_id, Message.tenant_id == self.actor.tenant_id,
+            ))
+            if message is None:
+                raise ServiceError(409, "发送记录不可用，请刷新消息历史。")
+            return MessageReceipt(message=MessageRead.model_validate(message), replayed=True,
+                                  processing_state="NOT_SCHEDULED")
+        if draft.version != request.expected_version or draft.status != "APPROVED":
+            raise ServiceError(409, "只有当前版本的已批准草稿可以发送。")
+        content = draft.content
+        draft.send_key = request.client_message_id
+        draft.send_hash = send_hash
+        draft.status = "SENT"
+        draft.version += 1
+        receipt = self.send_message(draft.conversation_id, SendMessage(
+            client_message_id=request.client_message_id,
+            content=[{"type": "text", "text": content}], visibility="PUBLIC",
+        ), commit=False)
+        draft.sent_message_id = receipt.message.id
+        self.session.commit()
+        return receipt
 
     def desk_case_summaries(self, conversation_id: UUID) -> list[DeskCaseSummary]:
         if self.actor.kind != "STAFF":
@@ -872,7 +1040,7 @@ class ConversationService(BusinessService):
                                              device_ids=device_ids))
         return summaries
 
-    def send_message(self, conversation_id, request):
+    def send_message(self, conversation_id, request, *, commit=True):
         conversation = self.resource(Conversation, conversation_id, lock=True)
         if conversation.status != "ACTIVE":
             raise ServiceError(409, "会话已归档。")
@@ -895,7 +1063,8 @@ class ConversationService(BusinessService):
         if existing:
             if existing.request_hash != fingerprint:
                 raise ServiceError(409, "同一消息标识已用于不同内容。")
-            self.session.commit()
+            if commit:
+                self.session.commit()
             return MessageReceipt(message=MessageRead.model_validate(existing), replayed=True,
                                   processing_state="QUEUED" if existing.author_kind == "CUSTOMER" else "NOT_SCHEDULED")
         if request.reply_to_message_id is not None:
@@ -935,7 +1104,8 @@ class ConversationService(BusinessService):
         self.record_event("message.created", {"message_id": str(message.id), "conversation_id": str(conversation.id)},
                           visibility=message.visibility, conversation_id=conversation.id)
         # Return the receipt only after message + job + Outbox commit together.
-        self.session.commit()
+        if commit:
+            self.session.commit()
         return MessageReceipt(message=MessageRead.model_validate(message), replayed=False,
                               processing_state="QUEUED" if self.actor.kind == "CUSTOMER" else "NOT_SCHEDULED")
 

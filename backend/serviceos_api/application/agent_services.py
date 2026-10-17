@@ -13,11 +13,13 @@ from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session, aliased
 
+from serviceos_api.application.actions import request_mock_action_from_agent
+from serviceos_api.application.errors import ServiceError
 from serviceos_api.application.skills import (
     SKILL_INSTRUCTIONS, SKILL_REGISTRY, SkillExecutionRead, SkillInput, SkillLoadResult, eligible_skills,
 )
 from serviceos_api.application.contracts import ExperienceContent
-from serviceos_api.application.knowledge_pipeline import normalize_seller
+from serviceos_api.application.knowledge_pipeline import normalize_seller, shipment_attrs
 from serviceos_api.application.knowledge_retrieval import (
     KnowledgeRetrieval, detect_ambiguity, ground_retrieval_query,
 )
@@ -750,17 +752,35 @@ class AgentToolService:
                 except ValueError:
                     in_warranty = "unknown"
             source = (segment.curation or {}).get("source_ref", segment.title)
-            fields = [f"{name}: {attrs[name]}" for name in
-                      ("order_no", "sku", "description", "qty", "purchase_date", "warranty_end",
-                       "status", "carrier", "tracking", "logistics_status", "ship_date", "amount")
-                      if attrs.get(name)]
-            fields.append(f"in_warranty: {in_warranty}")
+            shipments = attrs.get("shipments") or shipment_attrs(attrs)
+            payload = {
+                "order_no": attrs.get("order_no"),
+                "sku": attrs.get("sku"),
+                "description": attrs.get("description"),
+                "qty": attrs.get("qty"),
+                "purchase_date": attrs.get("purchase_date"),
+                "warranty_end": warranty_end or None,
+                "in_warranty": in_warranty,
+                "order_status": attrs.get("status"),
+                "carrier_source_text": attrs.get("carrier"),
+                "shipments": shipments,
+                "amount": attrs.get("amount"),
+                "source_ref": source,
+                "data_scope": "REDACTED_STATIC_REFERENCE_NOT_LIVE_ORDER_DATA",
+                "interpretation_notes": [
+                    "拆包字段按来源表列出顺序对应；来源没有商品与包裹映射。",
+                    "承运商若在源字段合并，不映射到单个包裹。",
+                ],
+            }
             envelope = ToolResult(
-                status="OK", items=[" | ".join(fields)],
+                status="OK", payload=payload,
                 references=[{"source_ref": source, "entry_key": segment.entry_key,
                              "source_sha256_16": segment.content_sha256[:16], "path": "typed"}],
                 applicability="REFERENCE_ORDER",
-                notes=[f"只读脱敏订单参考数据。SOURCE: {source} | APPLICABILITY: REFERENCE_ORDER"])
+                notes=[
+                    "只读脱敏静态订单参考数据，不是实时订单查询。",
+                    "拆包字段按来源表列出顺序对应；来源没有商品与包裹映射。承运商若在源字段合并，不映射到单个包裹。",
+                ])
         self._audit(run, "query_order_warranty", envelope)
         self.session.commit()
         return envelope
@@ -895,7 +915,46 @@ class AgentToolService:
         self._audit(run, "record_proposal", envelope)
         self.session.commit()
         return envelope
-        return f"内部草稿已记录（{existing.id}）。尚未对客户发消息、未改变设备事实，也未执行任何外部动作。"
+
+    def request_mock_service_action(
+        self, remedy_type: Literal["REPAIR", "RESHIP", "REFER_SELLER", "DECLINE"], reason: str,
+    ) -> ToolResult:
+        """Persist a bounded request for supervisor approval; it never executes the action."""
+        run, _, _, _ = self._active_execution(reserve_tool_call=True)
+        if self.settings is None or self.settings.environment not in ("development", "test"):
+            envelope = ToolResult(
+                status="REJECTED", applicability="MOCK_SERVICE_ACTION",
+                notes=["模拟售后动作仅在开发和测试环境开放；没有创建动作记录。"],
+            )
+        else:
+            try:
+                action = request_mock_action_from_agent(
+                    self.session, tenant_id=self.tenant_id, conversation_id=self.conversation_id,
+                    run=run, remedy_type=remedy_type, reason=reason,
+                )
+                note = (
+                    "已创建待主管审批的模拟售后申请；尚未执行，也没有真实 Anker 服务操作。"
+                    if action.status == "WAITING_APPROVAL" else
+                    f"已找到此 AgentRun 对应的动作记录，当前状态为 {action.status}；未重复创建或执行。"
+                )
+                envelope = ToolResult(
+                    status="RECORDED", applicability="MOCK_SERVICE_ACTION",
+                    payload={
+                        "action_id": str(action.id), "approval_id": str(action.approval_id),
+                        "case_id": str(action.case_id), "remedy_type": action.remedy_type,
+                        "status": action.status, "adapter": action.adapter, "message": note,
+                    },
+                    references=[{"action_id": str(action.id), "path": "typed"}],
+                    notes=[note],
+                )
+            except ServiceError as error:
+                envelope = ToolResult(
+                    status="REJECTED", applicability="MOCK_SERVICE_ACTION",
+                    notes=[error.detail],
+                )
+        self._audit(run, "request_mock_service_action", envelope)
+        self.session.commit()
+        return envelope
 
     def start_diagnostic(self, goal: str, context: dict, current_text: str):
         """Create/resume a business-owned task under the parent AgentRun lease."""

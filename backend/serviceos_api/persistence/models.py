@@ -276,6 +276,7 @@ class CaseAction(TenantRecord, Base):
     __table_args__ = tenant_args(
         tenant_reference("case_id", "service_cases"),
         tenant_reference("requested_by", "tenant_memberships", "staff_user_id"),
+        tenant_reference("requested_by_agent_run_id", "agent_runs"),
         tenant_reference("source_proposal_id", "agent_proposals"),
         UniqueConstraint("tenant_id", "case_id", "client_action_id"),
         CheckConstraint("action_kind = 'MOCK_SERVICE_REQUEST'", name="kind_values"),
@@ -286,6 +287,11 @@ class CaseAction(TenantRecord, Base):
                         "(receipt_result IN ('SUCCEEDED','FAILED') AND receipt_reference IS NOT NULL AND receipt_at IS NOT NULL)",
                         name="receipt_complete"),
         CheckConstraint("status NOT IN ('SUCCEEDED','FAILED') OR receipt_result = status", name="terminal_has_receipt"),
+        CheckConstraint(
+            "(requested_by IS NOT NULL AND requested_by_agent_run_id IS NULL) OR "
+            "(requested_by IS NULL AND requested_by_agent_run_id IS NOT NULL)",
+            name="requester_identity",
+        ),
         Index("ix_case_actions_ready", "status", "available_at", "created_at"),
     )
     case_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
@@ -295,7 +301,8 @@ class CaseAction(TenantRecord, Base):
     adapter: Mapped[str] = mapped_column(String(16), default="MOCK", server_default="MOCK")
     status: Mapped[str] = mapped_column(String(24), default="WAITING_APPROVAL", server_default="WAITING_APPROVAL")
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
-    requested_by: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    requested_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    requested_by_agent_run_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     source_proposal_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     reason: Mapped[str] = mapped_column(Text)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
@@ -777,6 +784,36 @@ class ServiceTask(TenantRecord, Base):
     reason: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(24), default="OPEN", server_default="OPEN")
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+
+
+class StaffReplyDraft(TenantRecord, Base):
+    __tablename__ = "staff_reply_drafts"
+    __table_args__ = tenant_args(
+        tenant_reference("conversation_id", "conversations"),
+        tenant_reference("source_proposal_id", "agent_proposals"),
+        tenant_reference("created_by", "tenant_memberships", "staff_user_id"),
+        tenant_reference("approved_by", "tenant_memberships", "staff_user_id"),
+        tenant_reference("sent_message_id", "messages"),
+        UniqueConstraint("tenant_id", "id", "approval_key"),
+        UniqueConstraint("tenant_id", "id", "send_key"),
+        CheckConstraint("status IN ('IN_COMPOSER','EDITED','APPROVED','SENT')", name="status_values"),
+        CheckConstraint("version >= 1", name="version_positive"),
+        CheckConstraint("(approval_key IS NULL) = (approval_hash IS NULL)", name="approval_pair"),
+        CheckConstraint("(send_key IS NULL) = (send_hash IS NULL)", name="send_pair"),
+        Index("ix_staff_reply_drafts_conversation", "tenant_id", "conversation_id", "created_at"),
+    )
+    conversation_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    source_proposal_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    created_by: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    content: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(24), default="IN_COMPOSER", server_default="IN_COMPOSER")
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    approval_key: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    approval_hash: Mapped[str | None] = mapped_column(String(64))
+    approved_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    send_key: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    send_hash: Mapped[str | None] = mapped_column(String(64))
+    sent_message_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
 
 
 class FollowUpConsent(TenantRecord, Base):

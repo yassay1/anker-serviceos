@@ -55,8 +55,14 @@ def test_service_agent_keeps_diagnostic_as_an_optional_manager_tool(monkeypatch)
     assert {tool.name for tool in captured["tools"]} == {
         "lookup_manual", "query_order_warranty", "check_dealer_authorization", "get_case_stage",
         "resolve_policy", "load_skill", "request_missing_evidence", "propose_action",
+        "request_mock_service_action",
         "delegate_diagnostic", "get_service_progress",
     }
+    action_tool = next(tool for tool in captured["tools"] if tool.name == "request_mock_service_action")
+    action_schema = action_tool.args_schema.model_json_schema()["properties"]
+    assert set(action_schema) == {"remedy_type", "reason"}
+    remedy_schema = action_schema["remedy_type"]
+    assert remedy_schema["enum"] == ["REPAIR", "RESHIP", "REFER_SELLER", "DECLINE"]
     assert captured["config"]["recursion_limit"] == runtime.MAIN_RECURSION_LIMIT
     assert captured["config"]["max_concurrency"] == 1
     assert any(getattr(middleware, "run_limit", None) == 6 for middleware in captured["middleware"])

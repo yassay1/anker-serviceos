@@ -20,7 +20,11 @@ export const queryKeys = {
   summaries: (tenantId: string, conversationId: string) =>
     ['case-summaries', tenantId, conversationId] as const,
   tasks: (tenantId: string, conversationId: string) => ['tasks', tenantId, conversationId] as const,
+  customerAssistance: (tenantId: string, actorId: string, conversationId: string) =>
+    ['customer-assistance', tenantId, actorId, conversationId] as const,
+  taskQueue: (tenantId: string, actorId: string, queue: 'OPEN' | 'MINE') => ['task-queue', tenantId, actorId, queue] as const,
   proposals: (tenantId: string, conversationId: string) => ['proposals', tenantId, conversationId] as const,
+  replyDrafts: (tenantId: string, conversationId: string) => ['reply-drafts', tenantId, conversationId] as const,
   uiDocument: (tenantId: string, actorId: string, conversationId: string) =>
     ['ui-document', tenantId, actorId, conversationId] as const,
   knowledge: (tenantId: string, actorId: string) => ['knowledge', tenantId, actorId] as const,

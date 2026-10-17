@@ -86,6 +86,39 @@ def _facet_value(key: str, raw) -> str:
     return " ".join(str(raw).split())
 
 
+def shipment_attrs(attrs: dict) -> list[dict]:
+    """Project source order fields into parcels without inventing item/carrier links."""
+    tracking_raw = attrs.get("tracking", "")
+    tracking_numbers = re.findall(
+        r"tracking\s*number\s*\d+\s*:\s*([^\s,;]+)", tracking_raw, re.IGNORECASE,
+    )
+    if not tracking_numbers and tracking_raw:
+        tracking_numbers = [value.strip() for value in re.split(r"[;,\n]+", tracking_raw) if value.strip()]
+    if not tracking_numbers:
+        return []
+
+    ship_dates = re.findall(r"\b\d{4}-\d{1,2}-\d{1,2}\b", attrs.get("ship_date", ""))
+    raw_status = attrs.get("logistics_status", "")
+    delivery_statuses = [value.strip() for value in re.split(
+        r"(?=delivered\s+on\s+)", raw_status, flags=re.IGNORECASE,
+    ) if value.strip()]
+    if len(delivery_statuses) != len(tracking_numbers):
+        delivery_statuses = []
+    if len(ship_dates) != len(tracking_numbers):
+        ship_dates = []
+
+    # The workbook merges carrier names for split orders, so only assign a carrier
+    # when there is exactly one parcel. Keep the original order-level value intact.
+    carrier = attrs.get("carrier") if len(tracking_numbers) == 1 else None
+    return [{
+        "source_sequence": index,
+        "tracking_number": tracking_number,
+        "carrier": carrier,
+        "ship_date": ship_dates[index - 1] if ship_dates else None,
+        "delivery_status": delivery_statuses[index - 1] if delivery_statuses else None,
+    } for index, tracking_number in enumerate(tracking_numbers, start=1)]
+
+
 def _order_attrs(header: list[str], row) -> dict:
     attrs = {}
     for cell, column in zip(row, header):
@@ -95,6 +128,7 @@ def _order_attrs(header: list[str], row) -> dict:
         value = _facet_value(target, cell)
         if value:
             attrs[target] = value.casefold() if target == "order_no" else value
+    attrs["shipments"] = shipment_attrs(attrs)
     return attrs
 
 

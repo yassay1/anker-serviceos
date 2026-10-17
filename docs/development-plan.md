@@ -134,3 +134,7 @@
 - 真实 Provider 试验必须使用已批准的 Provider 配置，分开记录简单流量与委派流量的 `model_ttft_ms`、`agent_first_progress_ms`、总调用数、tokens、P50/P95。当前未运行该基线，禁止以测试替身冒充真实模型验收。
 - 测试聚焦成功、无效结构、工具/资源权限、并发冲突、幂等、policy变化、断线恢复、worker重启和Checkpoint丢失，不做无目标的大规模矩阵。
 - 长时间用户等待事件中写入固定脱敏 summary；事件/reply 内容都由服务端发布控制，不能把 Agent Trace 或 Prompt 交给客户端。
+
+## 增量：客户/客服交互与真实契约对齐（feature 018，本地实现与自动化验收完成）
+
+2026-10-17：按用户确认的保守业务语义，交付客户人工协助状态、客服 OPEN/MINE 队列、持久 AI 回复草稿（放入回复框/编辑/审批/发送分离）和安全公开状态事件。所有写入复用 Conversation Service 的授权与持久化路径；客户消息只以授权 PUBLIC 持久消息为准。状态不推断 ETA/presence，未接入真实 Anker 售后系统。真实实现、逐项契约映射、命令结果及限制见[交互契约验收记录](interaction-contract-validation.md)和[feature 018 契约](../specs/018-interaction-contract-alignment/contracts/feature-contract.md)。后端回归为 167 passed/204 skipped，浏览器 99 passed，隔离本地 API/DB live 6 passed，OpenAPI/生成 Client/typecheck/build 通过。生产、真实 Provider 和人工目视签收仍未验收。

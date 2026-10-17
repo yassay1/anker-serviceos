@@ -82,6 +82,19 @@ test('adaptation: narrow screen panels preserve the message draft', async ({ pag
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
 
+test('customer assistance displays only the server task status and can refresh it', async ({ page }) => {
+  const state = await fixture(page, false)
+  state.assistance.push({ id: '88888888-8888-4888-8888-888888888888', status: 'OPEN', version: 1, created_at: '2026-10-14T01:00:00Z' })
+  await page.goto('/support')
+  await expect(page.getByText('已提交，等待客服接手', { exact: true })).toBeVisible()
+  state.assistance[0].status = 'ASSIGNED'
+  state.assistance[0].version = 2
+  await page.getByRole('button', { name: '刷新协助状态', exact: true }).click()
+  await expect(page.getByText('客服已接手', { exact: true })).toBeVisible()
+  await expect(page.getByText(/预计等待|排队时长|客服在线|正在查看/)).toHaveCount(0)
+  expect(state.unexpected).toEqual([])
+})
+
 for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }]) {
   test(`customer conversation: ${viewport.width}px layout has one assistance entry and no runtime completion card`, async ({ page }) => {
     await page.setViewportSize(viewport)
@@ -98,13 +111,31 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 800
   })
 }
 
-test('adaptation: draft review requires the backend minimum reason length', async ({ page }) => {
+test('adaptation: policy changes require the backend minimum reason length', async ({ page }) => {
   await fixture(page)
   await page.goto('/desk')
   await page.getByRole('button', { name: '人工协作与审批', exact: true }).click()
   await page.getByLabel('原因', { exact: true }).fill('短')
-  await expect(page.getByRole('button', { name: '批准', exact: true })).toBeDisabled()
-  await expect(page.getByRole('button', { name: '拒绝', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '切换策略', exact: true })).toBeDisabled()
+})
+
+test('collaboration: AI reply remains internal through composer edit and approval until send receipt', async ({ page }) => {
+  const state = await fixture(page)
+  await page.goto('/desk')
+  await page.getByRole('button', { name: '人工协作与审批', exact: true }).click()
+  await page.getByRole('button', { name: '放入回复框', exact: true }).click()
+  const draft = page.getByLabel(/客服回复草稿/)
+  await expect(draft).toHaveValue('AI 建议的回复内容')
+  await draft.fill('客服核对并编辑后的答复')
+  await page.getByRole('button', { name: '保存编辑', exact: true }).click()
+  await page.getByRole('button', { name: '单独审批', exact: true }).click()
+  expect(state.messages).toHaveLength(2)
+  await page.getByRole('button', { name: '发送公开回复', exact: true }).click()
+  await expect.poll(() => state.replyDrafts?.[0]?.status).toBe('SENT')
+  await expect(page.getByRole('region', { name: '当前会话' }).getByText('客服核对并编辑后的答复', { exact: true })).toBeVisible()
+  expect(state.messages.at(-1)).toMatchObject({ author_kind: 'STAFF', visibility: 'PUBLIC',
+    content: [{ type: 'text', text: '客服核对并编辑后的答复' }] })
+  expect(state.unexpected).toEqual([])
 })
 
 test('adaptation: device details show actual facts and history without verifying identity', async ({ page }) => {
@@ -141,16 +172,16 @@ test('adaptation: a connected but quiet event stream still reconciles saved mess
   expect(state.unexpected).toEqual([])
 })
 
-test('adaptation: a quiet event stream also reconciles externally reviewed drafts', async ({ page }) => {
+test('adaptation: a quiet event stream reconciles externally rejected AI suggestions', async ({ page }) => {
   await quietStream(page)
   const state = await fixture(page)
   await page.goto('/desk')
   await expect(page.getByText('实时更新已连接', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '人工协作与审批', exact: true }).click()
-  await expect(page.getByRole('button', { name: '批准', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '放入回复框', exact: true })).toBeVisible()
   state.proposals[0].status = 'REJECTED'
-  await expect(page.getByText('回复草稿 · 建议补充充电线材信息。 · 已拒绝', { exact: true })).toBeVisible({ timeout: 12_000 })
-  await expect(page.getByRole('button', { name: '批准', exact: true })).toHaveCount(0)
+  await expect(page.getByText('未发布 AI 回复建议 · 建议补充充电线材信息。', { exact: true })).toHaveCount(0, { timeout: 12_000 })
+  await expect(page.getByRole('button', { name: '放入回复框', exact: true })).toHaveCount(0)
   expect(state.unexpected).toEqual([])
 })
 

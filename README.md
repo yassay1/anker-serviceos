@@ -10,7 +10,7 @@
 
 用户指定的 V1 定稿来自 `D:\proj\共享docs`，已纳入本项目。源文件哈希及本地调整见 [来源清单](docs/baseline-provenance.json)。
 
-阅读顺序：先用本文件了解当前范围；用下列四份 V1 主基线确认产品规则和阶段目标；用验收记录核对实际完成情况。分工与接口变更见[协作开发指南](docs/contributing.md)，模块操作见[前端开发指南](frontend/README.md)和[后端与 Worker 开发指南](backend/README.md)，参考图的视觉方向见[Web 界面设计指南](docs/ui-design-guidelines.md)。
+阅读顺序：先用本文件了解当前范围；用下列四份 V1 主基线确认产品规则和阶段目标；用验收记录核对实际完成情况。分工与接口变更见[协作开发指南](docs/contributing.md)，模块操作见[前端开发指南](frontend/README.md)和[后端与 Worker 开发指南](backend/README.md)，参考图的视觉方向见[Web 界面设计指南](docs/ui-design-guidelines.md)，全局前端方案见[前端设计文档](docs/ui-design/overview.md)。
 
 - [产品定义](docs/product-definition.md)：产品对象、协作模式、用户旅程、Agentic Interface 与性能目标。
 - [系统架构](docs/architecture.md)：前后端分离、应用服务、Worker、持久化及 Agent → UI Schema → Renderer 设计。
@@ -34,6 +34,7 @@
 - [部署与运维手册](docs/operations.md)、[售后 SOP](docs/service-sop.md)：开发/生产依赖、迁移/备份/回滚/EC2+RDS+S3 网络与阻断说明，以及逐阶段服务流程与异常矩阵。
 - [前端适配验证](docs/backend-based-frontend-validation.md)与[全面逻辑检查](docs/comprehensive-logic-audit.md)：真实接口适配、浏览器路径、恢复修复及仍待验的边界。
 - [客户页面对齐验收](docs/customer-ui-alignment-validation.md)：2026-10-17 参考图、桌面优先会话布局、移除客户侧运行生命周期噪音及本轮浏览器回归记录。
+- [手机优先交互设计提案](docs/ui-design/overview.md)：客户单入口与服务操作分层、客服队列视角、视觉系统和静态双端评审原型；属于设计文档/原型，不代表生产前端已经实现。
 - [诊断专家作者消息验收](docs/specialist-author-messages-validation.md)：持久专家作者来源、按协作策略发布、事务幂等与前端消息呈现。
 
 ## 当前实现范围

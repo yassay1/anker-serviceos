@@ -18,6 +18,7 @@ import { ConversationAttachments } from './ConversationAttachments'
 import { AgentProgressNote, RelatedCases, SpecialistActivityNote } from './ConversationContext'
 import { StatusBadge, statusLabel } from '../../shared/StatusBadge'
 import { StaffConversationContext } from './StaffConversationContext'
+import { CustomerAssistanceStatus } from './CustomerAssistanceStatus'
 import { CustomerAvatar, customerLabel } from '../../shared/StaffUI'
 
 type Pending = {
@@ -303,12 +304,14 @@ export function ConversationWorkspace({ actor, desk }: { actor: Actor, desk: boo
           <section className="collaboration-panel customer-assistance" aria-label="服务协助">
             <h3><Headphones size={18} aria-hidden="true" />需要进一步协助？</h3>
             <p>如需人工协助，可提交请求；服务记录会保留在当前会话。</p>
+            <CustomerAssistanceStatus actor={actor} conversationId={selected.id} />
             <UIDocumentRenderer key={`assistance:${selected.id}`} document={uiDocument.isError ? null : uiDocument.data ?? null}
               loading={uiDocument.isPending} active={selected.status === 'ACTIVE' && !uiDocument.isError}
               recoveryKey={`serviceos:pending-ui:${actor.tenant_id}:${actor.actor_id}:${selected.id}`}
               conversationId={selected.id} conversationVersion={selected.version} desk={false} placement="assistance"
               onCompleted={() => {
                 void queryClient.invalidateQueries({ queryKey: queryKeys.tasks(actor.tenant_id, selected.id) })
+                void queryClient.invalidateQueries({ queryKey: queryKeys.customerAssistance(actor.tenant_id, actor.actor_id, selected.id) })
                 void queryClient.invalidateQueries({ queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, selected.id) })
               }}
               onRefresh={() => { void queryClient.invalidateQueries({ queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, selected.id) }) }} />

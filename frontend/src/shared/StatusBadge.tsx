@@ -6,6 +6,7 @@ const labels: Record<string, string> = {
   WAITING_APPROVAL: '待审批', EXECUTING: '执行中', UNKNOWN: '结果待对账',
   SUCCEEDED: '模拟操作成功', FAILED: '模拟操作失败', PENDING: '待处理',
   VERIFIED: '已核验', UNVERIFIED: '待核验', CANDIDATE: '待核验', RETRACTED: '已撤销',
+  IN_COMPOSER: '放入回复框', EDITED: '已编辑', SENT: '已发送',
   AI_LEAD: 'AI 主导', CO_SERVICE: '共同服务', HUMAN_LEAD: '真人主导',
   AI_AUTO: '授权自动回复', AI_REVIEW_REQUIRED: '人工审阅后回复', HUMAN_ONLY: '仅人工回复',
 }

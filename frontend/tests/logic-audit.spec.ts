@@ -117,7 +117,8 @@ test('logic audit: archived conversations expose no active collaboration command
   await page.getByRole('button', { name: '人工协作与审批', exact: true }).click()
   await expect(page.getByRole('button', { name: '发送回复', exact: true })).toBeDisabled()
   await expect(page.getByRole('button', { name: '切换策略', exact: true })).toBeDisabled()
-  await expect(page.getByRole('button', { name: '批准', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '放入回复框', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '忽略建议', exact: true })).toBeDisabled()
 })
 
 test('logic audit: customer assistance has one idempotent submission entry', async ({ page }) => {

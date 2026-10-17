@@ -30,6 +30,7 @@ async function openDesk(page: Page) {
       proposal_type: 'REPLY', payload: { summary: '建议检查线材' }, status: 'DRAFT',
     } satisfies Schemas['ProposalRead'],
     uiReads: 0,
+    replyDrafts: [] as Schemas['StaffReplyDraftRead'][],
     mutations: [] as { path: string, body: unknown }[],
     unexpected: [] as string[],
   }
@@ -45,13 +46,32 @@ async function openDesk(page: Page) {
     const path = new URL(route.request().url()).pathname
     const method = route.request().method()
     if (method === 'GET' && path.endsWith('/events')) return route.abort()
+    if (method === 'POST' && /\/proposals\/[^/]+\/reply-drafts$/.test(path)) {
+      const body = route.request().postDataJSON() as Schemas['CreateReplyDraft']
+      const draft: Schemas['StaffReplyDraftRead'] = { id: body.draft_id, conversation_id: conversationId,
+        source_proposal_id: proposalId, created_by: '00000000-0000-4000-8000-000000000005',
+        content: 'AI 建议内容', status: 'IN_COMPOSER', version: 1, approved_by: null, sent_message_id: null, created_at: createdAt }
+      state.replyDrafts.push(draft)
+      return route.fulfill({ status: 201, json: draft })
+    }
+    if (method === 'POST' && /\/reply-drafts\/[^/]+\/approval$/.test(path)) {
+      const draft = state.replyDrafts[0]
+      draft.status = 'APPROVED'; draft.version++
+      return route.fulfill({ json: draft })
+    }
+    if (method === 'POST' && /\/reply-drafts\/[^/]+\/send$/.test(path)) {
+      state.mutations.push({ path: 'send-draft', body: route.request().postDataJSON() })
+      return route.fulfill({ status: 409, json: { detail: '发送状态冲突。' } })
+    }
     const data = method === 'GET' && path.endsWith('/auth/me') ? actor
       : method === 'GET' && path.endsWith('/health') ? health
       : method === 'GET' && path.endsWith('/conversations') ? { items: [state.conversation] }
       : method === 'GET' && path.endsWith('/messages') ? { items: [], next_cursor: null }
       : method === 'GET' && path.endsWith('/case-summaries') ? []
+      : method === 'GET' && path === '/api/v1/tasks' ? { items: [state.task], next_cursor: null }
       : method === 'GET' && path.endsWith('/tasks') ? [state.task]
       : method === 'GET' && path.endsWith('/proposals') ? [state.proposal]
+      : method === 'GET' && path.endsWith('/reply-drafts') ? state.replyDrafts
       : method === 'POST' && path.endsWith('/ui-document/refresh') ? document
       : undefined
     if (path.endsWith('/ui-document/refresh')) state.uiReads++
@@ -69,7 +89,7 @@ async function openDesk(page: Page) {
   } else if (await contextButton.isVisible()) await contextButton.click()
   await page.getByRole('button', { name: '人工协作与审批', exact: true }).click()
   await expect(page.getByRole('button', { name: '接管', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: '批准', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '放入回复框', exact: true })).toBeVisible()
   return state
 }
 
@@ -84,7 +104,7 @@ test('claim conflict refreshes the assigned task without repeating the claim', a
   })
   await page.getByRole('button', { name: '接管', exact: true }).click()
   await expect(page.getByRole('alert')).toHaveText('任务已被接管或版本已更新。')
-  await expect(page.getByText('请协助检查充电问题 · 已接管 · 版本 2')).toBeVisible()
+  await expect(page.getByText('请协助检查充电问题 · 已接管 · 版本 2').first()).toBeVisible()
   await expect(page.getByRole('button', { name: '接管', exact: true })).toHaveCount(0)
   expect(state.mutations).toEqual([{ path: 'claim', body: { expected_version: 1 } }])
   expect(state.uiReads).toBeGreaterThan(uiReads)
@@ -129,7 +149,7 @@ test('version-only conflict resets the draft selection to the unchanged server m
   expect(state.unexpected).toEqual([])
 })
 
-test('already decided draft refreshes its rejection at narrow width using the keyboard', async ({ page }) => {
+test('ignoring an AI suggestion keeps it unpublished at narrow width using the keyboard', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   const state = await openDesk(page)
   await page.route(`**/proposals/${proposalId}/decision`, async (route) => {
@@ -137,28 +157,30 @@ test('already decided draft refreshes its rejection at narrow width using the ke
     state.proposal.status = 'REJECTED'
     await route.fulfill({ status: 409, json: { detail: '草稿已经决定，不能重复或改变审阅结果。' } })
   })
-  await page.getByRole('button', { name: '批准', exact: true }).focus()
+  await page.getByRole('button', { name: '忽略建议', exact: true }).focus()
   await page.keyboard.press('Enter')
-  await expect(page.getByText('回复草稿 · 建议检查线材 · 已拒绝')).toBeVisible()
-  await expect(page.getByRole('button', { name: '批准', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '拒绝', exact: true })).toHaveCount(0)
+  await expect(page.getByText('未发布 AI 回复建议 · 建议检查线材')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '放入回复框', exact: true })).toHaveCount(0)
   await expect(page.getByRole('alert')).toHaveText('草稿已经决定，不能重复或改变审阅结果。')
   expect(state.mutations).toHaveLength(1)
-  expect(state.mutations[0].body).toMatchObject({ decision: 'APPROVED' })
+  expect(state.mutations[0].body).toMatchObject({ decision: 'REJECTED' })
   expect(state.unexpected).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.screenshot({ path: 'test-results/draft-conflict-mobile.png', fullPage: true })
 })
 
-test('policy conflict keeps a pending draft and shows the server refusal', async ({ page }) => {
+test('send conflict preserves the approved draft and never presents it as sent', async ({ page }) => {
   const state = await openDesk(page)
-  await page.route(`**/proposals/${proposalId}/decision`, (route) => route.fulfill({
-    status: 409, json: { detail: '当前发言策略禁止 Agent 公开回复。' },
+  await page.getByRole('button', { name: '放入回复框', exact: true }).click()
+  await page.getByRole('button', { name: '单独审批', exact: true }).click()
+  await page.route(`**/reply-drafts/*/send`, route => route.fulfill({
+    status: 409, json: { detail: '当前策略禁止客服公开回复。' },
   }))
-  await page.getByRole('button', { name: '批准', exact: true }).click()
-  await expect(page.getByRole('alert')).toHaveText('当前发言策略禁止 Agent 公开回复。')
-  await expect(page.getByText('回复草稿 · 建议检查线材 · 待审阅')).toBeVisible()
-  await expect(page.getByRole('button', { name: '批准', exact: true })).toBeEnabled()
+  await page.getByRole('button', { name: '发送公开回复', exact: true }).click()
+  await expect(page.getByRole('alert')).toHaveText('当前策略禁止客服公开回复。')
+  await expect(page.getByLabel(/客服回复草稿/)).toBeVisible()
+  await expect(page.getByRole('button', { name: '发送公开回复', exact: true })).toBeEnabled()
+  expect(state.replyDrafts[0].status).toBe('APPROVED')
   expect(state.unexpected).toEqual([])
 })
 
@@ -169,7 +191,7 @@ test('forbidden claim never presents an assignment', async ({ page }) => {
   }))
   await page.getByRole('button', { name: '接管', exact: true }).click()
   await expect(page.getByRole('alert')).toHaveText('只有客服可接管任务。')
-  await expect(page.getByText('请协助检查充电问题 · 待处理 · 版本 1')).toBeVisible()
+  await expect(page.getByText('请协助检查充电问题 · 待处理 · 版本 1').first()).toBeVisible()
   await expect(page.getByRole('button', { name: '接管', exact: true })).toBeEnabled()
   expect(state.unexpected).toEqual([])
 })
@@ -183,7 +205,7 @@ test('successful claim still refreshes the server assignment', async ({ page }) 
     await route.fulfill({ json: state.task })
   })
   await page.getByRole('button', { name: '接管', exact: true }).click()
-  await expect(page.getByText('请协助检查充电问题 · 已接管 · 版本 2')).toBeVisible()
+  await expect(page.getByText('请协助检查充电问题 · 已接管 · 版本 2').first()).toBeVisible()
   await expect(page.getByRole('button', { name: '接管', exact: true })).toHaveCount(0)
   await expect(page.getByRole('alert')).toHaveCount(0)
   expect(state.unexpected).toEqual([])

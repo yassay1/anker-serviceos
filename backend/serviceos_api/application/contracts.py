@@ -71,6 +71,54 @@ class TaskRead(Schema):
     created_at: datetime
 
 
+class CustomerAssistanceRead(Schema):
+    id: UUID
+    status: Literal["OPEN", "ASSIGNED", "CLOSED"]
+    version: int
+    created_at: datetime
+
+
+class CustomerAssistancePage(Schema):
+    items: list[CustomerAssistanceRead]
+
+
+class TaskQueuePage(Schema):
+    items: list[TaskRead]
+    next_cursor: UUID | None = None
+
+
+class CreateReplyDraft(Schema):
+    draft_id: UUID
+
+
+class UpdateReplyDraft(Schema):
+    expected_version: int = Field(ge=1)
+    content: str = Field(min_length=1, max_length=8000)
+
+
+class ApproveReplyDraft(Schema):
+    approval_id: UUID
+    expected_version: int = Field(ge=1)
+
+
+class SendReplyDraft(Schema):
+    client_message_id: UUID
+    expected_version: int = Field(ge=1)
+
+
+class StaffReplyDraftRead(Schema):
+    id: UUID
+    conversation_id: UUID
+    source_proposal_id: UUID
+    created_by: UUID
+    content: str
+    status: Literal["IN_COMPOSER", "EDITED", "APPROVED", "SENT"]
+    version: int
+    approved_by: UUID | None = None
+    sent_message_id: UUID | None = None
+    created_at: datetime
+
+
 class ProposalRead(Schema):
     id: UUID
     conversation_id: UUID

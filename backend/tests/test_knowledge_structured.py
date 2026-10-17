@@ -12,7 +12,9 @@ from sqlalchemy.orm import Session
 
 from serviceos_api.application.agent_services import AgentToolService
 from serviceos_api.application.auth import Principal
-from serviceos_api.application.knowledge_pipeline import KnowledgePipelineService, process_knowledge_job
+from serviceos_api.application.knowledge_pipeline import (
+    KnowledgePipelineService, process_knowledge_job, shipment_attrs,
+)
 from serviceos_api.application.knowledge_retrieval import KnowledgeRetrieval
 from serviceos_api.application.tool_envelope import TOOL_STATUSES
 from serviceos_api.bootstrap_local import seed_local_accounts
@@ -27,6 +29,18 @@ from test_knowledge_retrieval import UNIT_VECTOR, active_run
 
 PNG_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+
+
+def test_split_shipment_projection_does_not_guess_when_source_counts_disagree():
+    rows = shipment_attrs({
+        "tracking": "Tracking number1: T1 Tracking number2: T2",
+        "carrier": "Carrier A Carrier B",
+        "ship_date": "2026-09-17",
+        "logistics_status": "Delivered on 9/21",
+    })
+    assert [row["tracking_number"] for row in rows] == ["T1", "T2"]
+    assert all(row["carrier"] is None and row["ship_date"] is None
+               and row["delivery_status"] is None for row in rows)
 
 
 class RecordingEmbedder(EmbeddingAdapter):
@@ -48,8 +62,10 @@ def build_workbook() -> bytes:
     orders.append(["No.", "订单号", "SKU", "Product Description", "QTY", "购买日期", "质保结束日期",
                    "订单地址", "订单状态", "物流承运商", "物流单号", "物流状态", "发货日期", "订单金额"])
     orders.append([1, "Anker001", "E235311B", "eufy E25 combo", 1, datetime(2026, 9, 17),
-                   datetime(2027, 9, 17), "addr", "已发货", "Fedex", "T1", "Delivered",
-                   datetime(2026, 9, 17), 1099.99])
+                   datetime(2027, 9, 17), "addr", "已发货(拆成2个包裹发货）", "Fedex Amazon Logistic",
+                   "Tracking number1: T1 Tracking number2: T1-1",
+                   "Delivered on 9/21 Delivered on 9/23",
+                   "2026-09-17 2026-09-19", 1099.99])
     orders.append([2, "Anker002", "T2080GA1", "S1 Pro Omni", 1, datetime(2026, 9, 13),
                    datetime(2026, 10, 13), "addr2", "已发货", "ANPOST", "T2", "Delivered",
                    datetime(2026, 9, 18), 1099.9])
@@ -116,7 +132,14 @@ def test_workbook_routing_facets_and_semantic_recall(structured_env):
         qa_rows = [s for s in segments if s.attrs == {}]
         assert len(orders) == 2 and len(dealers) == 6 and len(qa_rows) == 1
         first = next(s for s in orders if s.attrs["order_no"] == "anker001")
-        assert first.attrs["warranty_end"] == "2027-09-17" and first.attrs["carrier"] == "Fedex"
+        assert first.attrs["warranty_end"] == "2027-09-17"
+        assert first.attrs["carrier"] == "Fedex Amazon Logistic"
+        assert first.attrs["shipments"] == [
+            {"source_sequence": 1, "tracking_number": "T1", "carrier": None,
+             "ship_date": "2026-09-17", "delivery_status": "Delivered on 9/21"},
+            {"source_sequence": 2, "tracking_number": "T1-1", "carrier": None,
+             "ship_date": "2026-09-19", "delivery_status": "Delivered on 9/23"},
+        ]
         assert session.get(KnowledgeDocument, read.document_id).status == "EMBEDDED"
         retrieval = KnowledgeRetrieval(session)
         hits = retrieval.search("订单 承运商 Fedex 已发货", set())
@@ -133,10 +156,18 @@ def test_lookup_order_hits_warranty_boundary_and_misses_honestly(structured_env)
                                      settings=Settings(environment="test"))
         current = service.query_order_warranty("Anker001")
         assert current.status == "OK"
-        assert "warranty_end: 2027-09-17" in current.to_prompt_text()
-        assert "in_warranty: yes" in current.to_prompt_text()
+        current_payload = current.to_model_value()
+        assert current_payload["warranty_end"] == "2027-09-17"
+        assert current_payload["in_warranty"] == "yes"
+        assert current_payload["data_scope"] == "REDACTED_STATIC_REFERENCE_NOT_LIVE_ORDER_DATA"
+        assert current_payload["shipments"] == [
+            {"source_sequence": 1, "tracking_number": "T1", "carrier": None,
+             "ship_date": "2026-09-17", "delivery_status": "Delivered on 9/21"},
+            {"source_sequence": 2, "tracking_number": "T1-1", "carrier": None,
+             "ship_date": "2026-09-19", "delivery_status": "Delivered on 9/23"},
+        ]
         expired = service.query_order_warranty("anker002")
-        assert "in_warranty: no" in expired.to_prompt_text()
+        assert expired.to_model_value()["in_warranty"] == "no"
         missing = service.query_order_warranty("Anker999")
         assert missing.status == "NOT_FOUND"
         assert "参考数据中没有该订单号" in missing.to_prompt_text()
@@ -236,7 +267,15 @@ def test_shipping_intent_replay_gets_warranty_and_dealer_conclusions(structured_
         for order_no, expected in (("Anker001", "yes"), ("Anker002", "yes"), ("Anker003", "yes")):
             envelope = service.query_order_warranty(order_no)
             assert envelope.status == "OK"
-            assert f"in_warranty: {expected}" in envelope.to_prompt_text()
+            assert envelope.to_model_value()["in_warranty"] == expected
+        split_order = service.query_order_warranty("Anker001").to_model_value()
+        assert [shipment["tracking_number"] for shipment in split_order["shipments"]] == [
+            "Anker1234567", "Anker1234567-1",
+        ]
+        assert [shipment["delivery_status"] for shipment in split_order["shipments"]] == [
+            "Delivered on 9/21", "Delivered on 9/23",
+        ]
+        assert split_order["carrier_source_text"] == "Fedex Amazon Logistic"
         dealer = service.check_dealer_authorization("US", "best buy")
         assert dealer.status == "OK" and "AUTHORIZED" in dealer.to_prompt_text()
 

@@ -3,6 +3,7 @@
 import os
 from collections import Counter
 from contextlib import contextmanager
+from typing import Literal
 from uuid import UUID
 
 from langchain.agents import create_agent
@@ -46,7 +47,7 @@ approved experience examples 是经审核的其他案例参考，不是设备事
 只有实际可见且适用的来源支持时才陈述型号规格；型号不确定时先澄清。
 当 lookup_manual 返回 applicability=DISAMBIGUATION_REQUIRED（客户原始消息明确提到的产品名称确实对应多个未核验候选），必须先做需求澄清：用 ui_proposal 的 options 给出选择卡（ChoiceGroup，options 为工具返回的冲突品类），不得自行添加候选型号。只有当前客户原始消息提及的名称或授权上下文中的已核验设备，才能作为产品检索身份依据；不得因为你生成的 lookup_manual 查询词而引入新型号。澄清完成前不得输出任何单一品类的排障步骤、质保结论、电池判断或指标图表。优先给出安全、可逆的下一步和明确停止/人工求助条件。
 回复客户时只依据当前用户明确表达调整服务语气；证据不足时保持中性，不替用户断言情绪。该线索只影响措辞和解释顺序，不影响业务事实、紧急度、工具权限、审批、协作模式或发布资格。
-request_missing_evidence 与 propose_action 只会创建内部草稿，不会通知客户或执行动作。不要暴露内部备注、原始推理、密钥或其他客户信息。
+request_missing_evidence 与 propose_action 只会创建内部草稿，不会通知客户或执行动作。request_mock_service_action 仅在客户明确要求或确认具体处理方式时使用；它只创建待主管审批的模拟申请，不会执行操作。申请提交后只能说“已提交待审批”，不得声称已补寄、维修、退款或解决。不要暴露内部备注、原始推理、密钥或其他客户信息。
 如果授权上下文含 resumed_diagnostic_result，这是受控回答后同一诊断任务的结构化结果；直接综合回复，不要再次委派。只有现有资料/Skill 无法覆盖、需要多步核对证据或用户明确要求深入排查时，才调用 delegate_diagnostic；简单解释、问候或已有证据充分的问题直接处理。每个用户轮次最多委派一次。专家返回的是待核验假设和建议，不是设备事实或已解决结论。诊断完成后后端会按当前策略把专家结果作为独立作者消息保存；如果授权上下文的 resumed_diagnostic_message_visibility 或工具结果的 result_message_visibility 为 PUBLIC 或 INTERNAL，不要复述 assessment 或下一步原文，只简短说明接下来由谁处理或提示查看专家结果。如果 diagnostic_result.next_step.question 存在，问题卡负责呈现问题；回复只提示用户查看问题卡，不重复问题原文。你仍负责服务协调与最终回复。
 请用简洁、自然的中文回复客户；如果当前会话不是 AI 自动回复模式，最终回复只会保存为内部草稿供人工查看。
 最终答复使用受控结果结构：text 是客户答复，ui_proposal 是可选的内部界面建议。不要把界面建议、字段名或选项元数据写进 text；未通过应用校验的界面建议会被丢弃。
@@ -56,7 +57,7 @@ options 可选：当你要客户在几个明确回答里选一个（例如"指�
 允许的 component_hints 仅有 QuestionForm、ChoiceGroup、KnowledgeMetricChart、CaseProcessFlow；QuestionForm/ChoiceGroup 由 UIDocument 投影。安全告警和分步排查属于 rich 的 alert/steps 消息块，人工任务摘要由服务端根据当前任务生成，不要在 ui_proposal 中提议这些类型。不包含 props、URL、HTML 或执行动作。
 只有 lookup_manual 明确返回对应的 Published/Visible 来源、且当前已核验设备型号为 T8D04 时，才可使用 KnowledgeMetricChart，并设置 knowledge_source_id 为 eufy-s1-pro-heating-battery-v1。图表数值由服务端从该固定来源生成；不得提供或修改数值。只有客服内部建议流程图时才可使用 CaseProcessFlow，并从授权上下文原样选择关联 case_id；节点、状态和连线由服务端生成。
 需要客户在明确选项里选一个时：给出 options 且 component_hints 必须写 ["ChoiceGroup"]（服务端会把带选项的 QuestionForm 自动升级为 ChoiceGroup，但模型应直接选对）；只是开放式追问（无 options）才用 QuestionForm。
-不需要卡片时省略 ui_proposal。动作提案只通过 propose_action 工具记录，不在最终 JSON 声称动作已执行。"""
+不需要卡片时省略 ui_proposal。一般动作建议通过 propose_action 记录；客户明确要求具体售后处理且当前环境允许时，才调用 request_mock_service_action 创建待审批的模拟申请。最终答复必须按工具回执准确说明“待审批”，不得声称动作已执行。"""
 
 
 def build_system_prompt(current_text: str) -> str:
@@ -174,6 +175,14 @@ class AgentRuntime:
                 return service.record_proposal("ACTION", summary).to_prompt_text()
 
         @tool
+        def request_mock_service_action(
+            remedy_type: Literal["REPAIR", "RESHIP", "REFER_SELLER", "DECLINE"], reason: str,
+        ) -> str:
+            """Create an audited Mock service-action request for supervisor approval; never execute it."""
+            with _tool_service(tenant_id, conversation_id, run_id, lease_token, self.settings) as service:
+                return service.request_mock_service_action(remedy_type, reason).to_prompt_text()
+
+        @tool
         def delegate_diagnostic(goal: str) -> dict:
             """委派复杂问题给受限诊断专家。工具返回消息可见性；专家结果已入会话时只补充协调信息，不重复结论。"""
             from serviceos_api.agents.diagnostic import DiagnosticAgentRuntime
@@ -278,7 +287,7 @@ class AgentRuntime:
             **model_provider_options(self.settings),
         )
         tools = [lookup_manual, query_order_warranty, check_dealer_authorization, get_case_stage,
-                 resolve_policy, load_skill, request_missing_evidence, propose_action,
+                 resolve_policy, load_skill, request_missing_evidence, propose_action, request_mock_service_action,
                  delegate_diagnostic, get_service_progress]
         with checkpoint_connection() as connection:
             from langgraph.checkpoint.postgres import PostgresSaver

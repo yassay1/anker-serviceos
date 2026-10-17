@@ -12,16 +12,20 @@ from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 
 from serviceos_api.application.actions import ServiceActionService
+from serviceos_api.application.agent_services import AgentToolService
 from serviceos_api.application.auth import Principal
 from serviceos_api.application.contracts import ActionApprovalDecision, MockActionRequest
 from serviceos_api.application.errors import ServiceError
 from serviceos_api.bootstrap_local import seed_local_accounts
 from serviceos_api.integrations.mock_service_adapter import MockServiceAdapter
 from serviceos_api.main import create_app
-from serviceos_api.persistence.models import CaseAction, CaseActionApproval, MockServiceOperation, OutboxEvent, ServiceCase
+from serviceos_api.persistence.models import (
+    AgentRun, CaseAction, CaseActionApproval, MockServiceOperation, OutboxEvent, ServiceCase,
+)
 from serviceos_api.settings import Settings
 from serviceos_api.worker.actions import MockActionWorker
 from test_business_api import login
+from test_worker_runtime import seed_message
 
 
 @pytest.fixture
@@ -100,6 +104,77 @@ def test_request_approval_receipt_and_replay(app, database_engine):
     with Session(database_engine) as session:
         assert session.scalar(select(func.count()).select_from(MockServiceOperation).where(
             MockServiceOperation.action_id == UUID(action["id"]))) == 1
+
+
+def test_agent_request_is_audited_pending_until_supervisor_and_mock_worker(app, database_engine):
+    with Session(database_engine) as session:
+        tenant, _, conversation, message, job, case = seed_message(session, with_case=True)
+        case_id = case.id
+        token = uuid4()
+        job.status = "RUNNING"
+        job.attempt_count = 1
+        job.lease_token = token
+        job.lease_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        run = AgentRun(tenant_id=tenant.id, job_id=job.id, conversation_id=conversation.id,
+                       message_id=message.id, thread_id=str(conversation.id), lease_token=token,
+                       provider="test", model="test")
+        session.add(run)
+        session.flush()
+        tool = AgentToolService(session, tenant.id, conversation.id, run.id, token,
+                                settings=Settings(environment="test"))
+        result = tool.request_mock_service_action("RESHIP", "客户明确请求补寄，需主管核对缺件情况。")
+        assert result.status == "RECORDED"
+        payload = result.to_model_value()
+        assert payload["status"] == "WAITING_APPROVAL" and payload["adapter"] == "MOCK"
+        action_id = UUID(payload["action_id"])
+        action = session.get(CaseAction, action_id)
+        assert action.case_id == case.id and action.requested_by is None
+        assert action.requested_by_agent_run_id == run.id
+        assert tool.request_mock_service_action(
+            "RESHIP", "客户明确请求补寄，需主管核对缺件情况。",
+        ).to_model_value()["action_id"] == str(action_id)
+        assert tool.request_mock_service_action("RESHIP", "改写后的第二个请求").status == "REJECTED"
+        assert session.scalar(select(func.count()).select_from(CaseAction).where(
+            CaseAction.requested_by_agent_run_id == run.id)) == 1
+        assert session.scalar(select(func.count()).select_from(MockServiceOperation).where(
+            MockServiceOperation.action_id == action_id)) == 0
+
+    supervisor = login(app, "supervisor")
+    assert approve(supervisor, payload["approval_id"]).status_code == 200
+    defer_other_actions(database_engine, action_id)
+    worker = MockActionWorker(database_engine, app.state.settings)
+    assert worker.run_once()
+    with Session(database_engine) as session:
+        action = session.get(CaseAction, action_id)
+        assert action.status == "SUCCEEDED" and action.receipt_reference.startswith("MOCK-")
+        assert action.requested_by_agent_run_id is not None
+        assert session.get(ServiceCase, case_id).status != "RESOLVED"
+        assert session.scalar(select(func.count()).select_from(MockServiceOperation).where(
+            MockServiceOperation.action_id == action_id)) == 1
+
+
+@pytest.mark.parametrize("with_case,environment", [(False, "test"), (True, "production")])
+def test_agent_mock_request_rejects_missing_case_or_non_demo_environment(
+    app, database_engine, with_case, environment,
+):
+    with Session(database_engine) as session:
+        tenant, _, conversation, message, job, case = seed_message(session, with_case=with_case)
+        token = uuid4()
+        job.status = "RUNNING"
+        job.attempt_count = 1
+        job.lease_token = token
+        job.lease_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        run = AgentRun(tenant_id=tenant.id, job_id=job.id, conversation_id=conversation.id,
+                       message_id=message.id, thread_id=str(conversation.id), lease_token=token,
+                       provider="test", model="test")
+        session.add(run)
+        session.flush()
+        service = AgentToolService(session, tenant.id, conversation.id, run.id, token,
+                                   settings=Settings(environment=environment))
+        result = service.request_mock_service_action("RESHIP", "客户明确请求补寄。")
+        assert result.status == "REJECTED"
+        assert session.scalar(select(func.count()).select_from(CaseAction).where(
+            CaseAction.requested_by_agent_run_id == run.id)) == 0
 
 
 def test_approval_rejection_and_self_approval_do_not_execute(app, database_engine):

@@ -420,6 +420,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/conversations/{id}/customer-assistance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Customer Assistance */
+        get: operations["list_customer_assistance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/conversations/{id}/event-history": {
         parameters: {
             query?: never;
@@ -498,6 +515,23 @@ export interface paths {
         };
         /** List Proposals */
         get: operations["list_proposals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/conversations/{id}/reply-drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Reply Drafts */
+        get: operations["list_reply_drafts"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1004,6 +1038,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/proposals/{id}/reply-drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Reply Draft */
+        post: operations["create_reply_draft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/readiness": {
         parameters: {
             query?: never;
@@ -1021,6 +1072,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reply-drafts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Reply Draft */
+        patch: operations["update_reply_draft"];
+        trace?: never;
+    };
+    "/api/v1/reply-drafts/{id}/approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve Reply Draft */
+        post: operations["approve_reply_draft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reply-drafts/{id}/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send Reply Draft */
+        post: operations["send_reply_draft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/skills": {
         parameters: {
             query?: never;
@@ -1030,6 +1132,23 @@ export interface paths {
         };
         /** List Skills */
         get: operations["list_skills"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Task Queue */
+        get: operations["list_task_queue"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1119,6 +1238,16 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /** ApproveReplyDraft */
+        ApproveReplyDraft: {
+            /**
+             * Approval Id
+             * Format: uuid
+             */
+            approval_id: string;
+            /** Expected Version */
+            expected_version: number;
         };
         /** ArchiveCaseFact */
         ArchiveCaseFact: {
@@ -1345,6 +1474,39 @@ export interface components {
             model?: string | null;
             /** Serial Number */
             serial_number?: string | null;
+        };
+        /** CreateReplyDraft */
+        CreateReplyDraft: {
+            /**
+             * Draft Id
+             * Format: uuid
+             */
+            draft_id: string;
+        };
+        /** CustomerAssistancePage */
+        CustomerAssistancePage: {
+            /** Items */
+            items: components["schemas"]["CustomerAssistanceRead"][];
+        };
+        /** CustomerAssistanceRead */
+        CustomerAssistanceRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "OPEN" | "ASSIGNED" | "CLOSED";
+            /** Version */
+            version: number;
         };
         /** DeskCaseSummary */
         DeskCaseSummary: {
@@ -2340,6 +2502,16 @@ export interface components {
              */
             visibility: "PUBLIC" | "INTERNAL";
         };
+        /** SendReplyDraft */
+        SendReplyDraft: {
+            /**
+             * Client Message Id
+             * Format: uuid
+             */
+            client_message_id: string;
+            /** Expected Version */
+            expected_version: number;
+        };
         /** ServiceErrorBody */
         ServiceErrorBody: {
             /** Code */
@@ -2435,6 +2607,47 @@ export interface components {
              */
             visibility: "INTERNAL";
         };
+        /** StaffReplyDraftRead */
+        StaffReplyDraftRead: {
+            /** Approved By */
+            approved_by?: string | null;
+            /** Content */
+            content: string;
+            /**
+             * Conversation Id
+             * Format: uuid
+             */
+            conversation_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Sent Message Id */
+            sent_message_id?: string | null;
+            /**
+             * Source Proposal Id
+             * Format: uuid
+             */
+            source_proposal_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "IN_COMPOSER" | "EDITED" | "APPROVED" | "SENT";
+            /** Version */
+            version: number;
+        };
         /** SummaryFact */
         SummaryFact: {
             /** Label */
@@ -2448,6 +2661,13 @@ export interface components {
              * @enum {string}
              */
             verification: "UNVERIFIED" | "CANDIDATE" | "VERIFIED" | "RETRACTED";
+        };
+        /** TaskQueuePage */
+        TaskQueuePage: {
+            /** Items */
+            items: components["schemas"]["TaskRead"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
         };
         /** TaskRead */
         TaskRead: {
@@ -2744,6 +2964,13 @@ export interface components {
             model?: string | null;
             /** Serial Number */
             serial_number?: string | null;
+        };
+        /** UpdateReplyDraft */
+        UpdateReplyDraft: {
+            /** Content */
+            content: string;
+            /** Expected Version */
+            expected_version: number;
         };
         /** ValidationError */
         ValidationError: {
@@ -4200,6 +4427,37 @@ export interface operations {
             };
         };
     };
+    list_customer_assistance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerAssistancePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_event_history: {
         parameters: {
             query?: {
@@ -4391,6 +4649,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProposalRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_reply_drafts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffReplyDraftRead"][];
                 };
             };
             /** @description Validation Error */
@@ -6003,6 +6292,41 @@ export interface operations {
             };
         };
     };
+    create_reply_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateReplyDraft"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffReplyDraftRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     read_readiness: {
         parameters: {
             query?: never;
@@ -6032,6 +6356,111 @@ export interface operations {
             };
         };
     };
+    update_reply_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateReplyDraft"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffReplyDraftRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_reply_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveReplyDraft"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffReplyDraftRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_reply_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendReplyDraft"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_skills: {
         parameters: {
             query?: never;
@@ -6048,6 +6477,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SkillCatalog"];
+                };
+            };
+        };
+    };
+    list_task_queue: {
+        parameters: {
+            query?: {
+                queue?: string;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskQueuePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

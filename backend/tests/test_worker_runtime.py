@@ -510,7 +510,7 @@ def test_rejected_action_proposal_remains_internal_and_does_not_execute(database
         )) == 0
 
 
-def test_reply_draft_approval_rechecks_mode_and_publishes_once(database_engine):
+def test_reply_proposal_cannot_skip_composer_edit_approval_and_send(database_engine):
     with Session(database_engine) as session:
         tenant, _, conversation, message, job, _ = seed_message(session)
         conversation.collaboration_mode = "CO_SERVICE"
@@ -528,12 +528,13 @@ def test_reply_draft_approval_rechecks_mode_and_publishes_once(database_engine):
         staff = session.scalar(select(StaffUser).where(StaffUser.external_subject == "local:staff"))
         service = ConversationService(session, Principal(tenant.id, staff.id, "STAFF", staff.display_name, "SUPPORT"))
         request = ProposalDecision(decision_id=uuid4(), decision="APPROVED", reason="内容已核对")
-        assert service.decide_proposal(proposal.id, request).status == "APPROVED"
-        assert service.decide_proposal(proposal.id, request).status == "APPROVED"
+        with pytest.raises(ServiceError) as error:
+            service.decide_proposal(proposal.id, request)
+        assert error.value.status == 409
         public = session.scalars(select(Message).where(
             Message.conversation_id == conversation.id, Message.visibility == "PUBLIC",
             Message.author_kind == "AGENT")).all()
-        assert len(public) == 1 and public[0].content == draft.content
+        assert public == []
 
     with Session(database_engine) as session:
         tenant, _, conversation, message, job, _ = seed_message(session)
