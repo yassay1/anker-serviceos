@@ -1,9 +1,7 @@
 # S1 闭环核：政策注册表 + 结局 taxonomy + 发布守卫（含前端可视化）· 功能契约
 
-状态：草案 v1（2026-10-16 用户确认：双检查设计、前端可视化必做）。
-设计依据（成熟实践映射）：接地检查=RAGAS/FActScore 忠实度的 v1 实体级工程化；覆盖检查=IFEval 式
-可核验清单+critic 步；政策表=OMG DMN 决策表（优先级命中+rule_id/version reason code）；结局=联络中心
-disposition codes；守卫=质量门+maker-checker override。
+状态：草案 v1，经 2026-10-17 用户确认调整实时发布门禁范围。
+原双检查设计保留为评测目标；实时发布不再调用 LLM 覆盖/承诺 verifier。
 
 ## 1. 场景与责任
 
@@ -30,9 +28,9 @@ disposition codes；守卫=质量门+maker-checker override。
 ## 4. 发布守卫（PublicationGuard）
 
 - 挂点：`ConversationService.publish_agent_response` 判定 PUBLIC 之前；仅对将公开的 Agent 文本运行
-- 检查A 接地（确定性）：抽实体（PN 词表型号/ISO 与中文日期/带单位数值/4位错误码）→ 证据束（references 摘录 ∪ tool_envelopes ∪ VERIFIED 事实 ∪ 政策决策记录 ∪ 客户原话回声豁免）归一化包含或语义相等（日期/数值解析比较）；未命中=UNGROUNDED_ENTITY
-- 检查B 覆盖（verifier LLM，bounded、temp=0、严格 JSON）：{requests[{text,addressed,reply_span}], ungrounded_promises[]}；addressed=false 或 promises 非空=UNCOVERED；verifier 失败/坏 JSON=VERIFIER_UNAVAILABLE；**三者一律拦截**
-- 拦截→不发布：reply 转 INTERNAL 草稿 + AgentProposal(REPLY) + `publication_guard_decisions` 行（run_id、message refs、checks 明细、entities、verifier 原文哈希、decision、latency_ms）
+- 实时检查：确定性抽取型号、日期、带单位数值和 4 位错误码，并对比客户原话及授权证据束；未命中=`UNGROUNDED_ENTITY`。该检查不替代 Case、Device 或外部动作的应用服务授权与状态校验。
+- LLM 覆盖/承诺判断不在实时发布路径运行，不产生 `UNCOVERED_REQUEST` 或 `VERIFIER_UNAVAILABLE` 发布阻断。该类语义质量由离线多轮评测观察，必须分别报告合法回复误拦、风险漏拦和任务完成情况。
+- 拦截→不发布：原 reply 转 INTERNAL 草稿 + AgentProposal(REPLY) + `publication_guard_decisions` 行（run_id、message refs、确定性 entities、decision、latency_ms）。本项目不自动生成客户兜底消息；被拦回复由客服/主管按现有人工流程处理。
 - override：SUPERVISOR/ADMIN 经 `POST /api/v1/guard/decisions/{id}/override` 发布（maker-checker：override 者≠run 发起人无需强制但审计留痕）；发布后决策行带 override ref
 - 开关 `SERVICEOS_PUBLICATION_GUARD`（默认 on）；readiness `guard=on/off`；CI 断言 off 需显式
 - references 扩存 excerpt（INTERNAL only）供接地比对
@@ -48,7 +46,7 @@ disposition codes；守卫=质量门+maker-checker override。
 
 ## 6. 前端可视化（/desk）
 
-- 新增"发布守卫"面板：决策流列表（时间/会话/原因徽章/状态），点开明细：被拦 reply 全文、未接地实体清单（含证据束比对结果）、未覆盖请求清单、verifier 状态；SUPERVISOR/ADMIN 见"复核发布"按钮（二次确认）
+- 新增"发布守卫"面板：决策流列表（时间/会话/原因徽章/状态），点开明细：被拦 reply 全文、未接地实体清单（含证据束比对结果）、实时语义检查状态；SUPERVISOR/ADMIN 见"复核发布"按钮（二次确认）
 - 案例详情：结局徽章（REPAIR/RESHIP/REFER_SELLER/DECLINE）+ 政策命中行（rule_id@version + wording_ref）
 - 会话侧栏：本 run 的 knowledge_references 可视化（来源/路径 keyword|vector|fused）
 - 守卫统计条：passed/blocked/overridden（来自 /guard/stats）
@@ -59,13 +57,14 @@ disposition codes；守卫=质量门+maker-checker override。
 | 路径 | 预期 |
 |---|---|
 | 注入无据型号 T9999 | 拦截→决策行 UNGROUNDED_ENTITY→/desk 可见→override 发布+审计 |
-| 双请求漏答 | UNCOVERED_REQUEST 拦截 |
-| verifier 宕机 | VERIFIER_UNAVAILABLE 拦截（不放行） |
+| 流程性安全表述（无型号/日期/数值/错误码等未依据实体） | 不因语义 verifier 拦截；该轮对话体验进入离线人工/数据集评测 |
+| 有无依据的型号、日期、单位数值或错误码 | 确定性实体证据检查分别放行/拦截，拦截原因 `UNGROUNDED_ENTITY` |
+| Provider/verifier 宕机 | 实时发布守卫不调用语义 verifier，不影响该检查；Agent 生成/业务 API 的自身失败策略仍适用 |
 | guard=off | readiness guard=off 且 CI 断言 |
 | SOP 五分支回放 | remedy_type 与政策命中一致；回执带结局 |
 | 决策表测试 | 每条 policy 行输入→命中 rule_id 断言 |
 | 前端 | 面板/徽章/引用可视化 typecheck+build+live 浏览器路径 |
-| 回归 | 303+ 全绿 |
+| 回归 | 实时发布不发起 verifier Provider 请求；有依据实体通过、无依据实体仍拦截；守卫拒绝时不生成客户兜底 |
 
 ## 8. 明确不包含
 

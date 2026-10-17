@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
-import httpx
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -126,7 +125,7 @@ def test_publication_guard_blocks_ungrounded_and_passes_grounded(guard_env):
             models=[], directories=[], source_status="S", consumer_visible="V",
             applicability="A", curation={}))
         session.flush()
-        guard = PublicationGuard(session, TEST_SETTINGS, tenant.id)
+        guard = PublicationGuard(session, tenant.id)
         blocked = guard.check("您的 T9999 需要寄修。", run, conversation.id, "你好")
         assert blocked.decision == "BLOCKED" and "UNGROUNDED_ENTITY" in blocked.reason_codes
         passed = guard.check("您的 T2352 可能丢图，请重建地图。", run, conversation.id, "你好")
@@ -173,7 +172,7 @@ def test_order_tool_reference_grounds_only_the_returned_order_row(guard_env):
         assert result.status == "OK" and "2027-09-13" in result.to_prompt_text()
         assert "items" not in order_audit  # Keep raw tool results out of generic audit.
 
-        guard = PublicationGuard(session, TEST_SETTINGS, tenant.id)
+        guard = PublicationGuard(session, tenant.id)
         valid = guard.check(
             "Anker002 的质保到 2027-09-13，订单显示已发货，承运商为 ANPOST。",
             run, conversation.id, "请查一下 Anker002 的订单。",
@@ -260,19 +259,40 @@ def test_guard_disabled_publishes_directly(guard_env):
             PublicationGuardDecision.run_id == run.id)) is None
 
 
-def test_verifier_unavailable_blocks_when_provider_configured(guard_env):
+def test_live_guard_skips_semantic_coverage_even_when_provider_configured(guard_env):
     env = guard_env
     with Session(env.engine, expire_on_commit=False) as session:
         tenant, _, conversation, message, job, _ = seed_message(session)
         run, token = active_run(session, tenant.id, conversation.id, message.id, job.id)
         settings = Settings(environment="test", llm_model="m", llm_api_key="k",
                             llm_base_url="https://llm.invalid")
-        failing = httpx.MockTransport(lambda request: httpx.Response(500, json={}))
-        from serviceos_api.application.publication_guard import CoverageVerifier
-        guard = PublicationGuard(session, settings, tenant.id,
-                                 verifier=CoverageVerifier(settings, transport=failing))
-        outcome = guard.check("请确认型号。", run, conversation.id, "查物流并排查充电")
-        assert outcome.decision == "BLOCKED" and "VERIFIER_UNAVAILABLE" in outcome.reason_codes
+        assert settings.llm_configured
+        guard = PublicationGuard(session, tenant.id)
+        original_blocked_reply = (
+            "明白，是 Anker 充电配件在使用中间歇性断电。为了给你对应的排查步骤，需要先确认具体型号"
+            "（型号一般印在机身或插头侧面，形如 A1234 这样的编号）。\n\n"
+            "另外先确认安全情况：如果配件有鼓包、变形、冒烟、焦味、漏液或明显发烫，请立即停止使用和充电，"
+            "不要自行拆机，直接告诉我，我会优先按安全流程处理。\n\n"
+            "方便的话请提供：1）型号编号；2）是给哪类设备充电时断电（手机/笔记本/耳机等）；"
+            "3）大概多久断一次、是否伴随发热或异响。"
+        )
+        outcome = guard.check(
+            original_blocked_reply,
+            run, conversation.id, "设备使用时会间歇性断电。",
+        )
+        assert outcome.decision == "PASSED"
+        assert outcome.reason_codes == []
+        assert outcome.verifier == {"status": "not_run_live"}
+
+        published = ConversationService(session, actor=None, settings=settings).publish_agent_response(
+            tenant.id, conversation.id, run.id, token, original_blocked_reply,
+        )
+        assert published.visibility == "PUBLIC"
+        decision = session.scalar(select(PublicationGuardDecision).where(
+            PublicationGuardDecision.run_id == run.id))
+        assert decision is not None and decision.decision == "PASSED"
+        assert decision.verifier["status"] == "not_run_live"
+        assert "promises" not in decision.verifier and "unaddressed" not in decision.verifier
 
 
 def test_mock_action_requires_remedy_type(guard_env):
