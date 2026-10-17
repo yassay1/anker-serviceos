@@ -866,6 +866,27 @@ def test_sop_safety_and_human_review_override_freeform_agent_reply(db_session, k
         assert all(block["type"] != "steps" for block in published.content[0]["rich"]["blocks"])
 
 
+def test_publish_agent_response_projects_valid_rich_reply_and_quick_replies(db_session):
+    from test_skills import active_skill_run
+
+    tenant, _, conversation, _, _, run = active_skill_run(db_session)
+    run.result_payload = {"rich_reply": {
+        "schema_version": 1,
+        "blocks": [{"type": "summary", "title": "充电检查", "text": "先确认充电指示灯。"}],
+        "quick_replies": [
+            {"id": "light_on", "label": "指示灯亮", "message": "充电器指示灯是亮的"},
+            {"id": "light_off", "label": "指示灯不亮", "message": "充电器指示灯没有亮"},
+        ],
+    }}
+    published = ConversationService(db_session, actor=None, settings=Settings(environment="test")).publish_agent_response(
+        tenant.id, conversation.id, run.id, run.lease_token, "请先确认充电器指示灯状态。",
+    )
+
+    projected = published.content[0]["rich"]
+    assert projected["blocks"][0]["title"] == "充电检查"
+    assert [option["id"] for option in projected["quick_replies"]] == ["light_on", "light_off"]
+
+
 def test_progress_generation_rejects_stale_lease_and_false_completion(db_session):
     from test_skills import active_skill_run
 

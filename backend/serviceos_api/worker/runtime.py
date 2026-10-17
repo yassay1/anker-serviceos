@@ -318,7 +318,11 @@ class MessageWorker:
                     raise RuntimeError("worker_lease_lost")
                 self._complete_job(session, job, lease)
         except Exception as error:
-            logger.warning("message job failed: error_code=%s", self._error_code(error), exc_info=True)
+            logger.warning("message job failed", extra={
+                "error_code": self._error_code(error),
+                "exception_type": type(error).__name__,
+                "exception_symbol": getattr(error, "name", None) if isinstance(error, NameError) else None,
+            }, exc_info=True)
             self._fail(lease, self._error_code(error))
         finally:
             stop.set()

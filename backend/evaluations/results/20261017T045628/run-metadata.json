@@ -1,0 +1,26 @@
+{
+  "started_at": "2026-10-16T20:56:28.214176+00:00",
+  "dataset_sha256": "0c803ec727949314c5f5b4fb265bd297975177cd79b8988decb2bfbfcbfab0f8",
+  "dataset_cases": 78,
+  "repeats": 2,
+  "model": "deepseek-flash",
+  "provider_host": "api.deepseek.com",
+  "database": "serviceos_agent_eval_20261017045625_17cfa3",
+  "database_host": "127.0.0.1",
+  "database_port": 55432,
+  "database_setup": {
+    "database": "serviceos_agent_eval_20261017045625_17cfa3",
+    "server_address": "172.17.0.2/32",
+    "knowledge_documents": 6,
+    "knowledge_segments": 1235,
+    "policy_rows_created": 7
+  },
+  "api_base": "http://127.0.0.1:56525",
+  "timeout_seconds": 150,
+  "embedding_enabled": false,
+  "attachments_used": false,
+  "status": "SETUP_FAILED",
+  "ended_at": "2026-10-16T20:56:30.805977+00:00",
+  "failure_stage": "api_startup",
+  "error_code": "RuntimeError"
+}
