@@ -4,7 +4,7 @@ info:
   title: Anker ServiceOS API
   version: 0.1.0
 x-serviceos-proposal-status: draft
-x-serviceos-implemented-sha256: 57a9e3147125390484852dafb5cb94ed150311e0a1191a6d2a5ef90b09a99daf
+x-serviceos-implemented-sha256: e7e071f207c5540bca502c97db5854877d7f94ccc2cbe54cf20b08a1d7eb8111
 x-serviceos-planned-source: contracts/proposed/v1/planned.yaml
 paths:
   /api/v1/actions/{id}:
@@ -1284,6 +1284,36 @@ paths:
       tags:
       - cases
       x-serviceos-status: implemented
+  /api/v1/conversations/{id}/customer-assistance:
+    get:
+      operationId: list_customer_assistance
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerAssistancePage'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Customer Assistance
+      tags:
+      - collaboration
+      x-serviceos-status: implemented
   /api/v1/conversations/{id}/event-history:
     get:
       operationId: list_event_history
@@ -1526,6 +1556,39 @@ paths:
       security:
       - SessionCookie: []
       summary: List Proposals
+      tags:
+      - collaboration
+      x-serviceos-status: implemented
+  /api/v1/conversations/{id}/reply-drafts:
+    get:
+      operationId: list_reply_drafts
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/StaffReplyDraftRead'
+                title: Response List Reply Drafts
+                type: array
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Reply Drafts
       tags:
       - collaboration
       x-serviceos-status: implemented
@@ -2966,6 +3029,42 @@ paths:
       tags:
       - collaboration
       x-serviceos-status: implemented
+  /api/v1/proposals/{id}/reply-drafts:
+    post:
+      operationId: create_reply_draft
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReplyDraft'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffReplyDraftRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Create Reply Draft
+      tags:
+      - collaboration
+      x-serviceos-status: implemented
   /api/v1/readiness:
     get:
       operationId: read_readiness
@@ -2986,6 +3085,114 @@ paths:
       tags:
       - health
       x-serviceos-status: implemented
+  /api/v1/reply-drafts/{id}:
+    patch:
+      operationId: update_reply_draft
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateReplyDraft'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffReplyDraftRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Update Reply Draft
+      tags:
+      - collaboration
+      x-serviceos-status: implemented
+  /api/v1/reply-drafts/{id}/approval:
+    post:
+      operationId: approve_reply_draft
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApproveReplyDraft'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffReplyDraftRead'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Approve Reply Draft
+      tags:
+      - collaboration
+      x-serviceos-status: implemented
+  /api/v1/reply-drafts/{id}/send:
+    post:
+      operationId: send_reply_draft
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          format: uuid
+          title: Id
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendReplyDraft'
+        required: true
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageReceipt'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: Send Reply Draft
+      tags:
+      - collaboration
+      x-serviceos-status: implemented
   /api/v1/skills:
     get:
       operationId: list_skills
@@ -3001,6 +3208,55 @@ paths:
       summary: List Skills
       tags:
       - skills
+      x-serviceos-status: implemented
+  /api/v1/tasks:
+    get:
+      operationId: list_task_queue
+      parameters:
+      - in: query
+        name: queue
+        required: false
+        schema:
+          default: OPEN
+          pattern: ^(OPEN|MINE)$
+          title: Queue
+          type: string
+      - in: query
+        name: cursor
+        required: false
+        schema:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Cursor
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 50
+          maximum: 100
+          minimum: 1
+          title: Limit
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskQueuePage'
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      security:
+      - SessionCookie: []
+      summary: List Task Queue
+      tags:
+      - collaboration
       x-serviceos-status: implemented
   /api/v1/tasks/{id}/claim:
     post:
@@ -3197,6 +3453,22 @@ components:
       - kind
       - display_name
       title: ActorRead
+      type: object
+    ApproveReplyDraft:
+      additionalProperties: false
+      properties:
+        approval_id:
+          format: uuid
+          title: Approval Id
+          type: string
+        expected_version:
+          minimum: 1.0
+          title: Expected Version
+          type: integer
+      required:
+      - approval_id
+      - expected_version
+      title: ApproveReplyDraft
       type: object
     ArchiveCaseFact:
       additionalProperties: false
@@ -3601,6 +3873,57 @@ components:
           - type: 'null'
           title: Serial Number
       title: CreateDevice
+      type: object
+    CreateReplyDraft:
+      additionalProperties: false
+      properties:
+        draft_id:
+          format: uuid
+          title: Draft Id
+          type: string
+      required:
+      - draft_id
+      title: CreateReplyDraft
+      type: object
+    CustomerAssistancePage:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/CustomerAssistanceRead'
+          title: Items
+          type: array
+      required:
+      - items
+      title: CustomerAssistancePage
+      type: object
+    CustomerAssistanceRead:
+      additionalProperties: false
+      properties:
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        status:
+          enum:
+          - OPEN
+          - ASSIGNED
+          - CLOSED
+          title: Status
+          type: string
+        version:
+          title: Version
+          type: integer
+      required:
+      - id
+      - status
+      - version
+      - created_at
+      title: CustomerAssistanceRead
       type: object
     DeskCaseSummary:
       additionalProperties: false
@@ -5392,6 +5715,22 @@ components:
       - content
       title: SendMessage
       type: object
+    SendReplyDraft:
+      additionalProperties: false
+      properties:
+        client_message_id:
+          format: uuid
+          title: Client Message Id
+          type: string
+        expected_version:
+          minimum: 1.0
+          title: Expected Version
+          type: integer
+      required:
+      - client_message_id
+      - expected_version
+      title: SendReplyDraft
+      type: object
     ServiceErrorBody:
       additionalProperties: false
       properties:
@@ -5555,6 +5894,66 @@ components:
       - loaded_at
       title: SkillExecutionRead
       type: object
+    StaffReplyDraftRead:
+      additionalProperties: false
+      properties:
+        approved_by:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Approved By
+        content:
+          title: Content
+          type: string
+        conversation_id:
+          format: uuid
+          title: Conversation Id
+          type: string
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+        created_by:
+          format: uuid
+          title: Created By
+          type: string
+        id:
+          format: uuid
+          title: Id
+          type: string
+        sent_message_id:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Sent Message Id
+        source_proposal_id:
+          format: uuid
+          title: Source Proposal Id
+          type: string
+        status:
+          enum:
+          - IN_COMPOSER
+          - EDITED
+          - APPROVED
+          - SENT
+          title: Status
+          type: string
+        version:
+          title: Version
+          type: integer
+      required:
+      - id
+      - conversation_id
+      - source_proposal_id
+      - created_by
+      - content
+      - status
+      - version
+      - created_at
+      title: StaffReplyDraftRead
+      type: object
     SummaryFact:
       additionalProperties: false
       properties:
@@ -5581,6 +5980,24 @@ components:
       - source
       - verification
       title: SummaryFact
+      type: object
+    TaskQueuePage:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/TaskRead'
+          title: Items
+          type: array
+        next_cursor:
+          anyOf:
+          - format: uuid
+            type: string
+          - type: 'null'
+          title: Next Cursor
+      required:
+      - items
+      title: TaskQueuePage
       type: object
     TaskRead:
       additionalProperties: false
@@ -6151,6 +6568,23 @@ components:
       required:
       - expected_revision
       title: UpdateDevice
+      type: object
+    UpdateReplyDraft:
+      additionalProperties: false
+      properties:
+        content:
+          maxLength: 8000
+          minLength: 1
+          title: Content
+          type: string
+        expected_version:
+          minimum: 1.0
+          title: Expected Version
+          type: integer
+      required:
+      - expected_version
+      - content
+      title: UpdateReplyDraft
       type: object
     ValidationError:
       properties:
