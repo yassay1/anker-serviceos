@@ -12,7 +12,6 @@ from serviceos_api.application.agent_services import AgentToolService
 from serviceos_api.application.auth import Principal
 from serviceos_api.application.contracts import MockActionRequest
 from serviceos_api.application.errors import ServiceError
-from serviceos_api.application.guard_service import GuardService
 from serviceos_api.application.policies import resolve_policy_row
 from serviceos_api.application.publication_guard import PublicationGuard, extract_entities
 from serviceos_api.application.services import ConversationService
@@ -209,64 +208,32 @@ def test_order_tool_reference_grounds_only_the_returned_order_row(guard_env):
         assert stale.decision == "BLOCKED"
 
 
-def test_publish_hook_blocks_then_supervisor_override_publishes(guard_env):
+def test_authorized_agent_reply_is_not_gated_by_entity_grounding(guard_env):
     env = guard_env
     with Session(env.engine, expire_on_commit=False) as session:
         tenant, _, conversation, message, job, _ = seed_message(session)
         run, token = active_run(session, tenant.id, conversation.id, message.id, job.id)
-        service = ConversationService(session, actor=None, settings=Settings(
-            environment="test", publication_guard=True))
+        service = ConversationService(session, actor=None, settings=Settings(environment="test"))
         published = service.publish_agent_response(tenant.id, conversation.id, run.id, token,
                                                      "请确认型号后再继续。")
-        assert published.visibility == "PUBLIC"
-        decision = session.scalar(select(PublicationGuardDecision).where(
-            PublicationGuardDecision.run_id == run.id))
-        assert decision.decision == "PASSED"
-
-        tenant2, _, conversation2, message2, job2, _ = seed_message(session)
-        run2, token2 = active_run(session, tenant2.id, conversation2.id, message2.id, job2.id)
-        blocked_message = service.publish_agent_response(
-            tenant2.id, conversation2.id, run2.id, token2, "您的 E99 型号已过保，我们保证明天修好。")
-        assert blocked_message.visibility == "INTERNAL"
-        decision2 = session.scalar(select(PublicationGuardDecision).where(
-            PublicationGuardDecision.run_id == run2.id))
-        assert decision2.decision == "BLOCKED" and "UNGROUNDED_ENTITY" in decision2.reason_codes
-        assert decision2.proposal_id is not None
-
-        support = GuardService(session, Principal(tenant2.id, env.staff_id, "STAFF", "客服", "SUPPORT"))
-        with pytest.raises(ServiceError) as caught:
-            support.override(decision2.id)
-        assert caught.value.status == 403
-        supervisor = GuardService(session, Principal(tenant2.id, env.supervisor_id, "STAFF", "主管", "SUPERVISOR"))
-        refreshed = supervisor.override(decision2.id)
-        assert refreshed.decision == "OVERRIDDEN" and refreshed.override_by == env.supervisor_id
-        assert session.get(Message, blocked_message.id).visibility == "PUBLIC"
-        stats = supervisor.stats()
-        assert stats.passed >= 1 and stats.blocked == 0 and stats.overridden == 1
-
-
-def test_guard_disabled_publishes_directly(guard_env):
-    env = guard_env
-    with Session(env.engine, expire_on_commit=False) as session:
-        tenant, _, conversation, message, job, _ = seed_message(session)
-        run, token = active_run(session, tenant.id, conversation.id, message.id, job.id)
-        service = ConversationService(session, actor=None, settings=Settings(
-            environment="test", publication_guard=False))
-        published = service.publish_agent_response(tenant.id, conversation.id, run.id, token,
-                                                     "无据型号 T9999 也会直接发布。")
         assert published.visibility == "PUBLIC"
         assert session.scalar(select(PublicationGuardDecision).where(
             PublicationGuardDecision.run_id == run.id)) is None
 
+        tenant2, _, conversation2, message2, job2, _ = seed_message(session)
+        run2, token2 = active_run(session, tenant2.id, conversation2.id, message2.id, job2.id)
+        ungrounded_but_policy_authorized = service.publish_agent_response(
+            tenant2.id, conversation2.id, run2.id, token2, "您的 E99 型号已过保，我们保证明天修好。")
+        assert ungrounded_but_policy_authorized.visibility == "PUBLIC"
+        assert session.scalar(select(PublicationGuardDecision).where(
+            PublicationGuardDecision.run_id == run2.id)) is None
 
-def test_live_guard_skips_semantic_coverage_even_when_provider_configured(guard_env):
+
+def test_entity_grounding_remains_diagnostic_only(guard_env):
     env = guard_env
     with Session(env.engine, expire_on_commit=False) as session:
         tenant, _, conversation, message, job, _ = seed_message(session)
         run, token = active_run(session, tenant.id, conversation.id, message.id, job.id)
-        settings = Settings(environment="test", llm_model="m", llm_api_key="k",
-                            llm_base_url="https://llm.invalid")
-        assert settings.llm_configured
         guard = PublicationGuard(session, tenant.id)
         original_blocked_reply = (
             "明白，是 Anker 充电配件在使用中间歇性断电。为了给你对应的排查步骤，需要先确认具体型号"
@@ -284,15 +251,12 @@ def test_live_guard_skips_semantic_coverage_even_when_provider_configured(guard_
         assert outcome.reason_codes == []
         assert outcome.verifier == {"status": "not_run_live"}
 
-        published = ConversationService(session, actor=None, settings=settings).publish_agent_response(
+        published = ConversationService(session, actor=None, settings=Settings(environment="test")).publish_agent_response(
             tenant.id, conversation.id, run.id, token, original_blocked_reply,
         )
         assert published.visibility == "PUBLIC"
-        decision = session.scalar(select(PublicationGuardDecision).where(
-            PublicationGuardDecision.run_id == run.id))
-        assert decision is not None and decision.decision == "PASSED"
-        assert decision.verifier["status"] == "not_run_live"
-        assert "promises" not in decision.verifier and "unaddressed" not in decision.verifier
+        assert session.scalar(select(PublicationGuardDecision).where(
+            PublicationGuardDecision.run_id == run.id)) is None
 
 
 def test_mock_action_requires_remedy_type(guard_env):

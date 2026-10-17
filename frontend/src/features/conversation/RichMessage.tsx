@@ -25,7 +25,6 @@ function safeSource(url: unknown): url is string {
 function validBlock(value: unknown): value is Block {
   if (!record(value) || Object.keys(value).some(key => !blockKeys.has(key)) || !types.includes(String(value.type)) ||
     !text(value.title ?? '', 120) || !text(value.text ?? '', 2000)) return false
-  if (value.status_code != null && !text(value.status_code, 40)) return false
   if (value.case_id != null && !(typeof value.case_id === 'string' && uuid.test(value.case_id))) return false
   if (value.evidence_id != null && !(typeof value.evidence_id === 'string' && uuid.test(value.evidence_id))) return false
   if (value.type === 'steps' && (!Array.isArray(value.items) || !value.items.length || value.items.length > 6 ||
@@ -119,7 +118,7 @@ function ReplySection({ block }: { block: Block }) {
     case 'summary': return <div className="rich-summary">{heading}<MessageText value={block.text ?? ''} /></div>
     case 'steps': return <section className="rich-steps">{heading}<ol>{block.items?.map((item, index) => <li key={index}><span className="rich-step-number" aria-hidden="true">{index + 1}</span><div><strong>{item.title}</strong><p>{item.description}</p></div></li>)}</ol></section>
     case 'table': return <section className="rich-table-section">{heading}<div className="rich-table-scroll" role="region" tabIndex={0} aria-label={block.title || '排查参考表'}><table><thead><tr>{block.columns?.map((column, index) => <th key={index} scope="col">{column}</th>)}</tr></thead><tbody>{block.rows?.map((row, index) => <tr key={index}>{row.map((cell, column) => <td key={column}><InlineText value={cell} /></td>)}</tr>)}</tbody></table></div><small>排查方向供参考，不等同于已核验的设备故障。</small></section>
-    case 'alert': return <aside className={`rich-alert ${block.severity ?? 'info'}`} role={block.status_code === 'POLICY_SAFETY_STOP' ? 'alert' : 'note'}><ShieldAlert size={18} aria-hidden="true" /><div>{heading}<MessageText value={block.text ?? ''} /></div></aside>
+    case 'alert': return <aside className={`rich-alert ${block.severity ?? 'info'}`} role="note"><ShieldAlert size={18} aria-hidden="true" /><div>{heading}<MessageText value={block.text ?? ''} /></div></aside>
     case 'image': case 'image_focus': return <EvidenceImage block={block} />
     case 'status': return <div className="rich-status"><span className={`rich-status-dot ${block.status_code === 'RESOLVED' || block.status_code === 'CLOSED' ? 'done' : ''}`} />{heading}<strong>{block.text}</strong>{block.case_id && <Link to={`/cases/${block.case_id}`}>查看案例 <ArrowUpRight size={13} /></Link>}</div>
     case 'timeline': return <section className="rich-timeline">{heading}<ol>{block.entries?.map((entry, index) => <li key={index} className={`timeline-${entry.state ?? 'recorded'}`}><span className="rich-timeline-dot" /><div><strong>{entry.label}</strong><time dateTime={entry.time}>{new Date(entry.time).toLocaleString('zh-CN')}</time><p>{entry.description}</p></div></li>)}</ol><small>时间为记录创建或核验时间，状态来自当前记录；不推断尚未发生的阶段。</small></section>
@@ -135,12 +134,8 @@ export function RichMessage({ fallback, rich, allowQuickReplies, onQuickReply }:
 }) {
   if (!validReply(rich)) return <MessageText value={fallback} />
   const blocks = rich.blocks.filter(block => block.type !== 'summary' || block.text?.trim() !== fallback.trim())
-  const policyAlerts = blocks.filter(block => block.type === 'alert' && block.status_code === 'POLICY_SAFETY_STOP')
-  const remaining = blocks.filter(block => !policyAlerts.includes(block))
-  const primary = remaining.slice(0, 3), extra = remaining.slice(3)
-  return <div className="rich-reply">
-    {policyAlerts.map((block, index) => <ReplySection key={`safety-${index}`} block={block} />)}
-    {policyAlerts.length === 0 && <MessageText value={fallback} />}
+  const primary = blocks.slice(0, 3), extra = blocks.slice(3)
+  return <div className="rich-reply"><MessageText value={fallback} />
     {primary.map((block, index) => <ReplySection key={index} block={block} />)}
     {extra.length > 0 && <details className="rich-more"><summary>更多排查依据与资料（{extra.length}）</summary>{extra.map((block, index) => <ReplySection key={index} block={block} />)}</details>}
     {allowQuickReplies && onQuickReply && rich.quick_replies.length > 0 && <QuickReplies items={rich.quick_replies} onSelect={onQuickReply} />}

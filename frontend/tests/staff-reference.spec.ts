@@ -33,7 +33,7 @@ test('staff references: four workspaces preserve navigation, replies and record 
   const listBox = await page.locator('.conversation-list').boundingBox()
   const chatBox = await page.locator('.chat-panel').boundingBox()
   expect(Math.abs(listBox!.height - chatBox!.height)).toBeLessThan(2)
-  await expect(page.getByRole('button', { name: '放入回复框', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '批准', exact: true })).toBeVisible()
   expect(await page.locator('.message p').first().evaluate(element => getComputedStyle(element).fontSize)).toBe('16px')
   expect(await page.locator('.composer textarea').evaluate(element => getComputedStyle(element).fontSize)).toBe('16px')
   await expect(page.locator('.staff-conversation-item').first()).toContainText('收到，我们在这段会话继续处理')
@@ -60,7 +60,7 @@ test('staff references: four workspaces preserve navigation, replies and record 
   await expect(page.getByRole('textbox', { name: '回复客户', exact: true })).toHaveValue(/为了进一步核对问题/)
   expect(state.sent).toHaveLength(2)
   await page.getByRole('button', { name: '人工协作与审批', exact: true }).click()
-  await expect(page.getByRole('button', { name: '放入回复框', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: '批准', exact: true })).toBeEnabled()
   await page.locator('#staff-collaboration .collaboration-settings > summary').click()
   await page.getByRole('textbox', { name: '回复客户', exact: true }).clear()
   await page.locator('.staff-conversation-context').evaluate(element => { element.scrollTop = 0 })
@@ -88,7 +88,7 @@ test('staff references: four workspaces preserve navigation, replies and record 
   await expect(page.locator('.staff-conversation-context')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.getByRole('button', { name: '服务资料', exact: true }).click()
+  await page.getByRole('button', { name: '资料', exact: true }).click()
   await expect(page.locator('.staff-conversation-context')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   expect(errors).toEqual([])
@@ -96,19 +96,20 @@ test('staff references: four workspaces preserve navigation, replies and record 
 
 for (const count of [0, 1, 2]) {
   test(`case conversation navigation resolves ${count} actual associations`, async ({ page }) => {
-    const state = await fixture(page)
+    await fixture(page)
     const record: components['schemas']['CaseRead'] = { id: ids.second, customer_id: ids.customer,
       problem_text: '充电接口不稳定', user_goal: '恢复稳定充电', status: 'WAITING_CUSTOMER', version: 2, created_at: '2026-10-14T01:00:00Z' }
     await page.route('**/api/v1/cases', route => route.fulfill({ json: [record] }))
-    if (count >= 1) state.linkedConversations.push({ id: ids.conversation, title: '当前服务会话', status: 'ACTIVE', created_at: record.created_at })
-    if (count >= 2) state.linkedConversations.push({ id: ids.second, title: '后续服务会话', status: 'ACTIVE', created_at: record.created_at })
+    await page.route('**/case-summaries', route => route.fulfill({ json:
+      count === 2 || count === 1 && route.request().url().includes(ids.conversation)
+        ? [{ case: record, device_ids: [], facts: [] }] : [] }))
     await page.goto('/cases')
     await page.getByRole('button', { name: '进入服务会话', exact: true }).click()
     if (count === 1) await expect(page).toHaveURL(new RegExp(`conversation=${ids.conversation}`))
     else {
       const options = page.getByRole('region', { name: '选择关联服务会话' })
       if (count === 0) {
-        await expect(options).toContainText('此服务记录当前没有关联的服务会话')
+        await expect(options).toContainText('没有此案例的关联记录')
         await expect(page).toHaveURL(/\/cases$/)
       } else {
         await expect(options.getByRole('link')).toHaveCount(2)

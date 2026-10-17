@@ -12,6 +12,7 @@ export function App() {
     <a className="skip-link" href="#main-content">跳到主要内容</a>
     <header className="site-header"><div className="header-inner">
       <NavLink className="brand" to="/" aria-label="售后通首页"><span>售后通</span><small>AI 驱动的售后服务平台</small></NavLink>
+      {!staff && <nav aria-label="主要导航"><NavLink to="/" end>首页</NavLink><NavLink to="/support">服务中心</NavLink><NavLink to="/cases">我的服务</NavLink><NavLink to="/devices">我的设备</NavLink></nav>}
       {actor.data && <AccountHeader key={`${actor.data.tenant_id}:${actor.data.actor_id}`} actor={actor.data} />}
     </div></header>
     <main id="main-content" tabIndex={-1}>

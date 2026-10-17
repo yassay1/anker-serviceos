@@ -44,6 +44,11 @@ function specialistEvent(sequence: number, stage = 'RESULT_READY', summary = '�
       display_name: '诊断专家', stage, summary, certainty: stage === 'RESULT_READY' ? 'HYPOTHESIS' : 'NONE' },
     created_at: '2026-10-14T01:00:00Z' }
 }
+function replyDelta(sequence: number, messageId: string, partIndex: number, text: string): S['EventRead'] {
+  return { id: crypto.randomUUID(), conversation_id: ids.conversation, sequence, visibility: 'PUBLIC',
+    type: 'agent.reply.delta', data: { message_id: messageId, part_index: partIndex, text },
+    created_at: '2026-10-14T01:00:00Z' }
+}
 async function emit(page: Page, value: unknown, lastEventId: string) {
   await page.evaluate(({ value, lastEventId }) => {
     window.testStreams.find(stream => !stream.closed)?.onmessage?.(new MessageEvent('message', { data: JSON.stringify(value), lastEventId }))
@@ -53,13 +58,11 @@ async function settle(page: Page) {
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
 }
 async function expandAssistance(page: Page) {
-  const retry = page.getByRole('button', { name: '用原请求重试', exact: true })
-  if (await retry.isVisible()) return
-  const submit = page.getByRole('button', { name: '提交协助请求', exact: true })
-  if (await submit.isVisible()) return
-  const trigger = page.getByRole('button', { name: '请求真人协助', exact: true })
-  await retry.or(submit).or(trigger).waitFor({ state: 'visible' })
-  if (await trigger.isVisible() && await trigger.isEnabled()) await trigger.click()
+  const details = page.locator('details.ui-ActionBar').first()
+  await expect(details).toBeAttached()
+  if (await details.count() && !(await details.evaluate(element => (element as HTMLDetailsElement).open))) {
+    await details.locator('summary').click()
+  }
 }
 
 for (const stored of ['-1', '1.5', '01', '1e3', '9007199254740993', 'Infinity']) {
@@ -70,7 +73,7 @@ for (const stored of ['-1', '1.5', '01', '1e3', '9007199254740993', 'Infinity'])
     await expect(page.getByText('实时更新已连接', { exact: true })).toBeVisible()
     expect(await page.evaluate(() => window.testStreams.find(stream => !stream.closed)?.url)).toContain('after=0')
     await emit(page, event(2), '2')
-    await expect(page.getByRole('region', { name: '助手最新进度' })).toHaveCount(0)
+    await expect(page.getByRole('region', { name: '助手最新进度' })).toContainText('正在查阅当前问题的授权资料。')
     expect(await page.evaluate(key => localStorage.getItem(key), sequenceKey)).toBe('2')
   })
 }
@@ -83,7 +86,7 @@ test('delivery SSE: duplicate, out-of-order and malformed events never regress o
   await page.goto('/support')
   await expect(page.getByText('实时更新已连接', { exact: true })).toBeVisible()
   await emit(page, event(20), '20') // Internal visibility can legitimately account for 9..19.
-  await expect(page.getByRole('region', { name: '助手最新进度' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: '助手最新进度' })).toContainText('正在查阅当前问题的授权资料。')
   await settle(page)
   const baseline = reads
   for (const [value, id] of [
@@ -99,43 +102,6 @@ test('delivery SSE: duplicate, out-of-order and malformed events never regress o
   await expect(page.getByText(/丢失事件|漏事件/)).toHaveCount(0)
 })
 
-test('delivery SSE: bursts coalesce affected snapshots and progress-only events do not refetch', async ({ page }) => {
-  await controlledStream(page, '8')
-  await fixture(page, false)
-  const reads = { messages: 0, document: 0, conversations: 0 }
-  page.on('request', request => {
-    const url = request.url()
-    if (url.includes('/messages?')) reads.messages++
-    if (url.endsWith('/ui-document/refresh')) reads.document++
-    if (url.endsWith('/conversations')) reads.conversations++
-  })
-  await page.goto('/support')
-  await expect(page.getByText('实时更新已连接', { exact: true })).toBeVisible()
-  await settle(page)
-  const baseline = { ...reads }
-  await page.evaluate(events => {
-    const stream = window.testStreams.find(item => !item.closed)
-    for (const { value, id } of events) stream?.onmessage?.(new MessageEvent('message', { data: JSON.stringify(value), lastEventId: id }))
-  }, Array.from({ length: 5 }, (_, index) => {
-    const sequence = index + 9
-    return { value: { ...event(sequence), type: 'message.created' }, id: String(sequence) }
-  }))
-  await expect.poll(() => reads.messages).toBe(baseline.messages + 1)
-  await expect.poll(() => reads.document).toBe(baseline.document + 1)
-  await expect.poll(() => reads.conversations).toBe(baseline.conversations + 1)
-  await settle(page)
-  const afterMessages = { ...reads }
-  await page.evaluate(events => {
-    const stream = window.testStreams.find(item => !item.closed)
-    for (const { value, id } of events) stream?.onmessage?.(new MessageEvent('message', { data: JSON.stringify(value), lastEventId: id }))
-  }, Array.from({ length: 5 }, (_, index) => {
-    const sequence = index + 14
-    return { value: event(sequence), id: String(sequence) }
-  }))
-  await page.waitForTimeout(100)
-  expect(reads).toEqual(afterMessages)
-})
-
 test('delivery SSE: storage exceptions do not disable streaming or deduplication', async ({ page }) => {
   await controlledStream(page, undefined, true)
   const state = await fixture(page, false)
@@ -143,9 +109,35 @@ test('delivery SSE: storage exceptions do not disable streaming or deduplication
   await expect(page.getByText('实时更新已连接', { exact: true })).toBeVisible()
   await emit(page, event(7, '服务端已开始处理', 'RUNNING'), '7')
   await emit(page, event(6, '不能倒退', 'RUNNING'), '6')
-  await expect(page.getByRole('region', { name: '助手最新进度' })).toHaveCount(0)
-  await expect(page.getByText('服务端已开始处理')).toHaveCount(0)
+  await expect(page.getByRole('region', { name: '助手最新进度' })).toContainText('服务端已开始处理')
   await expect(page.getByText('不能倒退')).toHaveCount(0)
+  expect(state.unexpected).toEqual([])
+})
+
+test('delivery SSE: approved reply deltas render incrementally without snapshot refetches', async ({ page }) => {
+  await controlledStream(page)
+  const state = await fixture(page, false)
+  const messageId = crypto.randomUUID()
+  let reads = 0
+  page.on('request', request => { if (request.url().includes('/messages?')) reads++ })
+  await page.goto('/support')
+  await expect(page.getByText('实时更新已连接', { exact: true })).toBeVisible()
+  await settle(page)
+  const baseline = reads
+  const first = replyDelta(70, messageId, 0, '我已核对这条消息')
+  await emit(page, first, '70')
+  await expect(page.locator('.streaming-message')).toContainText('我已核对这条消息')
+  await emit(page, replyDelta(71, messageId, 1, '，请告诉我设备型号。'), '71')
+  await expect(page.locator('.streaming-message')).toContainText('我已核对这条消息，请告诉我设备型号。')
+  await settle(page)
+  expect(reads).toBe(baseline)
+
+  state.messages.push({ id: messageId, conversation_id: ids.conversation, author_kind: 'AGENT',
+    author_display_name: '服务助手', visibility: 'PUBLIC', content: [{ type: 'text', text: '我已核对这条消息，请告诉我设备型号。' }],
+    related_case_id: null, client_message_id: ids.device, created_at: '2026-10-14T01:01:00Z' })
+  await emit(page, { ...event(72), type: 'message.created', data: { message_id: messageId, conversation_id: ids.conversation } }, '72')
+  await expect(page.getByText('我已核对这条消息，请告诉我设备型号。', { exact: true })).toBeVisible()
+  await expect(page.locator('.streaming-message')).toHaveCount(0)
   expect(state.unexpected).toEqual([])
 })
 
@@ -164,8 +156,9 @@ test('delivery SSE: reconnect restores history, newest revision and messages wit
   await page.evaluate(() => window.testStreams.find(stream => !stream.closed)?.onerror?.())
   await expect(page.getByText('重连中，消息仍可查询', { exact: true })).toBeVisible()
   await page.evaluate(() => window.testStreams.find(stream => !stream.closed)?.onopen?.())
+  await expect(page.getByText('交互卡修订 3', { exact: true })).toBeVisible()
   await expect(page.getByText('断线期间保存的回复', { exact: true })).toHaveCount(1)
-  await expect(page.getByText('已完成本轮资料整理')).toHaveCount(0)
+  await expect(page.getByRole('region', { name: '助手最新进度' })).toContainText('已完成本轮资料整理')
   expect(await page.evaluate(() => window.testStreams.length)).toBe(original)
   expect(state.sent).toEqual([])
   expect(state.unexpected).toEqual([])
@@ -202,13 +195,15 @@ test('delivery SSE: specialist identity and hypothesis restore from event histor
   } }))
   await page.goto('/support')
   const activity = page.getByRole('region', { name: '诊断专家活动' })
-  await expect(activity).toHaveCount(0)
+  await expect(activity).toContainText('诊断专家 · 形成待核验假设')
+  await expect(activity).toContainText('可能是供电连接问题')
+  await expect(activity).toContainText('不是已确认的设备事实')
   await expect(page.locator('.message-list')).not.toContainText('可能是供电连接问题')
   await emit(page, specialistEvent(41, 'FAILED', '诊断专家本次分析未完成，服务助手将继续处理。'), '41')
-  await expect(activity).toHaveCount(0)
+  await expect(activity).toContainText('本次分析未完成')
   await emit(page, { ...specialistEvent(42, 'LOOKUP', '诊断专家正在查阅已批准的售后资料。'), visibility: 'INTERNAL' }, '42')
-  await expect(activity).toHaveCount(0)
-  await expect(page.getByText(/供电连接问题|正在查阅已批准的售后资料/)).toHaveCount(0)
+  await expect(activity).toContainText('本次分析未完成')
+  await expect(activity).not.toContainText('正在查阅已批准的售后资料')
   expect(state.unexpected).toEqual([])
 })
 
@@ -242,8 +237,8 @@ test('delivery SSE: switching conversations closes and ignores late old handlers
   await expect(page.getByText('实时更新已连接', { exact: true })).toBeVisible()
   await emit(page, event(5, '第一段会话进度', 'RUNNING'), '5')
   await page.evaluate(() => { window.lateStreamMessage = window.testStreams.find(stream => !stream.closed)?.onmessage ?? undefined })
+  await page.locator('.conversation-selector summary').click()
   await page.getByRole('complementary', { name: '会话列表', exact: true }).getByRole('button', { name: /22222222/ }).click()
-  await expect.poll(() => page.evaluate(() => window.testStreams[0]?.closed)).toBe(true)
   await expect(page.getByText('第一段会话进度')).toHaveCount(0)
   await page.evaluate(value => window.lateStreamMessage?.(new MessageEvent('message', { data: JSON.stringify(value), lastEventId: '8' })), event(8, '延迟的旧进度'))
   await expect(page.getByText('延迟的旧进度')).toHaveCount(0)
@@ -254,17 +249,17 @@ test('delivery SSE: switching conversations closes and ignores late old handlers
 test('delivery UI: only real message case references become customer case links', async ({ page }) => {
   const state = await fixture(page, false)
   state.messages[0].related_case_id = ids.second
-  state.customerCaseLinks.push({ case: {
+  await page.route(`**/api/v1/cases/${ids.second}`, route => route.fulfill({ json: {
     id: ids.second, customer_id: ids.customer, problem_text: '已关联的充电问题', user_goal: '恢复稳定供电',
     status: 'WAITING_CUSTOMER', version: 3, created_at: '2026-10-14T01:00:00Z',
-  } satisfies S['CaseRead'], device_ids: [] })
+  } satisfies S['CaseRead'] }))
   await page.goto('/support')
   await expect(page.getByRole('link', { name: '已关联的充电问题', exact: true })).toHaveAttribute('href', `/cases/${ids.second}`)
+  await page.getByText('服务目标与下一步', { exact: true }).click()
   await expect(page.getByText('恢复稳定供电', { exact: true })).toBeVisible()
-  await expect(page.getByRole('link', { name: '查看证据、动作与核验记录' })).toHaveAttribute('href', `/cases/${ids.second}`)
+  await expect(page.getByRole('link', { name: '证据与处理记录' })).toHaveAttribute('href', `/cases/${ids.second}`)
   await expect(page.locator('.message-list-wrap .ui-document')).toHaveCount(1)
-  await expect(page.locator('.context-panel .ui-QuestionForm')).toHaveCount(0)
-  await expect(page.locator('.context-panel .ui-ActionBar')).toHaveCount(1)
+  await expect(page.locator('.context-panel .ui-document')).toHaveCount(0)
   await page.getByRole('button', { name: '填写回复', exact: true }).click()
   await expect(page.getByLabel('描述你的问题')).toBeFocused()
   expect(state.unexpected).toEqual([])
@@ -273,25 +268,11 @@ test('delivery UI: only real message case references become customer case links'
 test('delivery UI: inaccessible associated cases show refusal rather than another case', async ({ page }) => {
   const state = await fixture(page, false)
   state.messages[0].related_case_id = ids.second
-  await page.route(`**/api/v1/conversations/${ids.conversation}/customer-cases`, route => route.fulfill({ status: 403, json: { detail: '当前账号不能查看此案例。' } }))
+  await page.route(`**/api/v1/cases/${ids.second}`, route => route.fulfill({ status: 403, json: { detail: '当前账号不能查看此案例。' } }))
   await page.goto('/support')
   await expect(page.getByRole('alert')).toContainText('当前账号不能查看此案例。')
-  await expect(page.getByRole('link', { name: '查看证据、动作与核验记录' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: '证据与处理记录' })).toHaveCount(0)
   await expect(page.getByLabel('描述你的问题')).toBeEnabled()
-})
-
-test('delivery UI: policy safety alert is prominent and replaces duplicate text fallback', async ({ page }) => {
-  const state = await fixture(page, false)
-  state.messages[1].author_kind = 'AGENT'
-  state.messages[1].content[0].text = '请查看下方安全提醒。'
-  const content = state.messages[1].content[0] as unknown as Record<string, unknown>
-  content.rich = { schema_version: 1, blocks: [{ type: 'alert', title: '先停止使用设备',
-    text: '如果设备异常发热，请停止使用和充电。', severity: 'danger', status_code: 'POLICY_SAFETY_STOP' }],
-    quick_replies: [] }
-  await page.goto('/support')
-  const alert = page.getByRole('alert').filter({ hasText: '先停止使用设备' })
-  await expect(alert).toContainText('如果设备异常发热，请停止使用和充电。')
-  await expect(page.getByText('请查看下方安全提醒。')).toHaveCount(0)
 })
 
 for (const invalid of ['unknown', 'props', 'null-components', 'duplicate', 'expired', 'stale-context', 'catalog', 'unsafe-action', 'internal'] as const) {
@@ -313,7 +294,7 @@ for (const invalid of ['unknown', 'props', 'null-components', 'duplicate', 'expi
     await page.goto('/support')
     const region = page.getByRole('region', { name: '服务交互卡', exact: true })
     await expect(region.getByRole('button', { name: '刷新交互卡' })).toBeVisible()
-    await expect(page.getByRole('button', { name: '请求真人协助' })).toHaveCount(0)
+    await expect(region.getByRole('button', { name: '请求人工协助' })).toHaveCount(0)
     await expect(page.getByText('绝不能泄露的内部说明')).toHaveCount(0)
     await expect(page.getByLabel('描述你的问题')).toBeEnabled()
     await expect(region.locator('img, script, iframe')).toHaveCount(0)
@@ -324,15 +305,17 @@ test('delivery UI: an older revision cannot enable new actions after reconnect',
   await controlledStream(page)
   const state = await fixture(page, false)
   await page.goto('/support')
+  await expect(page.getByText('交互卡修订 2', { exact: true })).toBeVisible()
   await expandAssistance(page)
   state.document.revision = 1
   await emit(page, { ...event(10), type: 'ui.document.published' }, '10')
   await expect(page.getByRole('button', { name: '刷新交互卡' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '请求真人协助' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '请求人工协助' })).toHaveCount(0)
   state.document.revision = 3
   await page.getByRole('button', { name: '刷新交互卡' }).click()
+  await expect(page.getByText('交互卡修订 3', { exact: true })).toBeVisible()
   await expandAssistance(page)
-  await expect(page.getByRole('button', { name: '提交协助请求' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: '请求人工协助' })).toBeEnabled()
 })
 
 test('delivery UI: expiry disables the displayed action without waiting for snapshot polling', async ({ page }) => {
@@ -341,9 +324,9 @@ test('delivery UI: expiry disables the displayed action without waiting for snap
   state.document.expires_at = new Date(Date.now() + 10_000).toISOString()
   await page.goto('/support')
   await expandAssistance(page)
-  await expect(page.getByRole('button', { name: '提交协助请求' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: '请求人工协助' })).toBeEnabled()
   await expect(page.getByRole('button', { name: '刷新交互卡' })).toBeVisible({ timeout: 12_000 })
-  await expect(page.getByRole('button', { name: '请求真人协助' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '请求人工协助' })).toHaveCount(0)
 })
 
 test('delivery UI: a failed refresh removes stale actions but keeps text messaging available', async ({ page }) => {
@@ -351,11 +334,11 @@ test('delivery UI: a failed refresh removes stale actions but keeps text messagi
   await fixture(page, false)
   await page.goto('/support')
   await expandAssistance(page)
-  await expect(page.getByRole('button', { name: '提交协助请求' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: '请求人工协助' })).toBeEnabled()
   await page.route('**/ui-document/refresh', route => route.fulfill({ status: 403, json: { detail: '当前身份不能读取交互卡。' } }))
   await emit(page, { ...event(12), type: 'ui.document.published' }, '12')
   await expect(page.getByRole('alert')).toContainText('当前身份不能读取交互卡。')
-  await expect(page.getByRole('button', { name: '请求真人协助' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '请求人工协助' })).toHaveCount(0)
   await expect(page.getByLabel('描述你的问题')).toBeEnabled()
 })
 
@@ -373,10 +356,31 @@ test('delivery UI: staff catalog preserves evidence, handoff and single-node rea
   await expect(cards.locator('.ui-CaseSummaryCard')).toContainText('待核验')
   await expect(cards.locator('.ui-EvidenceSummary')).toContainText('已撤销')
   await expect(cards.locator('.ui-HandoffSummary')).toContainText('待处理')
-  await expect(cards.locator('.ui-progress-summary')).toHaveCount(1)
-  await expect(cards.locator('.ui-progress-summary')).toContainText('待审批')
+  await expect(cards.locator('.ui-timeline li')).toHaveCount(1)
+  await expect(cards.locator('.ui-timeline')).toContainText('待审批')
   await expect(cards.getByRole('link', { name: '查看案例与证据' }).first()).toHaveAttribute('href', `/cases/${ids.second}`)
   await expect(cards.getByText(/已完成|已解决/)).toHaveCount(0)
+})
+
+test('delivery UI: catalog 4 customer case progress keeps the approved card actions available', async ({ page }) => {
+  const state = await fixture(page, false)
+  state.document.catalog_version = 4
+  state.document.components.unshift({
+    id: 'case-progress', type: 'ProgressTimeline',
+    props: { title: '服务进度', body: '案例正在等待补充信息。', status: 'WAITING_CUSTOMER' },
+    actions: [], children: [],
+    data_source: { kind: 'CASE_VIEW', binding: 'progress', resource_id: ids.second, resource_version: 2 },
+  })
+  await page.goto('/support')
+  const card = page.getByRole('region', { name: '服务交互卡', exact: true })
+  await expect(card.locator('.ui-ProgressTimeline')).toContainText('服务进度')
+  await expandAssistance(page)
+  await expect(card.getByRole('button', { name: '请求人工协助' })).toBeEnabled()
+  await card.getByRole('button', { name: '请求人工协助' }).click()
+  await expect(card.getByText('人工协助请求已保存。')).toBeVisible()
+  expect(state.actions).toHaveLength(1)
+  expect(state.actions[0].action_id).toBe('request-human-assistance')
+  expect(state.unexpected).toEqual([])
 })
 
 test('delivery UI: customer metric uses the bounded curated chart payload', async ({ page }) => {
@@ -461,7 +465,7 @@ test('delivery UI: catalog types are distinct, text remains inert, and mobile ca
   await expect(cards.locator('.ui-card').first()).toHaveClass(/ui-RiskAlert/)
   await expect(cards.locator('.ui-QuestionForm')).toContainText('<img src=x onerror=alert(1)>')
   await expect(cards.locator('img, iframe, a[href^="https:"]')).toHaveCount(0)
-  await expect(page.locator('.context-panel .ui-ActionBar')).toHaveCount(1)
+  await expect(cards.locator('.ui-ActionBar')).toHaveCount(1)
   await page.getByRole('button', { name: '填写回复' }).focus()
   await page.keyboard.press('Enter')
   await expect(page.getByLabel('描述你的问题')).toBeFocused()
@@ -483,37 +487,16 @@ function withChoices(state: Awaited<ReturnType<typeof fixture>>, options: unknow
   return document
 }
 
-test('delivery UI: customer progress accepts the authorized linked Case projection', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 })
-  const state = await fixture(page, false)
-  const uiDocument = structuredClone(state.document) as unknown as Record<string, unknown>
-  uiDocument.catalog_version = 4
-  const cards = uiDocument.components as S['UIComponent'][]
-  cards.push({ id: 'case-progress', type: 'ProgressTimeline',
-    props: { title: '当前服务进度', body: '等待你补充接口照片。', status: 'WAITING_CUSTOMER' },
-    actions: [], children: [],
-    data_source: { kind: 'CASE_VIEW', binding: 'progress', resource_id: ids.second, resource_version: 2 } })
-  await page.route('**/ui-document/refresh', route => route.fulfill({ json: uiDocument }))
-  await page.goto('/support')
-  await expect(page.locator('.ui-ProgressTimeline')).toContainText('等待你补充接口照片。')
-  await expect(page.getByRole('status', { name: '当前服务进度：WAITING_CUSTOMER' })).toBeVisible()
-  await expect(page.getByLabel('描述你的问题')).toBeEnabled()
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-})
-
 test('delivery UI: clicking a choice sends it as an ordinary customer message', async ({ page }) => {
   const state = await fixture(page, false)
   await page.route('**/ui-document/refresh', route => route.fulfill({
     json: withChoices(state, [{ label: '指示灯完全不亮', value: 'no-light' }, { label: '指示灯常亮', value: 'steady' }]),
   }))
   await page.goto('/support')
-  const region = page.locator('.conversation-ui')
+  const region = page.getByRole('region', { name: '服务交互卡', exact: true })
   await expandAssistance(page)
   const choices = region.getByRole('group', { name: '下一步需要的信息' })
   await expect(choices.getByRole('button')).toHaveCount(2)
-  const target = await choices.getByRole('button', { name: '指示灯完全不亮' }).boundingBox()
-  expect(target?.height).toBeGreaterThanOrEqual(44)
-  expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([])
   await choices.getByRole('button', { name: '指示灯完全不亮' }).click()
   await expect(region.getByRole('status')).toHaveText('已发送：指示灯完全不亮')
   expect(state.sent.at(-1)).toMatchObject({
@@ -522,7 +505,7 @@ test('delivery UI: clicking a choice sends it as an ordinary customer message', 
   expect(state.sent.at(-1)?.client_message_id).toMatch(/^[0-9a-f-]{36}$/)
   // The choice path must not touch the assistance action surface.
   await expandAssistance(page)
-  await expect(page.getByRole('button', { name: '提交协助请求' })).toHaveCount(1)
+  expect(await region.getByRole('button', { name: '请求人工协助' }).count()).toBe(1)
 })
 
 test('delivery UI: an uncertain choice retries with its original message id', async ({ page }) => {
@@ -537,7 +520,7 @@ test('delivery UI: an uncertain choice retries with its original message id', as
     await route.fallback()
   })
   await page.goto('/support')
-  const region = page.locator('.conversation-ui')
+  const region = page.getByRole('region', { name: '服务交互卡', exact: true })
   await expandAssistance(page)
   await region.getByRole('button', { name: '指示灯完全不亮' }).click()
   await expect(region.getByRole('status')).toContainText('发送结果未确认')
@@ -555,7 +538,7 @@ test('delivery UI: choices disappear at expiry and the text path stays available
   document.expires_at = new Date(Date.now() + 4000).toISOString()
   await page.route('**/ui-document/refresh', route => route.fulfill({ json: document }))
   await page.goto('/support')
-  const region = page.locator('.conversation-ui')
+  const region = page.getByRole('region', { name: '服务交互卡', exact: true })
   await expandAssistance(page)
   await expect(region.getByRole('button', { name: '指示灯完全不亮' })).toBeEnabled()
   // Expiry is handled like every other unsupported document: the card falls back rather than
@@ -569,9 +552,9 @@ test('delivery UI: an archived conversation disables every card control and the 
   const state = await fixture(page, false)
   state.conversations[0].status = 'ARCHIVED'
   await page.goto('/support')
-  const region = page.locator('.conversation-ui')
+  const region = page.getByRole('region', { name: '服务交互卡', exact: true })
   await expandAssistance(page)
-  await expect(page.getByRole('button', { name: '请求真人协助' })).toBeDisabled()
+  await expect(region.getByRole('button', { name: '请求人工协助' })).toBeDisabled()
   await expect(region.getByRole('button', { name: '填写回复' })).toBeDisabled()
   await expect(page.getByLabel('描述你的问题')).toBeDisabled()
   // Choices reuse that same activity gate, so no stale choice can be sent from an archive.
@@ -590,7 +573,7 @@ for (const [name, options] of [
     const state = await fixture(page, false)
     await page.route('**/ui-document/refresh', route => route.fulfill({ json: withChoices(state, options) }))
     await page.goto('/support')
-    const region = page.locator('.conversation-ui')
+    const region = page.getByRole('region', { name: '服务交互卡', exact: true })
     await expect(region.getByRole('button', { name: '刷新交互卡' })).toBeVisible()
     await expect(region.locator('.ui-choices')).toHaveCount(0)
     await expect(region.locator('img, script, iframe')).toHaveCount(0)

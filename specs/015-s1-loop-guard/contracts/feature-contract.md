@@ -1,7 +1,7 @@
 # S1 闭环核：政策注册表 + 结局 taxonomy + 发布守卫（含前端可视化）· 功能契约
 
-状态：草案 v1，经 2026-10-17 用户确认调整实时发布门禁范围。
-原双检查设计保留为评测目标；实时发布不再调用 LLM 覆盖/承诺 verifier。
+状态：契约按 2026-10-17 用户反馈更新。
+实体接地检查保留作独立诊断能力，但不再拦截常规 Agent 回复；公开发布资格仍由后端协作策略检查，不受 Agent Prompt 控制。
 
 ## 1. 场景与责任
 
@@ -25,14 +25,12 @@
 - `MockActionRequest.remedy_type ∈ {REPAIR, RESHIP, REFER_SELLER, DECLINE}`（必填）；回执与 CaseActionRead 携带；审批照旧
 - Case 结局投影 = 最新核验通过动作之 remedy_type；/desk 案例详情显示结局徽章
 
-## 4. 发布守卫（PublicationGuard）
+## 4. 内容接地诊断（PublicationGuard）
 
-- 挂点：`ConversationService.publish_agent_response` 判定 PUBLIC 之前；仅对将公开的 Agent 文本运行
+- `PublicationGuard` 保留用于显式诊断/历史审核，不接入常规公开消息发布路径
 - 实时检查：确定性抽取型号、日期、带单位数值和 4 位错误码，并对比客户原话及授权证据束；未命中=`UNGROUNDED_ENTITY`。该检查不替代 Case、Device 或外部动作的应用服务授权与状态校验。
-- LLM 覆盖/承诺判断不在实时发布路径运行，不产生 `UNCOVERED_REQUEST` 或 `VERIFIER_UNAVAILABLE` 发布阻断。该类语义质量由离线多轮评测观察，必须分别报告合法回复误拦、风险漏拦和任务完成情况。
-- 拦截→不发布：原 reply 转 INTERNAL 草稿 + AgentProposal(REPLY) + `publication_guard_decisions` 行（run_id、message refs、确定性 entities、decision、latency_ms）。本项目不自动生成客户兜底消息；被拦回复由客服/主管按现有人工流程处理。
-- override：SUPERVISOR/ADMIN 经 `POST /api/v1/guard/decisions/{id}/override` 发布（maker-checker：override 者≠run 发起人无需强制但审计留痕）；发布后决策行带 override ref
-- 开关 `SERVICEOS_PUBLICATION_GUARD`（默认 on）；readiness `guard=on/off`；CI 断言 off 需显式
+- 正常 Agent 回复不因实体接地检查降为 INTERNAL；必须由 Prompt 避免虚构型号/数值并标注未经核实推断，但 Prompt 不决定消息公开权限
+- 历史 `publication_guard_decisions` 和主管复核路由继续服务已有记录；本次不删除历史审核数据或迁移表
 - references 扩存 excerpt（INTERNAL only）供接地比对
 
 ## 5. HTTP 操作（新增）
@@ -56,15 +54,14 @@
 
 | 路径 | 预期 |
 |---|---|
-| 注入无据型号 T9999 | 拦截→决策行 UNGROUNDED_ENTITY→/desk 可见→override 发布+审计 |
+| 无据型号/数值 | 发布检查不拦截常规回复；Agent Prompt 应避免自创型号/数值；公开资格仍按 AI_LEAD + AI_AUTO 授权检查 |
 | 流程性安全表述（无型号/日期/数值/错误码等未依据实体） | 不因语义 verifier 拦截；该轮对话体验进入离线人工/数据集评测 |
-| 有无依据的型号、日期、单位数值或错误码 | 确定性实体证据检查分别放行/拦截，拦截原因 `UNGROUNDED_ENTITY` |
-| Provider/verifier 宕机 | 实时发布守卫不调用语义 verifier，不影响该检查；Agent 生成/业务 API 的自身失败策略仍适用 |
-| guard=off | readiness guard=off 且 CI 断言 |
+| 有无依据的型号、日期、单位数值或错误码 | 单独运行接地诊断，结果分别标注；不影响常规答复是否发布 |
+| 内容诊断不可用 | 不影响授权的常规回复发布；Agent 生成/业务 API 的自身失败策略仍适用 |
 | SOP 五分支回放 | remedy_type 与政策命中一致；回执带结局 |
 | 决策表测试 | 每条 policy 行输入→命中 rule_id 断言 |
-| 前端 | 面板/徽章/引用可视化 typecheck+build+live 浏览器路径 |
-| 回归 | 实时发布不发起 verifier Provider 请求；有依据实体通过、无依据实体仍拦截；守卫拒绝时不生成客户兜底 |
+| 前端 | 历史决策面板/徽章/引用可视化 typecheck+build+live 浏览器路径 |
+| 回归 | 公开策略授权/拒绝路径有效；实体诊断保持可用；Agent Prompt 含无据型号、数字和推断指导 |
 
 ## 8. 明确不包含
 

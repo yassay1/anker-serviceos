@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useRef, useState } from 'react'
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react'
 import { Send, LockKeyhole, Mic, Square, ImagePlus, Zap } from 'lucide-react'
 
 const replyTemplates = [
@@ -18,7 +18,8 @@ type RecognitionWindow = Window & {
   webkitSpeechRecognition?: new () => Recognition,
 }
 
-export function MessageComposer({ desk, active, draft, internal, onDraft, onInternal, onSubmit, onAttach }: {
+export function MessageComposer({ desk, active, draft, internal, onDraft, onInternal, onSubmit, onAttach,
+  className = '', draftLabel, draftReadOnly = false, footNote, footerLink, submitLabel }: {
   desk: boolean
   active: boolean
   draft: string
@@ -27,6 +28,12 @@ export function MessageComposer({ desk, active, draft, internal, onDraft, onInte
   onInternal: (value: boolean) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onAttach?: () => void
+  className?: string
+  draftLabel?: string
+  draftReadOnly?: boolean
+  footNote?: string
+  footerLink?: ReactNode
+  submitLabel?: string
 }) {
   const recognition = useRef<Recognition | null>(null)
   const [listening, setListening] = useState(false)
@@ -66,26 +73,27 @@ export function MessageComposer({ desk, active, draft, internal, onDraft, onInte
     catch { recognition.current = null; setVoiceError('无法启动语音识别，请检查浏览器权限后重试。') }
   }
 
-  return <form className={`composer ${desk && internal ? 'is-internal' : ''}`} onSubmit={event => {
+  return <form className={`composer ${className} ${desk && internal ? 'is-internal' : ''}`} onSubmit={event => {
     if (recognition.current) { event.preventDefault(); return }
     onSubmit(event)
   }}>
-    <div className="composer-heading">{desk ? <div className="composer-tabs"><button type="button" aria-pressed={!internal} onClick={() => onInternal(false)}>回复客户</button><button type="button" aria-pressed={internal} onClick={() => onInternal(true)}>内部备注</button></div> : <label htmlFor="message-draft">描述你的问题</label>}{internal && desk && <span className="private-tag"><LockKeyhole size={12} aria-hidden="true" />仅客服可见</span>}</div>
-    <textarea id="message-draft" aria-label={desk ? '回复客户' : '描述你的问题'} value={draft} maxLength={8000} rows={3}
-      onChange={(event) => onDraft(event.target.value)} disabled={!active} readOnly={listening}
+    <div className="composer-heading">{desk ? <div className="composer-tabs"><button type="button" aria-pressed={!internal} onClick={() => onInternal(false)}>回复客户</button><button type="button" aria-pressed={internal} onClick={() => onInternal(true)}>内部备注</button></div> : <label htmlFor="message-draft">{draftLabel ?? '描述你的问题'}</label>}{internal && desk && <span className="private-tag"><LockKeyhole size={12} aria-hidden="true" />仅客服可见</span>}</div>
+    <textarea id="message-draft" aria-label={desk ? '回复客户' : draftLabel ?? '描述你的问题'} value={draft} maxLength={8000} rows={3}
+      onChange={(event) => onDraft(event.target.value)} disabled={!active} readOnly={listening || draftReadOnly}
       placeholder={desk ? internal ? '输入内部备注，仅授权客服可见…' : '请输入回复内容，可上传图片，或使用快捷回复…' : '例如：充电器连接后指示灯没有亮…'} />
     <div className="composer-tools">
-      <button type="button" onClick={toggleVoice} disabled={!active || !Speech} aria-pressed={listening}
+      <button type="button" onClick={toggleVoice} disabled={!active || draftReadOnly || !Speech} aria-pressed={listening}
         title={Speech ? '将语音识别为文字，确认后再发送' : '当前浏览器不支持语音识别，可尝试 Chrome 或 Edge'}>
         {listening ? <Square size={16} /> : <Mic size={17} />}{listening ? '停止识别' : '语音输入'}</button>
-      {onAttach && <button type="button" disabled={!active || listening} onClick={onAttach}><ImagePlus size={17} />上传图片</button>}
+      {onAttach && <button type="button" disabled={!active || listening || draftReadOnly} onClick={onAttach}><ImagePlus size={17} />上传图片</button>}
       {desk && <details className="reply-templates"><summary><Zap size={17} />快捷回复</summary><div>{replyTemplates.map(([label, text]) => <button type="button" key={label} disabled={!active || listening} onClick={event => { onDraft(draft ? `${draft}\n${text}`.slice(0, 8000) : text); event.currentTarget.closest('details')?.removeAttribute('open'); document.getElementById('message-draft')?.focus() }}>{label}</button>)}<small>填入草稿，确认后发送</small></div></details>}
       <span role="status" className={`voice-status ${listening ? 'is-listening' : ''}`}>{listening ? '正在听，请说话…停止后可编辑并发送' : !Speech ? '当前浏览器不支持语音识别' : '语音由浏览器识别，部分浏览器需联网处理'}</span>
     </div>
     {voiceError && <p className="form-error" role="alert">{voiceError}</p>}
     <div className="composer-foot">
-      <p>{!active ? '此会话已归档，无法继续发送。' : desk ? internal ? '此消息仅客服可见。' : '公开回复会显示给客户。' : '保存后可继续查看；回复以实际服务处理结果为准。'}</p>
-      <button type="submit" className="primary-button" disabled={!draft.trim() || !active || listening}><Send size={15} aria-hidden="true" />{desk ? internal ? '保存内部备注' : '发送回复' : '发送消息'}</button>
+      <p>{!active ? '此会话已归档，无法继续发送。' : footNote ?? (desk ? internal ? '此消息仅客服可见。' : '公开回复会显示给客户。' : '保存后可继续查看；回复以实际服务处理结果为准。')}</p>
+      {footerLink}
+      <button type="submit" className="primary-button" disabled={!draft.trim() || !active || listening}><Send size={15} aria-hidden="true" />{submitLabel ?? (desk ? internal ? '保存内部备注' : '发送回复' : '发送消息')}</button>
     </div>
   </form>
 }

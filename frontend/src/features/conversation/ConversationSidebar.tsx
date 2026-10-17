@@ -6,11 +6,10 @@ import { CustomerAvatar, customerLabel } from '../../shared/StaffUI'
 
 export type ConversationPreview = { id: string, text: string, created_at: string }
 
-export function ConversationSidebar({ desk, previews, items, selectedId, loading, error, creating, createError, onCreate, onSelect, showCreate = true }: {
+export function ConversationSidebar({ desk, previews, items, selectedId, loading, error, creating, createError, onCreate, onSelect }: {
   previews?: Record<string, ConversationPreview>, desk: boolean, items: Conversation[] | undefined, selectedId: string | undefined,
   loading: boolean, error?: string, creating: boolean, createError: string,
   onCreate: () => void, onSelect: (id: string) => void,
-  showCreate?: boolean,
 }) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('ALL')
@@ -18,7 +17,7 @@ export function ConversationSidebar({ desk, previews, items, selectedId, loading
     `${item.title} ${item.id} ${item.customer_id}`.toLowerCase().includes(search.trim().toLowerCase()))
   return <aside className="conversation-list" aria-label="会话列表">
     <div className="section-heading"><h2>{desk ? '服务会话' : '我的服务'}</h2>
-      {!desk && showCreate && <button type="button" className="icon-button" aria-label={creating ? '建立中…' : '新建会话'} onClick={onCreate} disabled={creating}><Plus size={18} aria-hidden="true" /></button>}
+      {!desk && <button type="button" className="icon-button" aria-label={creating ? '建立中…' : '新建会话'} onClick={onCreate} disabled={creating}><Plus size={18} aria-hidden="true" /></button>}
     </div>
     <div className="sidebar-search"><Search size={16} aria-hidden="true" /><input aria-label="搜索已加载的会话" placeholder="搜索问题、会话或客户编号" value={search} onChange={e => setSearch(e.target.value)} /></div>
     <div className="list-filters" aria-label="会话状态筛选">{[['ALL', '全部'], ['ACTIVE', '进行中'], ['ARCHIVED', '已归档']].map(([value, label]) =>

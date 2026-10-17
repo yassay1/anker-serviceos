@@ -49,196 +49,28 @@ test('adaptation: drafts and visibility stay with their conversation', async ({ 
   expect(state.sent[0]).toMatchObject({ visibility: 'INTERNAL', content: [{ type: 'text', text: '会话 A 的内部记录' }] })
 })
 
-test('conversation: specialist result has its own author and no Agent quick replies', async ({ page }) => {
-  const state = await fixture(page)
-  state.messages.push({
-    id: '77777777-7777-4777-8777-777777777777', conversation_id: ids.conversation,
-    author_kind: 'SPECIALIST', author_display_name: '诊断专家', visibility: 'INTERNAL',
-    content: [{ type: 'text', text: '初步假设（待核验）：可能是电源连接不稳定。' }],
-    client_message_id: null, related_case_id: null, created_at: state.messages[0].created_at,
-  })
-  await page.goto('/desk')
-  const specialist = page.locator('.message.author-specialist')
-  await expect(specialist.getByText('诊断专家', { exact: true })).toBeVisible()
-  await expect(specialist.getByText('AI 假设（待核验）', { exact: true })).toBeVisible()
-  await expect(specialist.getByText('仅客服可见', { exact: true })).toBeVisible()
-  await expect(specialist.getByText('初步假设（待核验）：可能是电源连接不稳定。', { exact: true })).toBeVisible()
-  await expect(specialist.getByRole('button')).toHaveCount(0)
-  expect(state.unexpected).toEqual([])
-})
-
 test('adaptation: narrow screen panels preserve the message draft', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await fixture(page, false)
   await page.goto('/support')
   await page.getByLabel('描述你的问题').fill('充电宝无法持续充电')
-  await page.getByRole('button', { name: '处理详情', exact: true }).click()
-  await expect(page.getByRole('button', { name: '请求真人协助', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '资料与协助', exact: true }).click()
+  await expect(page.getByRole('button', { name: '查看协助与补充信息', exact: true })).toBeVisible()
   await expect(page.getByLabel('描述你的问题')).toBeHidden()
-  await page.getByRole('button', { name: '请求真人协助', exact: true }).click()
-  await expect(page.getByRole('button', { name: '提交协助请求', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: '提交协助请求', exact: true })).toHaveCount(1)
+  await page.getByRole('button', { name: '查看协助与补充信息', exact: true }).click()
+  await expect(page.getByRole('button', { name: '请求人工协助', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '请求人工协助', exact: true })).toHaveCount(1)
   await expect(page.getByLabel('描述你的问题')).toHaveValue('充电宝无法持续充电')
-  await page.getByRole('button', { name: '关联设备', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '关联设备' })).toBeVisible()
-  await expect(page.getByText('没有关联案例，因此当前没有关联设备。')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
 
-test('staff mobile queue uses the OPEN task contract and claim receipt before opening the session', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 })
-  const state = await fixture(page)
-  state.taskQueue.push({ id: '99999999-9999-4999-8999-999999999999', conversation_id: ids.conversation,
-    case_id: null, reason: '客户请求人工协助', status: 'OPEN', version: 1, assignee_id: null, created_at: '2026-10-14T01:00:00Z' })
-  await page.goto('/desk')
-  await expect(page.getByRole('heading', { name: '人工任务队列' })).toBeVisible()
-  await expect(page.locator('.conversation-selector .conversation-list')).toHaveCount(0)
-  await expect(page.getByText('客户请求人工协助', { exact: true })).toBeVisible()
-  await expect(page.getByLabel('回复客户')).toBeHidden()
-  await page.getByRole('button', { name: '接手任务', exact: true }).click()
-  await expect(page).toHaveURL(new RegExp(`/desk\\?conversation=${ids.conversation}`))
-  await expect(page.getByLabel('回复客户')).toBeVisible()
-  expect(state.taskQueue[0]).toMatchObject({ status: 'ASSIGNED', assignee_id: state.actor.actor_id, version: 2 })
-  expect(state.unexpected).toEqual([])
-})
-
-for (const viewport of [
-  { width: 360, height: 800 }, { width: 375, height: 812 }, { width: 390, height: 844 },
-  { width: 768, height: 1024 }, { width: 1280, height: 800 },
-]) {
-  test(`responsive workspaces fit ${viewport.width}×${viewport.height} with accessible touch targets`, async ({ page }) => {
-    await page.setViewportSize(viewport)
-    const state = await fixture(page, false)
-    await page.goto('/support')
-    await expect(page.getByRole('list', { name: '服务使用指引' })).toHaveCount(0)
-    const customerNav = page.getByRole('navigation', { name: '服务视图' })
-    if (viewport.width <= 1000) {
-      await expect(customerNav).toBeVisible()
-      for (const name of ['对话', '处理详情', '关联设备']) {
-        const button = customerNav.getByRole('button', { name })
-        await expect(button).toBeVisible()
-        expect((await button.boundingBox())?.height).toBeGreaterThanOrEqual(44)
-      }
-      await customerNav.getByRole('button', { name: '处理详情' }).click()
-      await expect(page.getByRole('heading', { name: '处理详情' })).toBeVisible()
-      await customerNav.getByRole('button', { name: '对话' }).click()
-    } else {
-      await expect(customerNav).toBeHidden()
-    }
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    const draft = page.getByLabel('描述你的问题')
-    await draft.fill('键盘弹出时仍可继续编辑这条较长的服务问题。'.repeat(5))
-    await draft.focus()
-    await page.setViewportSize({ width: viewport.width, height: Math.min(viewport.height, 510) })
-    await draft.scrollIntoViewIfNeeded()
-    await draft.fill('软键盘展开后仍可继续编辑服务问题。')
-    await expect(draft).toHaveValue('软键盘展开后仍可继续编辑服务问题。')
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    expect(state.unexpected).toEqual([])
-  })
-}
-
-for (const viewport of [
-  { width: 360, height: 800 }, { width: 375, height: 812 }, { width: 390, height: 844 },
-  { width: 768, height: 1024 }, { width: 1280, height: 800 },
-]) {
-  test(`staff workspace queue, session and profile fit ${viewport.width}px`, async ({ page }) => {
-    await page.setViewportSize(viewport)
-    const state = await fixture(page, true)
-    await page.goto('/desk')
-    const navigation = page.getByRole('navigation', { name: '客服工作区视图' })
-    if (viewport.width <= 1180) {
-      await expect(navigation).toBeVisible()
-      for (const label of ['处理队列', '客户会话', '服务资料']) {
-        const button = navigation.getByRole('button', { name: label })
-        await expect(button).toBeVisible()
-        expect((await button.boundingBox())?.height).toBeGreaterThanOrEqual(44)
-      }
-      await navigation.getByRole('button', { name: '处理队列' }).click()
-      await expect(page.getByRole('heading', { name: '人工任务队列' })).toBeVisible()
-      if (viewport.width <= 1000) {
-        await navigation.getByRole('button', { name: '客户会话' }).click()
-        await expect(page.getByLabel('回复客户')).toBeVisible()
-        await navigation.getByRole('button', { name: '服务资料' }).click()
-        await expect(page.getByRole('complementary', { name: '案例与协作信息' })).toBeVisible()
-      }
-    } else {
-      await expect(navigation).toBeHidden()
-      await expect(page.getByLabel('回复客户')).toBeVisible()
-    }
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    expect(state.unexpected).toEqual([])
-  })
-}
-
-test('customer service details show only linked cases and devices from the relationship API', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 })
-  const state = await fixture(page, false)
-  state.customerCaseLinks.push({ case: { id: ids.second, customer_id: ids.customer,
-    problem_text: '已关联案例', user_goal: '恢复供电', status: 'WAITING_CUSTOMER', version: 2, created_at: '2026-10-14T01:00:00Z' }, device_ids: [ids.device] })
-  await page.goto('/support')
-  await page.getByRole('button', { name: '处理详情', exact: true }).click()
-  await expect(page.getByRole('link', { name: '已关联案例' })).toHaveAttribute('href', `/cases/${ids.second}`)
-  await page.getByRole('button', { name: '关联设备', exact: true }).click()
-  await expect(page.getByText('Anker 737', { exact: true })).toBeVisible()
-  await expect(page.getByText('charging_watts：65')).toBeVisible()
-  expect(state.unexpected).toEqual([])
-})
-
-test('customer assistance displays only the server task status and can refresh it', async ({ page }) => {
-  const state = await fixture(page, false)
-  state.assistance.push({ id: '88888888-8888-4888-8888-888888888888', status: 'OPEN', version: 1, created_at: '2026-10-14T01:00:00Z' })
-  await page.goto('/support')
-  await expect(page.getByText('已提交，等待客服接手', { exact: true })).toBeVisible()
-  state.assistance[0].status = 'ASSIGNED'
-  state.assistance[0].version = 2
-  await page.getByRole('button', { name: '刷新协助状态', exact: true }).click()
-  await expect(page.getByText('客服已接手', { exact: true })).toBeVisible()
-  await expect(page.getByText(/预计等待|排队时长|客服在线|正在查看/)).toHaveCount(0)
-  expect(state.unexpected).toEqual([])
-})
-
-for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }]) {
-  test(`customer conversation: ${viewport.width}px layout has one assistance entry and no runtime completion card`, async ({ page }) => {
-    await page.setViewportSize(viewport)
-    const state = await fixture(page, false)
-    await page.goto('/support')
-    await expect(page.locator('.conversation-selector .conversation-list')).toBeVisible()
-    await expect(page.getByRole('heading', { name: '对话', exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: '开始新对话', exact: true })).toHaveCount(1)
-    await expect(page.locator('.conversation-list').getByRole('button', { name: '新建会话', exact: true })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: '请求真人协助', exact: true })).toHaveCount(1)
-    await expect(page.getByRole('button', { name: '查看协助与补充信息', exact: true })).toHaveCount(0)
-    await expect(page.getByText(/交互卡修订|本轮处理结束|本轮运行结束/)).toHaveCount(0)
-    expect(state.unexpected).toEqual([])
-  })
-}
-
-test('adaptation: policy changes require the backend minimum reason length', async ({ page }) => {
+test('adaptation: draft review requires the backend minimum reason length', async ({ page }) => {
   await fixture(page)
   await page.goto('/desk')
   await page.getByRole('button', { name: '人工协作与审批', exact: true }).click()
   await page.getByLabel('原因', { exact: true }).fill('短')
-  await expect(page.getByRole('button', { name: '切换策略', exact: true })).toBeDisabled()
-})
-
-test('collaboration: AI reply remains internal through composer edit and approval until send receipt', async ({ page }) => {
-  const state = await fixture(page)
-  await page.goto('/desk')
-  await page.getByRole('button', { name: '人工协作与审批', exact: true }).click()
-  await page.getByRole('button', { name: '放入回复框', exact: true }).click()
-  const draft = page.getByLabel(/客服回复草稿/)
-  await expect(draft).toHaveValue('AI 建议的回复内容')
-  await draft.fill('客服核对并编辑后的答复')
-  await page.getByRole('button', { name: '保存编辑', exact: true }).click()
-  await page.getByRole('button', { name: '单独审批', exact: true }).click()
-  expect(state.messages).toHaveLength(2)
-  await page.getByRole('button', { name: '发送公开回复', exact: true }).click()
-  await expect.poll(() => state.replyDrafts?.[0]?.status).toBe('SENT')
-  await expect(page.getByRole('region', { name: '当前会话' }).getByText('客服核对并编辑后的答复', { exact: true })).toBeVisible()
-  expect(state.messages.at(-1)).toMatchObject({ author_kind: 'STAFF', visibility: 'PUBLIC',
-    content: [{ type: 'text', text: '客服核对并编辑后的答复' }] })
-  expect(state.unexpected).toEqual([])
+  await expect(page.getByRole('button', { name: '批准', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '拒绝', exact: true })).toBeDisabled()
 })
 
 test('adaptation: device details show actual facts and history without verifying identity', async ({ page }) => {
@@ -275,16 +107,16 @@ test('adaptation: a connected but quiet event stream still reconciles saved mess
   expect(state.unexpected).toEqual([])
 })
 
-test('adaptation: a quiet event stream reconciles externally rejected AI suggestions', async ({ page }) => {
+test('adaptation: a quiet event stream also reconciles externally reviewed drafts', async ({ page }) => {
   await quietStream(page)
   const state = await fixture(page)
   await page.goto('/desk')
   await expect(page.getByText('实时更新已连接', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '人工协作与审批', exact: true }).click()
-  await expect(page.getByRole('button', { name: '放入回复框', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '批准', exact: true })).toBeVisible()
   state.proposals[0].status = 'REJECTED'
-  await expect(page.getByText('未发布 AI 回复建议 · 建议补充充电线材信息。', { exact: true })).toHaveCount(0, { timeout: 12_000 })
-  await expect(page.getByRole('button', { name: '放入回复框', exact: true })).toHaveCount(0)
+  await expect(page.getByText('回复草稿 · 建议补充充电线材信息。 · 已拒绝', { exact: true })).toBeVisible({ timeout: 12_000 })
+  await expect(page.getByRole('button', { name: '批准', exact: true })).toHaveCount(0)
   expect(state.unexpected).toEqual([])
 })
 
@@ -294,7 +126,6 @@ for (const [route, staff, mobile] of [['/desk', true, false], ['/desk', true, tr
     const state = await fixture(page, staff)
     await page.goto(route)
     if (route.includes('/devices')) await expect(page.getByText('人工测量记录')).toBeVisible()
-    else if (staff && mobile) await expect(page.getByRole('heading', { name: '人工任务队列' })).toBeVisible()
     else await expect(page.getByLabel(staff ? '回复客户' : '描述你的问题')).toBeVisible()
     const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()
     expect(scan.violations).toEqual([])

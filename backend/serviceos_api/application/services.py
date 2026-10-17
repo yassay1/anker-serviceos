@@ -29,6 +29,7 @@ from serviceos_api.persistence.models import (
 class ConversationService(BusinessService):
     """Only application entry for publishing and reading user-visible messages."""
 
+    REPLY_DELTA_CHARS = 40
     def __init__(self, session, actor, settings=None):
         super().__init__(session, actor)
         from serviceos_api.settings import Settings
@@ -144,6 +145,7 @@ class ConversationService(BusinessService):
             "ui.document.published", "ui.action.accepted",
             "evidence.received", "evidence.inspected", "action.state_changed", "verification.recorded",
             "follow_up.consented", "agent.progress", "specialist.activity", "assistance.status_changed",
+            "agent.reply.delta",
         ):
             raise ServiceError(422, "公开事件类型未获授权。")
         visibility = event.visibility
@@ -209,6 +211,28 @@ class ConversationService(BusinessService):
             if task is None or status not in ("OPEN", "ASSIGNED", "CLOSED") or type(version) is not int or version < 1:
                 raise ServiceError(422, "协助状态事件字段或任务引用无效。")
             data = {"task_id": str(task.id), "status": status, "version": version}
+        elif event.type == "agent.reply.delta":
+            # A delta may only repeat an exact slice of a canonical PUBLIC Agent
+            # message. This prevents the outbox from becoming a raw model-token path.
+            try:
+                message_id = UUID(data["message_id"])
+                part_index = data["part_index"]
+                text = data["text"]
+            except (AttributeError, KeyError, TypeError, ValueError):
+                raise ServiceError(422, "回复分段事件字段无效。") from None
+            if type(part_index) is not int or part_index < 0 or not isinstance(text, str):
+                raise ServiceError(422, "回复分段事件字段无效。")
+            message = session.scalar(select(Message).where(
+                Message.id == message_id, Message.tenant_id == event.tenant_id,
+                Message.conversation_id == conversation.id, Message.author_kind == "AGENT",
+                Message.visibility == "PUBLIC",
+            ))
+            canonical = "".join(part.get("text", "") for part in message.content if part.get("type") == "text") if message else ""
+            start = part_index * ConversationService.REPLY_DELTA_CHARS
+            expected = canonical[start:start + ConversationService.REPLY_DELTA_CHARS]
+            if not expected or text != expected:
+                raise ServiceError(422, "回复分段与已发布消息不匹配。")
+            data = {"message_id": str(message.id), "part_index": part_index, "text": expected}
         if event.id is not None:
             existing = session.scalar(select(ConversationEvent).where(
                 ConversationEvent.id == event.id, ConversationEvent.tenant_id == event.tenant_id,
@@ -1149,10 +1173,11 @@ class ConversationService(BusinessService):
         elif next_kind == "HUMAN_REVIEW":
             text = "当前信息需要人工客服进一步核实。你可以使用“需要真人协助”创建人工服务任务；当前问题尚未解决。"
 
-        visibility = "PUBLIC" if (
+        policy_allows_public_reply = (
             conversation.collaboration_mode == "AI_LEAD"
             and conversation.reply_policy == "AI_AUTO"
-        ) else "INTERNAL"
+        )
+        visibility = "PUBLIC" if policy_allows_public_reply else "INTERNAL"
         source_message = self.session.scalar(select(Message).where(Message.id == run.message_id,
             Message.tenant_id == tenant_id, Message.conversation_id == conversation.id))
         assessment = assess_hardware_hazard(
@@ -1163,25 +1188,6 @@ class ConversationService(BusinessService):
             if not assessment.triggered:
                 assessment = SafetyAssessment("STOP_USE", ("diagnostic_safety_stop",))
             text = assessment.reply_text
-        guard_decision = None
-        if visibility == "PUBLIC" and self.settings.publication_guard:
-            from serviceos_api.application.publication_guard import PublicationGuard
-            from serviceos_api.persistence.models import PublicationGuardDecision
-
-            customer_text = " ".join(part.get("text", "") for part in
-                                     (source_message.content if source_message else []))
-            outcome = PublicationGuard(self.session, tenant_id).check(
-                text, run, conversation.id, customer_text)
-            outcome.verifier["latency_ms"] = outcome.latency_ms
-            guard_decision = PublicationGuardDecision(
-                tenant_id=tenant_id, conversation_id=conversation.id, run_id=run.id,
-                decision=outcome.decision, reason_codes=outcome.reason_codes,
-                entities={"items": outcome.entities}, verifier=outcome.verifier,
-                reply_text=text)
-            self.session.add(guard_decision)
-            self.session.flush()
-            if outcome.decision == "BLOCKED":
-                visibility = "INTERNAL"
         content = [{"type": "text", "text": text}]
         draft_rich = (run.result_payload or {}).get('rich_reply')
         if safety and not draft_rich:
@@ -1212,6 +1218,26 @@ class ConversationService(BusinessService):
         )
         self.session.add(message)
         self.session.flush()
+        reply_event_time = None
+        if visibility == "PUBLIC":
+            # Persist only canonical reply slices after backend policy authorization.
+            # The model itself never writes to the public event stream.
+            from uuid import uuid5
+
+            now = datetime.now(timezone.utc)
+            plain_text = "".join(part.get("text", "") for part in content if part.get("type") == "text")
+            starts = range(0, len(plain_text), self.REPLY_DELTA_CHARS)
+            part_count = len(starts)
+            for part_index, start in enumerate(starts):
+                self.session.add(OutboxEvent(
+                    id=uuid5(run.id, f"agent.reply.delta:{message.id}:{part_index}"),
+                    tenant_id=tenant_id, conversation_id=conversation.id,
+                    type="agent.reply.delta", visibility="PUBLIC",
+                    data={"message_id": str(message.id), "part_index": part_index,
+                          "text": plain_text[start:start + self.REPLY_DELTA_CHARS]},
+                    created_at=now + timedelta(microseconds=part_index),
+                ))
+            reply_event_time = now + timedelta(microseconds=part_count + 1)
         if visibility == "INTERNAL":
             proposal = AgentProposal(
                 tenant_id=tenant_id, agent_run_id=run.id, conversation_id=conversation.id,
@@ -1220,12 +1246,11 @@ class ConversationService(BusinessService):
             )
             self.session.add(proposal)
             self.session.flush()
-            if guard_decision is not None:
-                guard_decision.proposal_id = proposal.id
         self.session.add(OutboxEvent(
             tenant_id=tenant_id, conversation_id=conversation.id,
             type="message.created", visibility=visibility,
             data={"message_id": str(message.id), "conversation_id": str(conversation.id)},
+            created_at=reply_event_time,
         ))
         run.status = "COMPLETED"
         run.completed_at = datetime.now(timezone.utc)
@@ -1289,27 +1314,6 @@ class ConversationService(BusinessService):
             if existing.request_hash != fingerprint:
                 raise ServiceError(409, "此诊断专家运行已保存不同结果，拒绝重复写入。")
             return existing
-
-        guard_decision = None
-        if visibility == "PUBLIC" and self.settings.publication_guard:
-            from serviceos_api.application.publication_guard import PublicationGuard
-            from serviceos_api.persistence.models import PublicationGuardDecision
-
-            customer_text = " ".join(part.get("text", "") for part in source_message.content)
-            outcome = PublicationGuard(self.session, tenant_id).check(
-                text, run, conversation.id, customer_text,
-            )
-            outcome.verifier["latency_ms"] = outcome.latency_ms
-            guard_decision = PublicationGuardDecision(
-                tenant_id=tenant_id, conversation_id=conversation.id, run_id=run.id,
-                decision=outcome.decision, reason_codes=outcome.reason_codes,
-                entities={"items": outcome.entities}, verifier=outcome.verifier,
-                reply_text=text,
-            )
-            self.session.add(guard_decision)
-            self.session.flush()
-            if outcome.decision == "BLOCKED":
-                visibility = "INTERNAL"
 
         fingerprint = hashlib.sha256(json.dumps({
             "specialist_run_id": str(specialist.id), "diagnostic_task_id": str(task.id),

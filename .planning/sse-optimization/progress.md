@@ -24,3 +24,25 @@
 - 本地工作树含此前已存在的 `.planning/customer-ui-alignment/`，保留不触碰；SSE 任务计划目录 `.planning/sse-optimization/` 为本次新增。尚未提交或推送。
 - 检索中两次工具调用错误已记录在 task_plan/findings；都是命令引用/patch 目标问题，无代码影响。
 - 本轮不进行代码修改。
+
+## 2026-10-17 续项：回复耗时与增量呈现
+
+- 用户反馈真实回复等待时间很长，并确认前端看不到回复逐步呈现；当前追加 Agent Worker 队列消费诊断与安全 SSE 回复分片呈现。
+- 根据真实消息时间戳/任务状态已定位到本次长等待是 Agent Worker 未运行，队列任务保持 QUEUED；模型 run 本身约 7.2 秒。Worker 已为当时待处理消息临时启动，前端当前可见答复。没有持久修改用户 `.env` 或启动器配置。
+- 当前 SSE 优化计划原阶段已完成，新增阶段 7–9，后续目标只在公开发布检查之后增量传输和呈现回复，不暴露未经检查的模型生成内容。
+- 下一步核对 message/outbox/worker API 契约及前端消费状态，再确定最小持久事件方案；完整构建/测试仍待做。
+- 已在当前交互契约和架构文档中记录 `agent.reply.delta`：事件只复用已获准的规范 PUBLIC 消息文本；每段精确引用正文、长度 40 字，Outbox 顺序保证分段先于 `message.created`；没有公开 raw-token 路径。
+- 前端按相邻分片追加临时助手消息，分片事件不触发 messages 查询；完成事件后刷新并以数据库消息替换。切换会话、损坏/乱序事件会按现有 scope、序号及分片校验拒绝。
+- 完整验证：后端 360 passed、2 warnings（既有 pgvector schema 识别和 computed default 提示），OpenAPI check 通过；前端浏览器回归 95 passed，API 类型检查、typecheck、production build 通过。之后的小调整另行定向验证：后端 2 passed，浏览器分段用例 1 passed，Ruff 与 `git diff --check` 通过。
+- 测试后为应用新 Worker 代码重启 Agent/Outbox worker 并恢复 8000 Uvicorn；Worker heartbeat 均 healthy，`http://127.0.0.1:5173/api/v1/health` 返回 200。启动器仍保留 Agent `SERVICEOS_START_AGENT=1` 显式 opt-in，没有修改 `.env`；当前 Agent Worker 仅为用户测试继续运行。
+- 当前可测入口：`http://127.0.0.1:5173/support`；当前用户浏览器 tab 路径由本机已运行的 Vite 服务提供。
+- 本次结论：长等待来自队列没有消费者；Worker 消费后的该条模型处理约 7.2 秒。低风险优化优先保证 Agent Worker 在线和监控队列滞留，再从实际 AgentRun/Provider 样本评估上下文与模型延迟。分段呈现只改变收到已批准答复后的观看过程，不压缩生成时间。
+
+## 2026-10-17 续项：发布守卫拦截后的客户无答复
+
+- 根据用户报告检查会话 `12a96fc8-a0bb-4919-b8aa-1d23eea92d93`：客户消息、AgentRun 和 MessageJob 均完成；回复正文作为 `INTERNAL` 草稿保存，未作为客户答案发布。
+- `PublicationGuardDecision` 为 `BLOCKED / UNGROUNDED_ENTITY`；未接地实体是模型输出中的示例百分数 `20%`、`50%`。现有状态仍发布 `COMPLETED`，导致 UI 只显示“本轮处理结束”而没有解释或答案。
+- 首次修复尝试临时发布了一条固定澄清回复；用户随后明确表示不要硬编码兜底/内容守卫。该兜底实现已从代码撤销；已写入当前会话的单条 PUBLIC 回复作为用户可见的恢复记录保留，不改写或删除。
+- 按用户选择移除 `PublicationGuard` 对常规 Agent 与 Specialist PUBLIC 回复的阻断，不删除历史审核 API/数据；后台协作策略仍控制公开资格。主 Agent Prompt 新增不虚构数值/型号、请求真实读数及标记未核实推断的指导，避免依赖硬编码实体阈值。
+- 定向验证更新：`tests/test_loop_guard.py` PostgreSQL 9 passed；原单项发布测试在早期兜底版本 1 passed。用户要求取消硬编码内容守卫后，移除固定兜底代码和常规 Agent/Specialist 发布路径上的实体接地拦截；主 Agent Prompt 保留不虚构数字/型号、请求实际读数、说明未核实推断的指导。公开资格仍由后端协作策略决定，历史审核数据与诊断接口保留。
+- 最终全量验证：Ruff 通过；后端 PostgreSQL 测试 360 passed、2 warnings，OpenAPI check 通过；前端 API 类型检查、typecheck、build 及 95 个浏览器用例通过。`git diff --check` 通过（仅提示现有生成类型文件的 CRLF 转换）。API 8000 与 Vite 5173 返回 200，Agent Worker 健康；浏览器重新检查后显示客户 A 已登录、服务已连接，并能看到样例会话中已保存的澄清回复。

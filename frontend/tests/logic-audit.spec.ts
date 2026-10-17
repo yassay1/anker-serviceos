@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator } from '@playwright/test'
 import type { components } from '../src/api/schema'
 import { fixture, ids } from './workspace-fixture'
 
@@ -12,13 +12,10 @@ function assistanceDocument(document: S['UIDocumentRead']) {
     data_source: { kind: 'CONVERSATION_VIEW', resource_id: ids.conversation, resource_version: 3, binding: 'assistance' } }]
 }
 
-async function expandAssistance(page: Page) {
-  const retry = page.getByRole('button', { name: '用原请求重试', exact: true })
-  const submit = page.getByRole('button', { name: '提交协助请求', exact: true })
-  if (await retry.isVisible() || await submit.isVisible()) return
-  const trigger = page.getByRole('button', { name: '请求真人协助', exact: true })
-  await retry.or(submit).or(trigger).waitFor({ state: 'visible' })
-  if (await trigger.isVisible() && await trigger.isEnabled()) await trigger.click()
+async function expandAssistance(card: Locator) {
+  const panel = card.locator('details.ui-ActionBar')
+  await expect(panel).toBeVisible()
+  if (await panel.getAttribute('open') === null) await panel.locator('summary').click()
 }
 
 test('logic audit: oldest-first pagination reaches the latest saved reply', async ({ page }) => {
@@ -73,9 +70,10 @@ test('logic audit: unknown UI result keeps the same request across a new revisio
     await route.fulfill({ json: { client_action_id: body.client_action_id, status: 'ACCEPTED', task_id: ids.second, replayed: true } satisfies S['UIActionResult'] })
   })
   await page.goto('/support')
-  const card = page.locator('.customer-assistance .ui-document')
-  await expandAssistance(page)
-  await card.getByRole('button', { name: '提交协助请求', exact: true }).click()
+  const card = page.getByRole('region', { name: '服务交互卡', exact: true })
+  await expandAssistance(card)
+  await card.getByRole('button', { name: '请求人工协助', exact: true }).click()
+  await expect(page.getByText('交互卡修订 3', { exact: true })).toBeVisible()
   await expect(card.getByRole('button', { name: '用原请求重试', exact: true })).toBeVisible()
   await expect(card.getByLabel('请求原因')).toBeDisabled()
   await card.getByRole('button', { name: '用原请求重试', exact: true }).click()
@@ -98,13 +96,14 @@ test('logic audit: rejected stale UI refreshes without replay and permits a fres
     await route.fulfill({ json: { client_action_id: body.client_action_id, status: 'ACCEPTED', task_id: ids.second, replayed: false } satisfies S['UIActionResult'] })
   })
   await page.goto('/support')
-  const card = page.locator('.customer-assistance .ui-document')
-  await expandAssistance(page)
-  await card.getByRole('button', { name: '提交协助请求', exact: true }).click()
+  const card = page.getByRole('region', { name: '服务交互卡', exact: true })
+  await expandAssistance(card)
+  await card.getByRole('button', { name: '请求人工协助', exact: true }).click()
+  await expect(page.getByText('交互卡修订 3', { exact: true })).toBeVisible()
   await expect(card.getByRole('alert')).toHaveText('UI 版本已更新，请刷新卡片后重试。')
   expect(bodies).toHaveLength(1)
-  await expandAssistance(page)
-  await card.getByRole('button', { name: '提交协助请求', exact: true }).click()
+  await expandAssistance(card)
+  await card.getByRole('button', { name: '请求人工协助', exact: true }).click()
   await expect(card.getByRole('status')).toHaveText('人工协助请求已保存。')
   expect(bodies[1].revision).toBe(3)
   expect(bodies[1].client_action_id).not.toBe(bodies[0].client_action_id)
@@ -117,16 +116,16 @@ test('logic audit: archived conversations expose no active collaboration command
   await page.getByRole('button', { name: '人工协作与审批', exact: true }).click()
   await expect(page.getByRole('button', { name: '发送回复', exact: true })).toBeDisabled()
   await expect(page.getByRole('button', { name: '切换策略', exact: true })).toBeDisabled()
-  await expect(page.getByRole('button', { name: '放入回复框', exact: true })).toBeDisabled()
-  await expect(page.getByRole('button', { name: '忽略建议', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '批准', exact: true })).toBeDisabled()
 })
 
 test('logic audit: customer assistance has one idempotent submission entry', async ({ page }) => {
   const state = await fixture(page, false)
   assistanceDocument(state.document)
   await page.goto('/support')
-  await expect(page.getByRole('button', { name: '请求真人协助', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: '请求真人协助', exact: true })).toHaveCount(1)
+  await expandAssistance(page.getByRole('region', { name: '服务交互卡', exact: true }))
+  await expect(page.getByRole('region', { name: '服务交互卡', exact: true }).getByRole('button', { name: '请求人工协助', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '请求人工协助', exact: true })).toHaveCount(1)
 })
 
 for (const navigation of ['conversation', 'devices', 'reload'] as const) {
@@ -142,19 +141,22 @@ for (const navigation of ['conversation', 'devices', 'reload'] as const) {
       return route.fulfill({ json: { client_action_id: body.client_action_id, status: 'ACCEPTED', task_id: ids.second, replayed: true } satisfies S['UIActionResult'] })
     })
     await page.goto(`/support?conversation=${ids.conversation}`)
-    const card = page.locator('.customer-assistance .ui-document')
-    await expandAssistance(page)
-    await card.getByRole('button', { name: '提交协助请求', exact: true }).click()
+    const card = page.getByRole('region', { name: '服务交互卡', exact: true })
+    await expandAssistance(card)
+    await card.getByRole('button', { name: '请求人工协助', exact: true }).click()
     await expect(card.getByRole('button', { name: '用原请求重试', exact: true })).toBeVisible()
     if (navigation === 'conversation') {
+      await page.locator('.conversation-selector summary').click()
       const list = page.getByRole('complementary', { name: '会话列表', exact: true })
       await list.getByRole('button', { name: /22222222/ }).click()
+      await expect(page.locator('.conversation-selector details')).not.toHaveAttribute('open', '')
+      await page.locator('.conversation-selector summary').click()
       await list.getByRole('button', { name: /11111111/ }).click()
     } else if (navigation === 'devices') {
-      await page.goto(`/devices/${ids.device}`)
-      await page.goto(`/support?conversation=${ids.conversation}`)
+      await page.getByRole('navigation', { name: '主要导航' }).getByRole('link', { name: '我的设备' }).click()
+      await page.getByRole('navigation', { name: '主要导航' }).getByRole('link', { name: '服务中心' }).click()
     } else await page.reload()
-    await expandAssistance(page)
+    await expandAssistance(card)
     await expect(card.getByRole('button', { name: '用原请求重试', exact: true })).toBeVisible()
     expect(bodies).toHaveLength(1)
     await card.getByRole('button', { name: '用原请求重试', exact: true }).click()
@@ -177,29 +179,21 @@ test('logic audit: a late receipt cannot erase a newer uncertain request', async
     if (number === 3) return route.abort('failed')
     return route.fulfill({ json: { client_action_id: body.client_action_id, status: 'ACCEPTED', task_id: ids.second, replayed: number !== 1 } satisfies S['UIActionResult'] })
   })
-  const navigateWithinApp = async (path: string) => {
-    await page.evaluate(nextPath => {
-      window.history.pushState(null, '', nextPath)
-      window.dispatchEvent(new PopStateEvent('popstate'))
-    }, path)
-    await page.waitForURL(`**${path}`)
-    await page.locator(path.startsWith('/devices/') ? '.devices-page' : '.support-view').waitFor()
-  }
   const returnToSupport = async () => {
-    await navigateWithinApp(`/devices/${ids.device}`)
-    await navigateWithinApp('/support')
+    await page.getByRole('navigation', { name: '主要导航' }).getByRole('link', { name: '我的设备' }).click()
+    await page.getByRole('navigation', { name: '主要导航' }).getByRole('link', { name: '服务中心' }).click()
   }
   await page.goto('/support')
-  const card = page.locator('.customer-assistance .ui-document')
-  await expandAssistance(page)
-  await card.getByRole('button', { name: '提交协助请求', exact: true }).click()
+  const card = page.getByRole('region', { name: '服务交互卡', exact: true })
+  await expandAssistance(card)
+  await card.getByRole('button', { name: '请求人工协助', exact: true }).click()
   await expect.poll(() => bodies.length).toBe(1)
   await returnToSupport()
   await card.getByRole('button', { name: '用原请求重试', exact: true }).click()
   await expect(card.getByRole('status')).toHaveText('人工协助请求已存在。')
   await returnToSupport()
-  await expandAssistance(page)
-  await card.getByRole('button', { name: '提交协助请求', exact: true }).click()
+  await expandAssistance(card)
+  await card.getByRole('button', { name: '请求人工协助', exact: true }).click()
   await expect(card.getByRole('button', { name: '用原请求重试', exact: true })).toBeVisible()
   expect(bodies[2].client_action_id).not.toBe(bodies[0].client_action_id)
   const oldResponse = page.waitForResponse(response => response.url().endsWith('/ui-actions') && response.request().postDataJSON().client_action_id === bodies[0].client_action_id)
@@ -208,7 +202,7 @@ test('logic audit: a late receipt cannot erase a newer uncertain request', async
   // Let the fetch receipt handlers finish before testing recovery after reload.
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   await page.reload()
-  await expandAssistance(page)
+  await expandAssistance(card)
   await expect(card.getByRole('button', { name: '用原请求重试', exact: true })).toBeVisible()
   await card.getByRole('button', { name: '用原请求重试', exact: true }).click()
   await expect(card.getByRole('status')).toHaveText('人工协助请求已存在。')

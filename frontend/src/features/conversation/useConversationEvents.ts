@@ -24,6 +24,7 @@ export type SpecialistActivity = {
   certainty: 'HYPOTHESIS' | 'NONE'
   sequence: number
 }
+export type AgentReplyStream = { conversationId: string, messageId: string, text: string, complete: boolean }
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -47,7 +48,9 @@ function visibleEvent(value: unknown, conversationId: string, desk: boolean) {
 
 export function useConversationEvents(actor: Actor, conversationId: string | undefined, desk: boolean,
   onProgress?: (progress: AgentProgress | null) => void,
-  onSpecialistActivity?: (activity: SpecialistActivity | null) => void): StreamState {
+  onSpecialistActivity?: (activity: SpecialistActivity | null) => void,
+  onReplyDelta?: (delta: { conversationId: string, messageId: string, text: string }) => void,
+  onReplyComplete?: (messageId: string) => void): StreamState {
   const queryClient = useQueryClient()
   const scope = `${actor.tenant_id}:${actor.actor_id}:${conversationId ?? ''}:${desk}`
   const [connection, setConnection] = useState({ scope, state: 'connecting' as StreamState })
@@ -58,63 +61,26 @@ export function useConversationEvents(actor: Actor, conversationId: string | und
     if (!conversationId) return
     let disposed = false
     let historyRequest: AbortController | undefined
-    let refreshTimer: ReturnType<typeof setTimeout> | undefined
-    const pendingRefreshes = new Set<string>()
     let progressSequence = 0
     let specialistSequence = 0
+    let replyMessageId = ''
+    let replyPartIndex = 0
     const sequenceKey = `serviceos:event-sequence:${actor.tenant_id}:${actor.actor_id}:${conversationId}`
     let after = 0
     try { after = cursor(localStorage.getItem(sequenceKey)) ?? 0 } catch { /* Storage is optional. */ }
     const updateState = (state: StreamState) => { if (!disposed) setConnection({ scope, state }) }
-    const flushSnapshots = () => {
-      if (disposed || refreshTimer === undefined) return
-      clearTimeout(refreshTimer)
-      refreshTimer = undefined
-      const targets = new Set(pendingRefreshes)
-      pendingRefreshes.clear()
-      if (targets.has('messages')) void queryClient.invalidateQueries({ queryKey: queryKeys.messages(actor.tenant_id, actor.actor_id, conversationId) })
-      if (targets.has('conversations')) void queryClient.invalidateQueries({ queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id) })
-      if (targets.has('cases')) {
-        // Related cases use the same authorized case cache as the case detail page.
-        void queryClient.invalidateQueries({ queryKey: ['case', actor.tenant_id, actor.actor_id] })
-        void queryClient.invalidateQueries({ queryKey: queryKeys.cases(actor.tenant_id, actor.actor_id) })
-      }
-      if (desk && targets.has('tasks')) {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.tasks(actor.tenant_id, conversationId) })
-        void queryClient.invalidateQueries({ queryKey: ['task-queue', actor.tenant_id, actor.actor_id] })
-      }
-      if (!desk && targets.has('assistance')) void queryClient.invalidateQueries({
-        queryKey: queryKeys.customerAssistance(actor.tenant_id, actor.actor_id, conversationId),
-      })
-      if (desk && targets.has('proposals')) void queryClient.invalidateQueries({ queryKey: queryKeys.proposals(actor.tenant_id, conversationId) })
-      if (desk && targets.has('summaries')) void queryClient.invalidateQueries({ queryKey: queryKeys.summaries(actor.tenant_id, conversationId) })
-      if (targets.has('uiDocument')) void queryClient.invalidateQueries({ queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, conversationId) })
-    }
-    const queueSnapshots = (eventType?: string) => {
+    const refreshSnapshots = () => {
       if (disposed) return
-      const matrix: Record<string, readonly string[]> = {
-        'agent.progress': [],
-        'specialist.activity': [],
-        'message.created': ['messages', 'conversations', 'uiDocument'],
-        'conversations.created': ['conversations'],
-        'collaboration.mode_changed': ['conversations', 'tasks', 'proposals', 'summaries', 'uiDocument'],
-        'assistance.requested': ['conversations', 'tasks', 'summaries', 'uiDocument'],
-        'assistance.assigned': ['conversations', 'tasks', 'uiDocument'],
-        'assistance.status_changed': ['conversations', 'tasks', 'assistance', 'uiDocument'],
-        'approval.decided': ['conversations', 'proposals', 'uiDocument'],
-        'ui.document.published': ['uiDocument'],
-        'ui.action.accepted': ['messages', 'uiDocument'],
-        'evidence.received': ['cases', 'summaries', 'uiDocument'],
-        'evidence.inspected': ['cases', 'summaries', 'uiDocument'],
-        'action.state_changed': ['cases', 'summaries', 'uiDocument'],
-        'verification.recorded': ['cases', 'summaries', 'uiDocument'],
-        'follow_up.consented': ['cases', 'summaries', 'uiDocument'],
+      void queryClient.invalidateQueries({ queryKey: queryKeys.messages(actor.tenant_id, actor.actor_id, conversationId) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.conversations(actor.tenant_id, actor.actor_id) })
+      // Related cases use the same authorized case cache as the case detail page.
+      void queryClient.invalidateQueries({ queryKey: ['case', actor.tenant_id, actor.actor_id] })
+      if (desk) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.tasks(actor.tenant_id, conversationId) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.proposals(actor.tenant_id, conversationId) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.summaries(actor.tenant_id, conversationId) })
       }
-      const known = eventType !== undefined && Object.hasOwn(matrix, eventType)
-      const targets = known ? matrix[eventType] : ['messages', 'conversations', 'cases', 'tasks', 'proposals', 'summaries', 'uiDocument']
-      for (const target of targets) pendingRefreshes.add(target)
-      if (pendingRefreshes.size === 0) return
-      if (refreshTimer === undefined) refreshTimer = setTimeout(flushSnapshots, 50)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.uiDocument(actor.tenant_id, actor.actor_id, conversationId) })
     }
     const acceptProgress = (event: NonNullable<ReturnType<typeof visibleEvent>>) => {
       if (disposed || event.type !== 'agent.progress' || event.sequence <= progressSequence) return
@@ -139,6 +105,21 @@ export function useConversationEvents(actor: Actor, conversationId: string | und
       onSpecialistActivity?.({ conversationId, taskId: task_id, specialistRunId: specialist_run_id,
         agentType: 'DIAGNOSTIC', displayName: '诊断专家', stage: stage as SpecialistActivity['stage'],
         summary, certainty, sequence: event.sequence })
+    }
+    const acceptReplyDelta = (event: NonNullable<ReturnType<typeof visibleEvent>>) => {
+      if (disposed || event.type !== 'agent.reply.delta') return
+      const { message_id, part_index, text } = event.data
+      if (typeof message_id !== 'string' || message_id.length < 10 || message_id.length > 100 ||
+        typeof part_index !== 'number' || !Number.isSafeInteger(part_index) || part_index < 0 ||
+        typeof text !== 'string' || !text || text.length > 40) return
+      if (message_id !== replyMessageId) {
+        if (part_index !== 0) return
+        replyMessageId = message_id
+        replyPartIndex = 0
+      }
+      if (part_index !== replyPartIndex) return
+      replyPartIndex += 1
+      onReplyDelta?.({ conversationId, messageId: message_id, text })
     }
     const reconcileProgress = async () => {
       historyRequest?.abort()
@@ -170,16 +151,14 @@ export function useConversationEvents(actor: Actor, conversationId: string | und
     stream.onopen = () => {
       if (disposed) return
       updateState('connected')
-      queueSnapshots()
-      flushSnapshots()
+      refreshSnapshots()
       void reconcileProgress()
     }
     stream.onerror = () => {
       if (disposed) return
       updateState('disconnected')
       // Do not recreate EventSource: native reconnect carries the server's Last-Event-ID.
-      queueSnapshots()
-      flushSnapshots()
+      refreshSnapshots()
     }
     stream.onmessage = (message) => {
       if (disposed) return
@@ -194,20 +173,24 @@ export function useConversationEvents(actor: Actor, conversationId: string | und
       try { localStorage.setItem(sequenceKey, String(after)) } catch { /* Keep the in-memory cursor. */ }
       acceptProgress(event)
       acceptSpecialist(event)
-      queueSnapshots(event.type)
+      acceptReplyDelta(event)
+      if (event.type === 'message.created' && typeof event.data.message_id === 'string') {
+        onReplyComplete?.(event.data.message_id)
+      }
+      // A reply delta is already the authorized message content. Refetching the
+      // canonical snapshot for every small frame would defeat SSE rendering.
+      if (event.type !== 'agent.reply.delta') refreshSnapshots()
     }
     return () => {
       disposed = true
-      if (refreshTimer !== undefined) clearTimeout(refreshTimer)
-      refreshTimer = undefined
-      pendingRefreshes.clear()
       historyRequest?.abort()
       stream.onopen = null
       stream.onerror = null
       stream.onmessage = null
       stream.close()
     }
-  }, [actor.tenant_id, actor.actor_id, conversationId, desk, queryClient, scope, onProgress, onSpecialistActivity])
+  }, [actor.tenant_id, actor.actor_id, conversationId, desk, queryClient, scope,
+    onProgress, onSpecialistActivity, onReplyDelta, onReplyComplete])
 
   return connection.scope === scope ? connection.state : 'connecting'
 }

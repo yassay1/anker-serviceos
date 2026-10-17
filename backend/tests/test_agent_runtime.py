@@ -12,6 +12,13 @@ from serviceos_api.application.diagnostic_contracts import DiagnosticResult, Dia
 from serviceos_api.settings import Settings
 
 
+def test_main_agent_prompt_avoids_invented_numeric_examples():
+    prompt = runtime.build_system_prompt("充电后很快没电")
+    assert "不要为了举例自行编造数字或型号" in prompt
+    assert "需要客户测量时，开放询问其实际读数" in prompt
+    assert "对可能原因可用“可能/尚待核实”表达" in prompt
+
+
 def install_fake_checkpointer(monkeypatch):
     module = ModuleType("langgraph.checkpoint.postgres")
     module.PostgresSaver = lambda connection: object()

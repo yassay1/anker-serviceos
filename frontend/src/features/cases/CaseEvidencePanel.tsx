@@ -105,18 +105,6 @@ export function CaseEvidencePanel({ actor, serviceCase }: { actor: Actor, servic
   return <section id="case-evidence" className="case-evidence" aria-label="案例图片证据">
     <h2>图片证据</h2>
     <p>图片受理后由服务端检查结构。检查通过仅表示文件可安全展示，不代表设备事实或问题已核验。</p>
-    <figure className="evidence-photo-guide">
-      <img loading="lazy" decoding="async" src="/images/product-label-guide.png" alt="拍摄示意：通用设备底部标签区域，请让标签清晰入镜。" />
-      <figcaption>拍摄示意 · 请拍清设备标签，避免反光和遮挡。图片仅作说明，不是您的设备或服务证据。</figcaption>
-    </figure>
-    <details className="evidence-photo-examples">
-      <summary>查看接口与设备整体的拍摄示例</summary>
-      <div className="evidence-photo-example-grid">
-        <figure><img loading="lazy" decoding="async" src="/images/product-port-guide.png" alt="拍摄示意：设备接口近景，接口区域清楚且未被线材遮挡。" /><figcaption>接口位置</figcaption></figure>
-        <figure><img loading="lazy" decoding="async" src="/images/product-overall-guide.png" alt="拍摄示意：设备整体外观和接口端，设备完整入镜。" /><figcaption>设备整体</figcaption></figure>
-      </div>
-      <p>示例中的设备为通用虚构外观，仅说明拍摄角度。</p>
-    </details>
     <label className="upload-field">选择图片 <small>JPEG、PNG 或 WebP，单张不超过 10 MiB</small><input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" disabled={busy}
       onChange={event => setFile(event.target.files?.[0] ?? null)} /></label>
     {actor.kind === 'STAFF' && <label>可见范围 <select value={visibility} disabled={busy || Boolean(pending)}

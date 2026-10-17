@@ -124,6 +124,12 @@
 .support-view .page-heading h1 { font-size: 36px; margin-bottom: 5px; }
 .support-view .page-heading p { font-size: 15px; }
 .support-view .scope-note { display: none; }
+.diagnosis-steps { display: grid; grid-template-columns: repeat(3, 1fr); list-style: none; padding: 20px 40px; background: white; border-radius: 12px; margin: 0 370px 12px 0; position: relative; margin-top: -1px; }
+.diagnosis-steps li { display: flex; align-items: center; gap: 12px; color: #55647e; position: relative; }
+.diagnosis-steps li:not(:last-child)::after { content: ''; width: 20%; height: 1px; background: #dce3ef; position: absolute; right: 12px; top: 17px; }
+.diagnosis-steps li > span { width: 34px; height: 34px; display: grid; place-items: center; background: #edf2ff; color: #285cf0; border-radius: 50%; font-weight: 600; font-size: 17px; }
+.diagnosis-steps strong { font-size: 14px; }
+.diagnosis-steps small { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
 .conversation-selector { min-height: 0; min-width: 0; }
 .conversation-selector details { height: 100%; }
 .conversation-selector summary { display: flex; align-items: center; gap: 9px; padding: 10px 15px; font-size: 12px; cursor: pointer; color: #476088; background: white; border-radius: 10px; border: 1px solid var(--border); }
@@ -242,6 +248,10 @@
   .home-lower-grid { grid-template-columns: 1.2fr 1fr; }
   .service-card-grid { grid-template-columns: 1fr; }
   .service-preview:nth-child(2) { display: none; }
+  .diagnosis-steps { padding-inline: 22px; margin-right: 320px; }
+  .diagnosis-steps li { gap: 8px; }
+  .diagnosis-steps li::after { display: none; }
+  .diagnosis-steps small { font-size: 10px; }
   .support-view .chat-layout { grid-template-columns: minmax(0, 1fr) 300px; }
   .support-view .context-panel { display: flex; }
   .support-view .page-heading { margin-inline: -16px; }
@@ -322,6 +332,12 @@
   .support-view .page-heading { margin: 0 -12px; padding: 25px 22px; min-height: 130px; }
   .support-view .page-heading h1 { font-size: 27px; }
   .support-view .page-heading p { font-size: 12px; max-width: 29ch; }
+  .diagnosis-steps { margin: 12px 0; padding: 14px 10px; gap: 6px; }
+  .diagnosis-steps li { gap: 6px; align-items: start; }
+  .diagnosis-steps li > span { width: 25px; height: 25px; font-size: 12px; flex-shrink: 0; }
+  .diagnosis-steps strong { font-size: 11px; }
+  .diagnosis-steps small { display: none; }
+  .diagnosis-steps li::after { display: none; }
   .support-view .chat-layout, .support-view .chat-layout.no-context, .desk-view .chat-layout, .desk-view .chat-layout.no-context { display: block; height: auto; min-height: 0; }
   .conversation-selector details { height: auto; }
   .desk-view .conversation-selector .conversation-list { height: auto; min-height: 0; }

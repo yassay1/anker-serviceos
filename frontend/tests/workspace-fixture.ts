@@ -19,21 +19,15 @@ export async function fixture(page: Page, staff = true) {
     title: '充电设备服务咨询', status: 'ACTIVE', collaboration_mode: 'CO_SERVICE', reply_policy: 'AI_REVIEW_REQUIRED', version: 3, created_at: createdAt }
   const state = {
     conversations: [conversation, { ...conversation, id: ids.second, status: 'ARCHIVED' }],
-    messages: [{ id: ids.second, conversation_id: ids.conversation, author_kind: 'CUSTOMER', author_display_name: '客户', visibility: 'PUBLIC',
+    messages: [{ id: ids.second, conversation_id: ids.conversation, author_kind: 'CUSTOMER', author_display_name: '服务测试客户', visibility: 'PUBLIC',
       content: [{ type: 'text', text: '充电宝连接后供电不稳定，需要重新插拔才有反应。' }],
       client_message_id: null, related_case_id: null, created_at: createdAt },
-      { id: ids.device, conversation_id: ids.conversation, author_kind: 'STAFF', author_display_name: '客服', visibility: 'PUBLIC',
+      { id: ids.device, conversation_id: ids.conversation, author_kind: 'STAFF', author_display_name: '协作测试客服', visibility: 'PUBLIC',
         content: [{ type: 'text', text: '收到，我们在这段会话继续处理。请补充充电线材与适配器的信息。' }],
         client_message_id: null, related_case_id: null, created_at: createdAt }] as S['MessageRead'][],
     sent: [] as S['SendMessage'][], unexpected: [] as string[],
     actions: [] as S['UIActionRequest'][],
     proposals: [] as S['ProposalRead'][],
-    replyDrafts: [] as S['StaffReplyDraftRead'][],
-    assistance: [] as S['CustomerAssistanceRead'][],
-    cases: [] as S['CaseRead'][],
-    customerCaseLinks: [] as S['CustomerCaseLinkRead'][],
-    linkedConversations: [] as S['LinkedConversationRead'][],
-    taskQueue: [] as S['TaskRead'][],
   }
   const device: S['DeviceRead'] = { id: ids.device, customer_id: ids.customer, model: 'Anker 737',
     serial_number: 'PRIVATE-SERIAL-0921', identity_status: 'UNVERIFIED', revision: 2, created_at: createdAt,
@@ -65,8 +59,7 @@ export async function fixture(page: Page, staff = true) {
       const body = route.request().postDataJSON() as S['SendMessage']
       state.sent.push(body)
       const message: S['MessageRead'] = { id: crypto.randomUUID(), conversation_id: path.split('/')[4],
-        author_kind: actor.kind, author_display_name: actor.kind === 'CUSTOMER' ? '客户' : '客服',
-        visibility: body.visibility, content: body.content,
+        author_kind: actor.kind, author_display_name: actor.display_name, visibility: body.visibility, content: body.content,
         client_message_id: body.client_message_id, related_case_id: null, created_at: createdAt }
       state.messages.push(message)
       return route.fulfill({ status: 202, json: { message, replayed: false, processing_state: 'QUEUED' } satisfies S['MessageReceipt'] })
@@ -77,72 +70,12 @@ export async function fixture(page: Page, staff = true) {
       return route.fulfill({ status: 200, json: { client_action_id: body.client_action_id, status: 'ACCEPTED',
         task_id: null, diagnostic_task_id: ids.second, replayed: false } satisfies S['UIActionResult'] })
     }
-    if (method === 'POST' && /\/tasks\/[^/]+\/claim$/.test(path)) {
-      const id = path.split('/').at(-2)!
-      const task = state.taskQueue.find(item => item.id === id)
-      if (!task) return route.fulfill({ status: 404, json: { detail: '任务不存在或无权访问。' } })
-      task.status = 'ASSIGNED'
-      task.assignee_id = actor.actor_id
-      task.version++
-      return route.fulfill({ json: task })
-    }
-    if (method === 'POST' && /\/proposals\/[^/]+\/reply-drafts$/.test(path)) {
-      const proposalId = path.split('/')[4]
-      const proposal = state.proposals.find(item => item.id === proposalId)!
-      const body = route.request().postDataJSON() as S['CreateReplyDraft']
-      let draft = state.replyDrafts.find(item => item.id === body.draft_id)
-      if (!draft) {
-        draft = { id: body.draft_id, conversation_id: proposal.conversation_id, source_proposal_id: proposal.id,
-          created_by: actor.actor_id, content: 'AI 建议的回复内容', status: 'IN_COMPOSER', version: 1,
-          approved_by: null, sent_message_id: null, created_at: createdAt }
-        state.replyDrafts.push(draft)
-      }
-      return route.fulfill({ status: 201, json: draft })
-    }
-    if (method === 'PATCH' && /\/reply-drafts\/[^/]+$/.test(path)) {
-      const id = path.split('/').at(-1)!
-      const draft = state.replyDrafts.find(item => item.id === id)!
-      const body = route.request().postDataJSON() as S['UpdateReplyDraft']
-      draft.content = body.content
-      draft.version++
-      draft.status = 'EDITED'
-      return route.fulfill({ json: draft })
-    }
-    if (method === 'POST' && /\/reply-drafts\/[^/]+\/approval$/.test(path)) {
-      const draft = state.replyDrafts.find(item => item.id === path.split('/')[4])!
-      draft.status = 'APPROVED'
-      draft.version++
-      draft.approved_by = actor.actor_id
-      return route.fulfill({ json: draft })
-    }
-    if (method === 'POST' && /\/reply-drafts\/[^/]+\/send$/.test(path)) {
-      const draft = state.replyDrafts.find(item => item.id === path.split('/')[4])!
-      const body = route.request().postDataJSON() as S['SendReplyDraft']
-      const message: S['MessageRead'] = { id: crypto.randomUUID(), conversation_id: draft.conversation_id,
-        author_kind: 'STAFF', author_display_name: '客服', visibility: 'PUBLIC',
-        content: [{ type: 'text', text: draft.content }], client_message_id: body.client_message_id,
-        related_case_id: null, created_at: createdAt }
-      draft.status = 'SENT'
-      draft.version++
-      draft.sent_message_id = message.id
-      state.messages.push(message)
-      return route.fulfill({ status: 202, json: { message, replayed: false, processing_state: 'NOT_SCHEDULED' } satisfies S['MessageReceipt'] })
-    }
     const json = method === 'GET' && path.endsWith('/auth/me') ? actor
       : method === 'GET' && path.endsWith('/health') ? health
-      : method === 'GET' && /\/conversations\/[^/]+\/customer-cases$/.test(path) ? state.customerCaseLinks
-      : method === 'GET' && /\/cases\/[^/]+\/conversations$/.test(path) ? state.linkedConversations
-      : method === 'GET' && path === '/api/v1/cases' ? state.cases
       : method === 'GET' && path.endsWith('/conversations') ? { items: state.conversations }
       : method === 'GET' && path.endsWith('/messages') ? { items: state.messages.filter(item => path.includes(item.conversation_id)), next_cursor: null }
       : method === 'GET' && path.endsWith('/event-history') ? { items: [], next_after: 0 }
       : method === 'GET' && path.endsWith('/case-summaries') ? [summary]
-      : method === 'GET' && path.endsWith('/customer-assistance') ? { items: state.assistance }
-      : method === 'GET' && path.endsWith('/reply-drafts') ? state.replyDrafts
-      : method === 'GET' && path === '/api/v1/tasks' ? { items: state.taskQueue.filter(task =>
-        new URL(route.request().url()).searchParams.get('queue') === 'MINE'
-          ? task.assignee_id === actor.actor_id && task.status === 'ASSIGNED'
-          : task.status === 'OPEN'), next_cursor: null }
       : method === 'GET' && path.endsWith('/tasks') ? []
       : method === 'GET' && path.endsWith('/proposals') ? state.proposals
       : method === 'GET' && path.endsWith('/knowledge/documents') ? { items: [], next_cursor: null }

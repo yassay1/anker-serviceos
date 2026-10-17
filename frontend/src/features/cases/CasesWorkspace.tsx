@@ -105,8 +105,7 @@ function ActionPanel({ actor, serviceCase }: { actor: Actor, serviceCase: Servic
     {actions.data?.length === 0 && <p>此案例尚无模拟售后动作。</p>}
     {actions.data?.map(action => <article className="case-action-item" key={action.id}>
       <div><strong>模拟服务请求 #{action.id.slice(0, 8)}</strong> <StatusBadge value={action.status} />
-        {action.remedy_type && <small>　结局：{action.remedy_type}</small>}
-        {actor.kind === 'STAFF' && <small>　申请来源：{action.requested_by ? '客服' : 'Agent'}</small>}</div>
+        {action.remedy_type && <small>　结局：{action.remedy_type}</small>}</div>
       {actor.kind === 'STAFF' && action.reason && <p>申请原因：{action.reason}</p>}
       {action.receipt ? <p>模拟回执：{action.receipt.external_reference} · {action.receipt.result === 'SUCCEEDED' ? '模拟操作成功' : '模拟操作失败'}</p>
         : action.status === 'UNKNOWN' ? <p>结果待对账。系统只查询原操作，不会重新提交。</p>
@@ -227,7 +226,7 @@ export function CasesWorkspace({ actor }: { actor: Actor }) {
             <ActionPanel key={`${actor.actor_id}:${record.id}`} actor={actor} serviceCase={record} />
           </div>
           <div className="case-side-column">
-            <section className="surface service-help"><span className="round-icon"><MessageSquare size={23} /></span><div><h2>继续服务沟通</h2><p>查看此服务记录真实关联的对话；一个服务记录可以关联多段会话。</p></div><CaseConversationPicker key={record.id} actor={actor} serviceCase={record} label="查看关联对话" className="button-link" /></section>
+            <section className="surface service-help"><span className="round-icon"><MessageSquare size={23} /></span><div><h2>继续服务沟通</h2><p>在服务中心查看原会话，补充问题或请求人工协助。</p></div>{actor.kind === 'STAFF' ? <CaseConversationPicker key={record.id} actor={actor} serviceCase={record} label="进入服务会话" className="button-link" /> : <Link className="button-link" to={supportPath}>前往服务会话<ArrowRight size={16} /></Link>}</section>
             {!finished(record.status) && <CaseEvidencePanel key={`evidence:${actor.actor_id}:${record.id}`} actor={actor} serviceCase={record} />}
             {!finished(record.status) && <div id="case-result"><VerificationPanel key={`verification:${actor.actor_id}:${record.id}`} actor={actor} serviceCase={record} /></div>}
             <FollowUpPanel key={`follow-up:${actor.actor_id}:${record.id}`} actor={actor} serviceCase={record} />

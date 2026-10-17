@@ -9,17 +9,12 @@ export type MessageReceipt = components['schemas']['MessageReceipt']
 export type SendBody = components['schemas']['SendMessage']
 export type DeskCaseSummary = components['schemas']['DeskCaseSummary']
 export type Task = components['schemas']['TaskRead']
-export type CustomerAssistance = components['schemas']['CustomerAssistanceRead']
-export type TaskQueuePage = components['schemas']['TaskQueuePage']
 export type Proposal = components['schemas']['ProposalRead']
-export type StaffReplyDraft = components['schemas']['StaffReplyDraftRead']
 export type UIDocument = components['schemas']['UIDocumentRead']
 export type UIActionBody = components['schemas']['UIActionRequest']
 export type Device = components['schemas']['DeviceRead']
 export type DeviceFact = components['schemas']['FactRead']
 export type ServiceCase = components['schemas']['CaseRead']
-export type CustomerCaseLink = components['schemas']['CustomerCaseLinkRead']
-export type LinkedConversation = components['schemas']['LinkedConversationRead']
 export type CaseAction = components['schemas']['CaseActionRead']
 export type ActionApproval = components['schemas']['ActionApprovalRead']
 export type CaseImageEvidence = components['schemas']['EvidenceRead']
@@ -113,20 +108,6 @@ export async function listTasks(conversationId: string): Promise<Task[]> {
   return requireData(data, error, response, '人工任务加载失败。')
 }
 
-export async function listCustomerAssistance(conversationId: string): Promise<CustomerAssistance[]> {
-  const { data, error, response } = await api.GET('/api/v1/conversations/{id}/customer-assistance', {
-    params: { path: { id: conversationId } },
-  })
-  return requireData(data, error, response, '人工协助状态暂时无法读取。').items
-}
-
-export async function listTaskQueue(queue: 'OPEN' | 'MINE', cursor?: string): Promise<TaskQueuePage> {
-  const { data, error, response } = await api.GET('/api/v1/tasks', {
-    params: { query: { queue, cursor: cursor ?? null, limit: 50 } },
-  })
-  return requireData(data, error, response, '客服任务队列加载失败。')
-}
-
 export async function claimTask(taskId: string, expectedVersion: number): Promise<Task> {
   const { data, error, response } = await api.POST('/api/v1/tasks/{id}/claim', {
     params: { path: { id: taskId } }, body: { expected_version: expectedVersion },
@@ -146,41 +127,6 @@ export async function decideProposal(proposalId: string, decision: 'APPROVED' | 
     params: { path: { id: proposalId } }, body: { decision_id: decisionId, decision, reason },
   })
   return requireData(data, error, response, '草稿审阅失败。')
-}
-
-export async function createReplyDraft(proposalId: string, draftId: string): Promise<StaffReplyDraft> {
-  const { data, error, response } = await api.POST('/api/v1/proposals/{id}/reply-drafts', {
-    params: { path: { id: proposalId } }, body: { draft_id: draftId },
-  })
-  return requireData(data, error, response, '放入回复框失败。')
-}
-
-export async function listReplyDrafts(conversationId: string): Promise<StaffReplyDraft[]> {
-  const { data, error, response } = await api.GET('/api/v1/conversations/{id}/reply-drafts', {
-    params: { path: { id: conversationId } },
-  })
-  return requireData(data, error, response, '客服回复草稿加载失败。')
-}
-
-export async function updateReplyDraft(draftId: string, expectedVersion: number, content: string): Promise<StaffReplyDraft> {
-  const { data, error, response } = await api.PATCH('/api/v1/reply-drafts/{id}', {
-    params: { path: { id: draftId } }, body: { expected_version: expectedVersion, content },
-  })
-  return requireData(data, error, response, '保存客服草稿失败。')
-}
-
-export async function approveReplyDraft(draftId: string, approvalId: string, expectedVersion: number): Promise<StaffReplyDraft> {
-  const { data, error, response } = await api.POST('/api/v1/reply-drafts/{id}/approval', {
-    params: { path: { id: draftId } }, body: { approval_id: approvalId, expected_version: expectedVersion },
-  })
-  return requireData(data, error, response, '审批结果未确认。')
-}
-
-export async function sendReplyDraft(draftId: string, clientMessageId: string, expectedVersion: number): Promise<MessageReceipt> {
-  const { data, error, response } = await api.POST('/api/v1/reply-drafts/{id}/send', {
-    params: { path: { id: draftId } }, body: { client_message_id: clientMessageId, expected_version: expectedVersion },
-  })
-  return requireData(data, error, response, '发送结果未确认；请刷新消息和草稿状态。')
 }
 
 export async function readUIDocument(conversationId: string): Promise<UIDocument | null> {
@@ -268,20 +214,6 @@ export async function retractFact(deviceId: string, factId: string,
 export async function listCases(): Promise<ServiceCase[]> {
   const { data, error, response } = await api.GET('/api/v1/cases')
   return requireData(data, error, response, '案例列表加载失败。')
-}
-
-export async function listCustomerCaseLinks(conversationId: string): Promise<CustomerCaseLink[]> {
-  const { data, error, response } = await api.GET('/api/v1/conversations/{id}/customer-cases', {
-    params: { path: { id: conversationId } },
-  })
-  return requireData(data, error, response, '无法读取会话关联的服务记录。')
-}
-
-export async function listCaseConversations(caseId: string): Promise<LinkedConversation[]> {
-  const { data, error, response } = await api.GET('/api/v1/cases/{id}/conversations', {
-    params: { path: { id: caseId } },
-  })
-  return requireData(data, error, response, '无法读取此服务记录关联的会话。')
 }
 
 export async function readCase(id: string): Promise<ServiceCase> {

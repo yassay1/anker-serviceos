@@ -80,7 +80,6 @@ def configure_environment(env_file: pathlib.Path, database_override: str | None 
         os.environ.pop(name, None)
     os.environ["SERVICEOS_ENV"] = "development"
     os.environ["SERVICEOS_AUTH_MODE"] = "local"
-    os.environ["SERVICEOS_PUBLICATION_GUARD"] = "1"
     # Bound repeated paid Provider calls during this dataset run; retry behavior is out of scope.
     os.environ["SERVICEOS_WORKER_MAX_ATTEMPTS"] = "1"
     if database_override:

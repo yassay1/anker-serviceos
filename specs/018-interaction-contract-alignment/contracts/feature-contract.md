@@ -46,6 +46,9 @@
 ## 4. 事件、异步与恢复
 
 - 事件仍用 ConversationEvent 持久 sequence；SSE 使用 `Last-Event-ID`，补取用 `event-history?after=`。新 `assistance.status_changed` 的消费者按 task_id/version 更新客户协助查询；proposal/draft 写入后刷新对应客服查询，消息只认 `MessageReceipt` 和持久消息。
+- 新增已发布回复呈现事件 `agent.reply.delta`：仅由 `ConversationService.publish_agent_response` 在后端当前 PUBLIC 协作策略授权且已保存为 PUBLIC AGENT Message 后产生。Outbox 数据仅含 `message_id`、从该规范消息正文切出的 40 字符 `text` 与从 0 开始的 `part_index`；派发再次核对同租户、会话和 PUBLIC AGENT 来源，且分片必须精确匹配已存正文。INTERNAL 草稿不产生分片，未经保存和授权的模型 token 不进入事件。实体接地诊断不拦截正常发布；主 Agent Prompt 要求不虚构型号/数值。
+- 分片 Outbox 与规范消息及 `message.created` 在同一事务保存；按分片顺序先送出 `agent.reply.delta`，最后送 `message.created`。SSE 对已发布分片逐条交付并短暂让浏览器渲染；前端临时显示正文，收到 `message.created` 后查询规范消息并替换临时内容。重连按持久序号续传；完整消息快照始终可恢复。
+- 这属于“发布后 SSE 分段呈现”，不是模型生成 token 流；它不缩短 Agent/模型生成或安全检查耗时。页面刷新时仍直接读取规范消息，不重播历史动画。
 - event stream 只作刷新提示，不能取代 query/read 的权威快照；重复/跳号按既有 sequence 去重和补取；连接失败维持轮询和手动刷新。
 - 403 表示拒绝，不自动重试；404 隐藏不存在或无权资源；409 刷新真实状态并由操作者决定下一步；网络超时显示“结果未确认”并按原 key 对账。
 - 没有 presence API、assignment ETA、排队服务等级时间和人工响应 SLA，不呈现相关状态。
@@ -88,6 +91,7 @@
 | AI 草稿生命周期 | proposal INTERNAL；加入 composer/编辑/批准均不生成客户消息；批准后发送才生成 STAFF PUBLIC receipt | transition/idempotency/policy tests + browser/live |
 | 拒绝/过期/重复 | 403拒绝，409 refresh，重复相同 key replay，内容变化冲突 | API service tests |
 | 网络超时/断线 | unknown 状态对账原 id/key，history/SSE 恢复，不能假报成功 | browser/live outage-path |
+| Agent 公开回复逐段显示 | 仅安全发布后的 PUBLIC Agent 正文按持久 SSE 分段显示；内部草稿/原始模型输出不显示，结束后回到规范 Message | Worker service、ConversationEvent 和浏览器分段/完成/快照回归 |
 | OpenAPI/types/build | 真实 FastAPI export 与生成类型一致，browser regression | `export_openapi --check`, `npm run generate:api`, check/typecheck/build/test:browser |
 
 ## 8. 变更与落地记录
@@ -95,5 +99,6 @@
 - 契约确认者与日期：用户确认按此前推荐保守语义推进；2026-10-17。
 - 决策说明：人工 task 状态只展示本人发起且服务端返回的 OPEN/ASSIGNED/CLOSED；不自动切模式、不展示 SLA/presence；STAFF 队列 OPEN/MINE FIFO；草稿持久化且审批不发送，发送仅由单独命令触发并以 MessageReceipt 为准；审批人可等于编辑者；客户公开活动仅使用有 allowlist 的事件字段。
 - 尚未确定而本功能不实现：取消/重派/关闭任务、SLA/ETA、online/presence、maker-checker、团队分组/跨租户队列、任务自动生成响应文本、direct assistance operation 的删除策略。
+- 本次延伸实现记录（2026-10-17）：加上发布后 `agent.reply.delta` 呈现事件；不改模型生成 API、Worker 启动默认值或 OpenAPI HTTP 操作契约。真实生成前首字响应仍取决于 Agent Worker 在线状态、上下文/工具路径与 Provider 响应时间。
 - 实际 operationId、path、Pydantic schema、应用服务、OpenAPI 和生成 Client 已对照真实实现；本表操作与代码一致。
 - 验收结果及开发计划增量记录：见 [`docs/interaction-contract-validation.md`](../../../docs/interaction-contract-validation.md) 与 [`docs/development-plan.md`](../../../docs/development-plan.md) feature 018 条目。自动化验收已完成；生产/真实 Anker 与用户手动目视验收仍未完成。

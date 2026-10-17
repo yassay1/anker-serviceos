@@ -10,9 +10,17 @@
 
 ## 当前阶段
 
-当前阶段：阶段 6，验证与交付完成。
+原 SSE 基础优化及本次 Agent 回复耗时诊断、授权回复增量呈现均已完成。
 
 ## 各阶段
+
+### 后续阶段 10：内容接地检查与公开回复解耦 — complete
+- [x] 检查用户报错会话的客户消息、AgentRun、发布守卫决策、消息可见性与事件发布记录。
+- [x] 按用户反馈移除固定兜底话术和实体检查对常规 Agent 回复的实时阻断。
+- [x] 在主 Agent Prompt 指导其不虚构型号/数字、标注未核实推断；公开权限仍由后端 AI_LEAD + AI_AUTO 策略控制。
+- [x] 检查当前会话的已发布澄清回复及 Outbox 记录；不重跑模型。
+- [x] 验证 PostgreSQL 授权发布与接地诊断路径、Prompt 指导、Ruff 和 whitespace。
+- **状态：** complete
 
 ### 阶段 1：真实链路审计 — complete
 - [x] 核对 Outbox 写入/派发、ConversationEvent 序号与可见性读取
@@ -52,6 +60,31 @@
 - [x] 确认 111 条测试流在两轮空轮询后关闭且无活跃流计数残留
 - [x] 记录真实实现范围、观测字段、部署限制和未测项目
 - **状态：** complete
+
+### 后续阶段 7：回复等待时间根因 — complete
+- [x] 依据真实 AgentRun/MessageJob 时间戳、Worker 状态和模型耗时区分排队、模型生成、发布检查、事件派发与前端刷新延迟。
+- [x] 检查开发启动器是否默认启动 Agent Worker，并确认不会在无授权时触发模型费用。
+- **状态：** complete
+
+### 后续阶段 8：授权回复增量呈现 — complete
+- [x] 设计仅呈现通过 Conversation Service 发布检查的最终公开回复；不把未审查模型 token 暴露给客户。
+- [x] 基于持久 SSE 事件向前端分段传输已授权回复，并在 UI 中增量呈现、断线后回退到 canonical message。
+- [x] 增加权限、顺序、重复/重连及展示完成状态测试。
+- **状态：** complete
+
+### 后续阶段 9：验证与交付 — complete
+- [x] 跑定向后端/前端测试、完整前后端检查和构建。
+- [x] 报告模型等待与安全呈现耗时的区别、变更文件、命令、结果及限制。
+- **状态：** complete
+
+## 续项验收记录
+
+- 实际会话的 `MessageJob` 曾 QUEUED 且 attempts=0、无 AgentRun；Agent Worker 缺失。启动后 AgentRun 到回复保存约 7.2 秒。开发启动器的 Agent Worker 默认 opt-in，未擅自改 `.env` 或启动默认值。
+- `agent.reply.delta` 只从通过安全发布门并已保存的 PUBLIC AGENT 消息切片创建；分片、Message 和 `message.created` 同事务持久化。Outbox 顺序、分片来源校验和客户可见测试通过；SSE 逐帧传输后由 `message.created` 刷新规范消息。
+- 完整后端 PostgreSQL 测试 360 passed、2 warnings；OpenAPI matches actual application。完整前端 browser 95 passed；API types、typecheck、build 通过。补充修改后定向后端 2 passed、前端流式回归 1 passed、Ruff 和 `git diff --check` 通过。
+- 发布门禁调整后再次完成全量验证：Ruff 通过；后端 PostgreSQL 测试 360 passed、2 warnings；OpenAPI 检查通过；前端 API 类型检查、typecheck、production build 和 95 个浏览器用例均通过。构建有既有 bundle 超 500 kB 提示。
+- `http://127.0.0.1:8000/api/v1/health` 和 Vite 5173 首页均返回 200；Agent Worker heartbeat 健康。浏览器“重新检查”后恢复为客户 A 已登录，会话消息可见，API 连接显示已连接。`http://127.0.0.1:5173/support` 可供用户继续测试。
+- 错误记录：尝试用 Windows `taskkill`/`Start-Process` 做代码热重载后的 Worker 重启被命令策略拒绝，改成按已核实 PID 用 `Stop-Process`，并由长期 exec 会话启动仅两个目标 Worker；API 热重载后一次本机 8000 健康请求超时，随后重启 Uvicorn，健康检查恢复 200。无数据删除/迁移。
 
 ## 建议执行范围
 

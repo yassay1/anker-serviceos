@@ -58,7 +58,7 @@ npm run build
 npm run test:browser
 ```
 
-首次执行浏览器回归前运行 `npm exec -- playwright install chromium`。本机已有 Chrome 时，可使用 `$env:PLAYWRIGHT_CHANNEL='chrome'; npm run test:browser`。测试默认自行启动独立的 5175 服务，不复用日常页面；需要替换端口时设置 `PLAYWRIGHT_PORT`。
+首次执行浏览器回归前运行 `npm exec -- playwright install chromium`。本机已有 Chrome 时，可使用 `$env:PLAYWRIGHT_CHANNEL='chrome'; npm run test:browser`。测试自行启动独立的 5174 测试服务，不复用日常 5173 页面。
 
 这些命令检查 API 类型同步、应用及测试的 TypeScript、生产构建和前端冲突恢复。浏览器回归在测试目录内拦截 HTTP，使用当前生成类型构造受控响应；不需要数据库，也不证明真实后端权限、并发或 SSE 恢复已通过。业务流程仍须在真实 API、PostgreSQL 与当前身份下实际验收。
 
@@ -70,7 +70,7 @@ npm run test:browser
 
 `/devices` 与 `/devices/:id` 接入真实设备、关联案例和 Case 来源事实接口。客服可保存候选、核验事实，并在来源 Case 解决后归档或撤销；客户只看到可信档案事实。设备身份、已核验事实及案例状态分别展示；无权访问指定 ID 时不替换成另一条记录。
 
-`npm run test:browser` 运行 89 个 HTTP 受控用例，包括十二组桌面/手机 axe 检查。`npm run test:live` 使用本机真实 API 与 PostgreSQL；先按根 README 迁移并初始化回环 `serviceos_dev`，保持开发认证与数据库环境变量可被测试进程继承。Live 配置自行启动 API/Vite，拒绝复用已有服务，端口保持 8000/5173；只在隔离测试数据库中执行，不指向生产数据库。CI 在临时 PostgreSQL 中创建该开发库后运行两条真实浏览器路径。它们检查持久消息、人工接管、模式、公开/内部隔离、设备历史与跨客户/租户拒绝；不验证模型、外部 Anker 操作或 SSE 强制断线恢复。当前范围与证据见[完整适配记录](../docs/backend-based-frontend-validation.md)及[本次客户页面对齐验收](../docs/customer-ui-alignment-validation.md)。
+`npm run test:browser` 运行 81 个 HTTP 受控用例，包括十二组桌面/手机 axe 检查。`npm run test:live` 使用本机真实 API 与 PostgreSQL；先按根 README 迁移并初始化回环 `serviceos_dev`，保持开发认证与数据库环境变量可被测试进程继承。Live 配置自行启动 API/Vite，拒绝复用已有服务，端口保持 8000/5173；只在隔离测试数据库中执行，不指向生产数据库。CI 在临时 PostgreSQL 中创建该开发库后运行两条真实浏览器路径。它们检查持久消息、人工接管、模式、公开/内部隔离、设备历史与跨客户/租户拒绝；不验证模型、外部 Anker 操作或 SSE 强制断线恢复。当前范围与证据见[完整适配记录](../docs/backend-based-frontend-validation.md)。
 
 五张 Web 图在[设计参考目录](../docs/design-references/README.md)；[界面设计指南](../docs/ui-design-guidelines.md)将图片拆成可实现的样式、页面和状态要求。截图是视觉参考，截图中的设备、数字、诊断和服务进度不是业务数据。
 

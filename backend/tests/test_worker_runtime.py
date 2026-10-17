@@ -476,6 +476,9 @@ def test_agent_publication_rechecks_current_policy(database_engine):
         assert session.scalar(select(func.count()).select_from(Message).where(
             Message.conversation_id == conversation.id, Message.visibility == "INTERNAL",
         )) == 1
+        assert session.scalar(select(func.count()).select_from(OutboxEvent).where(
+            OutboxEvent.conversation_id == conversation.id, OutboxEvent.type == "agent.reply.delta",
+        )) == 1
 
 
 def test_rejected_action_proposal_remains_internal_and_does_not_execute(database_engine):
@@ -886,6 +889,41 @@ def test_publish_agent_response_projects_valid_rich_reply_and_quick_replies(db_s
     projected = published.content[0]["rich"]
     assert projected["blocks"][0]["title"] == "充电检查"
     assert [option["id"] for option in projected["quick_replies"]] == ["light_on", "light_off"]
+
+
+def test_public_reply_deltas_are_canonical_ordered_and_authorized(db_session):
+    from test_skills import active_skill_run
+
+    tenant, customer, conversation, _, _, run = active_skill_run(db_session)
+    source = "已通过检查的公开答复。" * 8
+    published = ConversationService(db_session, actor=None, settings=Settings(environment="test")).publish_agent_response(
+        tenant.id, conversation.id, run.id, run.lease_token, source,
+    )
+    deltas = db_session.scalars(select(OutboxEvent).where(
+        OutboxEvent.conversation_id == conversation.id, OutboxEvent.type == "agent.reply.delta",
+    ).order_by(OutboxEvent.created_at, OutboxEvent.id)).all()
+    assert deltas
+    assert "".join(event.data["text"] for event in deltas) == published.content[0]["text"]
+    assert [event.data["part_index"] for event in deltas] == list(range(len(deltas)))
+    assert all(event.visibility == "PUBLIC" for event in deltas)
+    final_event = db_session.scalar(select(OutboxEvent).where(
+        OutboxEvent.conversation_id == conversation.id, OutboxEvent.type == "message.created",
+        OutboxEvent.data["message_id"].as_string() == str(published.id),
+    ))
+    assert final_event is not None and final_event.created_at > deltas[-1].created_at
+
+    rows = [ConversationService.dispatch_outbox_event(db_session, event) for event in deltas]
+    db_session.flush()
+    customer_view = ConversationService(db_session, Principal(tenant.id, customer.id, "CUSTOMER", "客户"))
+    visible = [event for event in customer_view.events(conversation.id).items
+               if event.type == "agent.reply.delta"]
+    assert [event.data["text"] for event in visible] == [row.data["text"] for row in rows]
+
+    forged = OutboxEvent(tenant_id=tenant.id, conversation_id=conversation.id,
+                         type="agent.reply.delta", visibility="PUBLIC",
+                         data={**deltas[0].data, "text": "未经授权的文字"})
+    with pytest.raises(ServiceError):
+        ConversationService.dispatch_outbox_event(db_session, forged)
 
 
 def test_progress_generation_rejects_stale_lease_and_false_completion(db_session):

@@ -279,4 +279,6 @@ ConversationService → Outbox → Dispatcher → sequenced ConversationEvent �
 
 **SSE 发布细节**：`specialist.activity` 由 ConversationService 写入 Outbox，dispatcher 复核当前策略；PUBLIC/INTERNAL 事件沿用现有历史、序列和 SSE 授权过滤。事件不改变公开消息发布权限。
 
+**Agent 回复分段呈现**：Agent 回复只有在 ConversationService 完成安全/发布检查并保存为 PUBLIC Message 后，才会拆为精确引用该 Message 正文的 `agent.reply.delta` 持久事件；内部草稿和未经检查的模型 token 不进入 SSE。浏览器按 SSE 分段显示，随后以 `message.created` 触发的规范消息快照替换临时呈现。此路径提供发布后分段呈现，不降低模型生成或内容检查的首字等待时间。
+
 **证据范围**：`agents/diagnostic.py` 仅开放只读本地手册和固定可调用 Skill；经审核经验仅作为参考候选输入，仍是只读。专家结果全程为 `HYPOTHESIS`，设备/案例/Evidence/审核经验引用须在结果持久化前复核。没有新增 Specialist HTTP API；问题卡和答案沿用现有受控 UI Action。

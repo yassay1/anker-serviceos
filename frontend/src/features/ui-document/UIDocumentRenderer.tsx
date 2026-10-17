@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronRight, CircleHelp, FileText, Headphones, ListChecks, ShieldAlert, UsersRound } from 'lucide-react'
+import { CircleHelp, FileText, Headphones, ListChecks, ShieldAlert, UsersRound } from 'lucide-react'
 import { ApiFailure, type UIActionBody, type UIDocument, invokeUIAction } from '../../api/client'
 import { StatusBadge } from '../../shared/StatusBadge'
 import { clearPendingAction, readPendingAction, savePendingAction } from './actionRecovery'
@@ -166,7 +166,7 @@ function errorText(error: unknown) {
   return error instanceof Error ? error.message : '交互卡暂不可用，请使用文字消息。'
 }
 
-export function UIDocumentRenderer({ document, conversationId, conversationVersion, active, desk, recoveryKey, loading = false, placement = 'inline', onReply, onChoose, onCompleted, onRefresh }: {
+export function UIDocumentRenderer({ document, conversationId, conversationVersion, active, desk, recoveryKey, loading = false, onReply, onChoose, onCompleted, onRefresh }: {
   document: UIDocument | null
   conversationId: string
   conversationVersion: number
@@ -174,7 +174,6 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
   desk: boolean
   recoveryKey: string
   loading?: boolean
-  placement?: 'inline' | 'assistance'
   onReply?: () => void
   onChoose?: (label: string) => Promise<boolean>
   onCompleted: () => void
@@ -192,7 +191,6 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
   const [choiceSubmission, setChoiceSubmission] = useState<{ uiId: string, revision: number, status: string } | null>(null)
   const [diagnosticSubmission, setDiagnosticSubmission] = useState<{ uiId: string, revision: number, status: string } | null>(null)
   const [answerDraft, setAnswerDraft] = useState('')
-  const [assistanceOpen, setAssistanceOpen] = useState(false)
   const [, tick] = useState(0)
   const latest = useRef<{ uiId: string, revision: number } | null>(null)
   const audienceMatches = isRecord(document) && document.audience === (desk ? 'STAFF' : 'CUSTOMER') &&
@@ -342,37 +340,29 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
     <input id="pending-diagnostic-answer" value={String(diagnosticPending.input.answer ?? '')} disabled />
     <button type="button" disabled={busy} onClick={() => void retryDiagnosticAnswer()}>{busy ? '正在查询…' : '用原回答重试'}</button>
   </div>
-  const feedback = <>{placement === 'assistance' && recovery}{placement === 'inline' && <>{diagnosticRecovery}{choiceSubmitted && <p role="status">{choiceSubmission?.status}</p>}{diagnosticSubmission && document && diagnosticSubmission.uiId === document.ui_id && <p role="status">{diagnosticSubmission.status}</p>}</>}{result && placement === 'assistance' && <p role="status">{result}</p>}{error && <p className="form-error" role="alert">{error}</p>}</>
+  const feedback = <>{recovery}{diagnosticRecovery}{result && <p role="status">{result}</p>}{choiceSubmitted && <p role="status">{choiceSubmission?.status}</p>}{diagnosticSubmission && document && diagnosticSubmission.uiId === document.ui_id && <p role="status">{diagnosticSubmission.status}</p>}{error && <p className="form-error" role="alert">{error}</p>}</>
 
-  if (!desk && placement === 'assistance' && (!supported || !document)) return null
   if (!supported || !document) return <section className="ui-document" aria-label={desk ? '客服交互卡' : '服务交互卡'}>
     <p className="ui-fallback">{loading ? '正在加载交互卡…' : audienceMatches && isText(document?.fallback_text) ? document.fallback_text : '暂无可用交互卡；可继续使用文字消息。'}</p>
     {!loading && document && <div className="ui-fallback-actions"><p>卡片不可用、版本已变化或内容不受支持，未启用新操作。</p><button type="button" onClick={onRefresh}>刷新交互卡</button></div>}
-    {placement === 'inline' && feedback}
+    {feedback}
   </section>
 
   // Safety notices precede questions; assistance stays secondary. Render each ID once,
   // even if a valid document also references it as a child.
   const components = [...document.components].sort((a, b) =>
     (a.type === 'RiskAlert' ? -1 : a.type === 'ActionBar' ? 1 : 0) - (b.type === 'RiskAlert' ? -1 : b.type === 'ActionBar' ? 1 : 0))
-  const visibleComponents = components.filter(component => desk || (placement === 'assistance' ? component.type === 'ActionBar' : component.type !== 'ActionBar'))
-  if (!desk && placement === 'assistance' && !visibleComponents.length) return null
   return <section className="ui-document" aria-label={desk ? '客服交互卡' : '服务交互卡'}>
-    {desk && <p className="ui-version">交互卡修订 {document.revision}</p>}
-    {visibleComponents.map((component) => {
+    <p className="ui-version">交互卡修订 {document.revision}</p>
+    {components.map((component) => {
       const Icon = component.type === 'RiskAlert' ? ShieldAlert : (component.type === 'QuestionForm' || component.type === 'ChoiceGroup') ? CircleHelp :
         component.type === 'ActionBar' ? Headphones : component.type === 'HandoffSummary' ? UsersRound :
           component.type === 'ProgressTimeline' ? ListChecks : FileText
-      const Card = component.type === 'ActionBar' && placement === 'inline' ? 'details' : 'article'
-      const Heading = component.type === 'ActionBar' && placement === 'inline' ? 'summary' : 'h3'
+      const Card = component.type === 'ActionBar' ? 'details' : 'article'
+      const Heading = component.type === 'ActionBar' ? 'summary' : 'h3'
       return <Card className={`ui-card ui-${component.type}`} key={component.id}>
-        {!(component.type === 'ActionBar' && placement === 'assistance') &&
-          <Heading><Icon size={18} aria-hidden="true" />{component.props.title}{component.type === 'ActionBar' && <span className="assistance-expand">展开申请</span>}</Heading>}
-        {component.type === 'ProgressTimeline' ? <div className="ui-progress-summary" role="status" aria-label={`当前服务进度：${component.props.status}`}>
-          <span className={`ui-progress-rail status-${component.props.status}`} aria-hidden="true"><span /></span>
-          <div className="ui-progress-copy"><p>{component.props.body}</p><StatusBadge value={component.props.status} label={component.props.status === 'FAILED' ? '处理失败' : undefined} /></div>
-        </div> :
-          !(component.type === 'ActionBar' && placement === 'assistance') && <p>{component.props.body}</p>}
+        <Heading><Icon size={18} aria-hidden="true" />{component.props.title}{component.type === 'ActionBar' && <span className="assistance-expand">展开申请</span>}</Heading>
+        {component.type === 'ProgressTimeline' ? <ol className="ui-timeline"><li><p>{component.props.body}</p><StatusBadge value={component.props.status} label={component.props.status === 'FAILED' ? '处理失败' : undefined} /></li></ol> : <p>{component.props.body}</p>}
         {component.type === 'KnowledgeMetricChart' && (() => {
           const chart = (component as VisualComponent).chart as ChartData
           return <div className="ui-chart-wrap">
@@ -441,18 +431,15 @@ export function UIDocumentRenderer({ document, conversationId, conversationVersi
             {(component.options ?? []).map(option => <button type="button" key={option.value}
               disabled={busy || (component.data_source.kind === 'DIAGNOSTIC_TASK_VIEW' ? diagnosticSubmitted || Boolean(diagnosticPending) : choiceSubmitted || !onChoose) || !active}
               onClick={() => component.data_source.kind === 'DIAGNOSTIC_TASK_VIEW'
-                ? void submitDiagnosticAnswer(component, option.label) : void choose(option.label)}><span>{option.label}</span><ChevronRight size={17} aria-hidden="true" /></button>)}
+                ? void submitDiagnosticAnswer(component, option.label) : void choose(option.label)}>{option.label}</button>)}
           </div>
         </div>}
         {desk && component.data_source.kind === 'CASE_VIEW' && <Link className="ui-case-link" to={`/cases/${component.data_source.resource_id}`}>查看案例与证据</Link>}
-        {component.type === 'ActionBar' && placement === 'assistance' && !result && !pending && <div className="ui-action">
-          {!assistanceOpen ? <button type="button" disabled={!active} onClick={() => setAssistanceOpen(true)}>请求真人协助</button> : <>
-            <label htmlFor={`assistance-reason-${document.ui_id}`}>补充说明</label>
-            <input id={`assistance-reason-${document.ui_id}`} value={reason} maxLength={1000} disabled={busy || !active}
-              onChange={(event) => setReason(event.target.value)} />
-            <button type="button" disabled={busy || !active || reason.trim().length < 3} onClick={requestHuman}>{busy ? '正在提交…' : '提交协助请求'}</button>
-            <button type="button" className="text-button" disabled={busy} onClick={() => setAssistanceOpen(false)}>取消</button>
-          </>}
+        {component.type === 'ActionBar' && !result && !pending && <div className="ui-action">
+          <label htmlFor={`assistance-reason-${document.ui_id}`}>请求原因</label>
+          <input id={`assistance-reason-${document.ui_id}`} value={reason} maxLength={1000} disabled={busy || !active}
+            onChange={(event) => setReason(event.target.value)} />
+          <button type="button" disabled={busy || !active || reason.trim().length < 3} onClick={requestHuman}>{busy ? '正在保存…' : '请求人工协助'}</button>
           {!active && <small>此会话已归档，不能提交新请求。</small>}
         </div>}
       </Card>

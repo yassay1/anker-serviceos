@@ -251,6 +251,10 @@ async def stream_events(id: UUID, request: Request, actor=Depends(get_actor),
                     age_ms = max(0, round((datetime.now(timezone.utc) - event.created_at).total_seconds() * 1000))
                     max_event_age_ms = max(max_event_age_ms, age_ms)
                     yield f"id: {event.sequence}\ndata: {event.model_dump_json()}\n\n"
+                    if event.type == "agent.reply.delta":
+                        # Let each durable SSE frame render before sending the next;
+                        # this is presentation pacing after publication approval.
+                        await asyncio.sleep(0.012)
                 cursor = page.next_after
                 if not page.items:
                     yield ": keepalive\n\n"

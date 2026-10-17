@@ -55,3 +55,13 @@
 - SSE generator 的每个客户端轮询都会开数据库 Session 并执行事件查询；实际规模、连接数、DB pool 和空轮询成本尚无指标，不先预设需要 Redis/新消息基础设施。
 - 异步/流式协议改动需保留租户和可见性过滤、Last-Event-ID、history 补取、幂等 sequence、代理缓冲关闭和当前认证失效语义。
 - 工具检索命令有一次 PowerShell 引号解析错误（正则双引号被 shell 当作表达式）；改用正确 quoting 后重试，不代表代码故障。
+
+## 2026-10-17 回复等待与呈现续查
+
+- 用户在实际会话等待近一分钟以上没有回复。只看 API health/readiness 的 200/ready 不代表 Agent Worker 在线；开发启动器通过 `SERVICEOS_START_AGENT=1` 显式 opt-in 才启动主 Agent Worker，且缺少模型凭证时不会启动。该变量若永久打开会导致后续客户消息调用外部模型并可能产生费用，不应擅自改写 `.env`。
+- 实际本地排查发现 API、inspection/actions/followups/outbox workers 在运行，但 `serviceos_api.worker.main` Agent Worker 缺失；该消息的 `MessageJob` 曾长时间 QUEUED（attempts=0），没有 AgentRun。故本次长等待根因是未消费队列，而非 SSE 传输或模型推理耗时。
+- 为响应用户这条明确提交的待处理消息，临时启动了 Agent Worker；启动后该 AgentRun 从 `2026-10-17T04:26:49.820613Z` 至回复消息创建 `2026-10-17T04:26:57.054700Z`，约 7.2 秒。该单例不代表模型整体性能分布。
+- Worker 从仓库根目录以 `uv run --project backend --locked python -m serviceos_api.worker.main` 启动，避免从 `backend/` 运行时将 `.env` 中相对的 embedding API key 文件路径解析错。先前 cwd 错误造成一次 worker 启动失败，无业务写入。
+- 当前 Worker 取得完整 `AgentResult` 后，经 `ConversationService.publish_agent_response` 做授权/安全检查并持久化整条消息；现有 SSE 只流送生命周期/进度事件，`message.created` 到达后前端 refetch 整条消息。尚无 token/delta 生成协议。
+- 安全约束：不能把未经过后端发布授权和内容检查的模型原始 token 逐字发给客户。要呈现生成过程，须在最终正文通过安全发布门后，通过受授权持久事件传输其分片；这提升“看到已批准答复”的呈现体验，不缩短模型实际生成/安全校验时间，不能描述成真实 token 首字节。
+- 工作树有既有未提交变更：`git diff --stat` 为 40 个前端文件、550 insertions/1265 deletions，包含用户先前要求回退客服 UI 的修改以及可能的其他修改；继续修改前必须对具体目标文件逐项核实并保留既有内容。不要把这些改动归因给本轮。
